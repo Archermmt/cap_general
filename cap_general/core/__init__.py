@@ -1,23 +1,32 @@
 """Core CAP (Code-as-Policy) module - framework-agnostic components."""
 
-from cap_general.core.apis.base import CapApiBase
-from cap_general.core.executor import CodeExecutor
+from cap_general.core.agent import (
+    AgentBase,
+    CapRunResult,
+    CapStepResult,
+    CodeExecutor,
+    ExecutionResult,
+)
+from cap_general.core.base import RegisteredBase
 from cap_general.core.models import (
-    PolicyModel,
-    StaticPolicyModel,
     CallablePolicyModel,
     HuggingFacePolicyModel,
+    PolicyGenerationResult,
+    PolicyModel,
+    StaticPolicyModel,
 )
-from cap_general.core.env import CapEnv
-from cap_general.core.result import ExecutionResult, CapStepResult, CapRunResult
+from cap_general.core.robot import CapEnv, RobotBase
 
 __all__ = [
-    "CapApiBase",
+    "RegisteredBase",
+    "AgentBase",
     "CodeExecutor",
+    "PolicyGenerationResult",
     "PolicyModel",
     "StaticPolicyModel",
     "CallablePolicyModel",
     "HuggingFacePolicyModel",
+    "RobotBase",
     "CapEnv",
     "ExecutionResult",
     "CapStepResult",

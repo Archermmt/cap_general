@@ -51,7 +51,6 @@ Thumbs.db
 genesis_cache/
 
 # Models
-models/
 *.bin
 *.pt
 *.pth

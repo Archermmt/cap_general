@@ -1,13 +1,12 @@
 """Tests for core CAP primitives: API docs, executor, and policy models."""
 
 import pytest
-from cap_general.core.apis.base import CapApiBase
-from cap_general.core.executor import CodeExecutor
+from cap_general.core.agent import AgentBase, CodeExecutor, ExecutionResult
 from cap_general.core.models import PolicyModel, StaticPolicyModel, CallablePolicyModel
-from cap_general.core.result import ExecutionResult
+from cap_general.core.robot import CapEnv, RobotBase
 
 
-class SimpleApi(CapApiBase):
+class SimpleApi(AgentBase):
     """A simple test API."""
 
     def add(self, a: int, b: int) -> int:
@@ -107,3 +106,25 @@ def test_policy_model_base_cannot_instantiate():
     """Test that base PolicyModel cannot be instantiated directly."""
     with pytest.raises(TypeError):
         PolicyModel()
+
+
+def test_core_registries_include_common_components():
+    """Test that common core implementations are registered by type."""
+    assert AgentBase.get_registered_type("code_executor") is CodeExecutor
+    assert PolicyModel.get_registered_type("static") is StaticPolicyModel
+    assert PolicyModel.get_registered_type("callable") is CallablePolicyModel
+    assert RobotBase.get_registered_type("cap_env") is CapEnv
+
+
+def test_agent_register_decorator():
+    """Test that agent subclasses can be registered by type."""
+
+    @AgentBase.register()
+    class RegisteredApi(AgentBase):
+        name = "Registered API"
+
+        @classmethod
+        def agent_type(cls) -> str:
+            return "registered_api"
+
+    assert AgentBase.get_registered_type("registered_api") is RegisteredApi

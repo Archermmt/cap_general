@@ -1,15 +1,21 @@
 """Genesis Franka robot API for CAP."""
 
-from typing import List, Optional
-from cap_general.core.apis.base import CapApiBase
+from typing import List
+from cap_general.core.agent import AgentBase
 
 
-class GenesisFrankaApi(CapApiBase):
+class GenesisFrankaApi(AgentBase):
     """API for controlling a Franka Emika Panda robot in Genesis.
 
     Provides high-level control methods for robot manipulation tasks.
     Wraps a Genesis robot instance and exposes it to the policy model.
     """
+
+    name = "Genesis Franka API"
+
+    @classmethod
+    def agent_type(cls) -> str:
+        return "genesis_franka"
 
     def __init__(self, robot=None):
         """Initialize the Franka API.

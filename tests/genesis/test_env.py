@@ -1,9 +1,9 @@
 """Tests for CapEnv environment."""
 
 import pytest
-from cap_general.core.env import CapEnv
+from cap_general.core.robot import CapEnv
 from cap_general.core.models import StaticPolicyModel, CallablePolicyModel
-from cap_general.core.result import CapStepResult
+from cap_general.core.agent import CapStepResult
 
 
 def test_cap_env_prompt_construction():
