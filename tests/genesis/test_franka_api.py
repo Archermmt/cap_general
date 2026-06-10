@@ -1,13 +1,14 @@
-"""Tests for Genesis Franka API."""
+"""Tests for Genesis Franka env and cube agent."""
 
 import pytest
-from cap_general.genesis.apis.franka import GenesisFrankaApi
+from cap_general.core.agent import AgentBase
+from cap_general.core.env import EnvBase
+from cap_general.genesis import FrankaCudaAgent, FrankaEnv
 
 
-def test_franka_api_method_forwarding():
-    """Test that GenesisFrankaApi forwards method calls to the robot instance."""
+def test_franka_env_method_forwarding():
+    """Test that FrankaEnv forwards method calls to the Genesis robot instance."""
 
-    # Create a mock robot object
     class MockRobot:
         def set_joint_positions(self, positions):
             self.last_positions = positions
@@ -17,46 +18,41 @@ def test_franka_api_method_forwarding():
             return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     mock_robot = MockRobot()
-    api = GenesisFrankaApi(robot=mock_robot)
+    env = FrankaEnv(robot=mock_robot)
 
-    # Test method forwarding
-    result = api.set_joint_positions([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+    result = env.set_joint_positions([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
     assert result is True
     assert mock_robot.last_positions == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 
-    positions = api.get_joint_positions()
+    positions = env.get_joint_positions()
     assert len(positions) == 7
 
 
-def test_franka_api_prompt_docs():
-    """Test that combined_doc includes Franka control methods."""
-
-    class MockRobot:
-        def set_joint_positions(self, positions):
-            """Set joint positions."""
-            pass
-
-        def get_joint_positions(self):
-            """Get current joint positions."""
-            pass
-
-        def set_gripper_position(self, width):
-            """Set gripper width."""
-            pass
-
-    mock_robot = MockRobot()
-    api = GenesisFrankaApi(robot=mock_robot)
-    doc = api.combined_doc()
-
-    assert "set_joint_positions" in doc
-    assert "get_joint_positions" in doc
-    assert "set_gripper_position" in doc
+def test_franka_env_registry_and_base():
+    """Test that FrankaEnv is a registered EnvBase subclass."""
+    assert issubclass(FrankaEnv, EnvBase)
+    assert EnvBase.get_registered_type("genesis_franka") is FrankaEnv
 
 
-def test_franka_api_with_none_robot():
-    """Test that API can be instantiated without a robot (for testing)."""
-    api = GenesisFrankaApi(robot=None)
+def test_franka_cuda_agent_prompt_docs():
+    """Test that combined_doc includes cube-task methods."""
+    agent = FrankaCudaAgent(env=FrankaEnv())
+    doc = agent.combined_doc()
 
-    # Should still have the base methods
-    assert hasattr(api, "combined_doc")
-    assert hasattr(api, "api_spec")
+    assert "get_observation" in doc
+    assert "compute_reward" in doc
+    assert "run" in doc
+
+
+def test_franka_cuda_agent_registry_and_base():
+    """Test that FrankaCudaAgent is a registered AgentBase subclass."""
+    assert issubclass(FrankaCudaAgent, AgentBase)
+    assert AgentBase.get_registered_type("genesis_franka_cube") is FrankaCudaAgent
+
+
+def test_franka_env_with_none_robot():
+    """Test that FrankaEnv can be instantiated without a robot."""
+    env = FrankaEnv(robot=None)
+
+    assert env.get_joint_positions() == [0.0] * 7
+    assert env.grasp() is True

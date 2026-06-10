@@ -1,16 +1,35 @@
 """Base classes for CAP agents."""
 
-import io
+import contextlib
 import inspect
-from contextlib import redirect_stderr, redirect_stdout
-from typing import Any, ClassVar, Dict
+import io
+import sys
+import traceback
+from abc import abstractmethod
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.agent.result import ExecutionResult
+
+
+class Tee(io.TextIOBase):
+    """Stream writes to multiple file-like objects."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, s):
+        for st in self.streams:
+            st.write(s)
+            st.flush()
+
+    def flush(self):
+        for st in self.streams:
+            st.flush()
 
 
 class AgentBase(RegisteredBase):
-    """Base class for agents that expose APIs and may execute generated code."""
+    """Base class for agents."""
 
     _registry: ClassVar[dict[str, type["AgentBase"]]] = {}
     registry_key_method: ClassVar[str] = "agent_type"
@@ -20,116 +39,100 @@ class AgentBase(RegisteredBase):
         """Return the registry key for this agent."""
         return cls.__name__
 
-    def combined_doc(self) -> str:
-        """Extract and combine documentation from all public methods."""
-        docs = []
-
-        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
-            if name.startswith("_"):
-                continue
-
-            sig = inspect.signature(method)
-            sig_str = f"{name}{sig}"
-            docstring = inspect.getdoc(method)
-
-            doc_section = f"def {sig_str}:"
-            if docstring:
-                doc_section += f'\n    """{docstring}"""'
-
-            docs.append(doc_section)
-
-        return "\n\n".join(docs)
-
-    def api_spec(self) -> Dict[str, Any]:
-        """Get public method specifications as a dictionary."""
-        spec = {}
-
-        for name, method in inspect.getmembers(self, predicate=inspect.ismethod):
-            if name.startswith("_"):
-                continue
-
-            sig = inspect.signature(method)
-            docstring = inspect.getdoc(method)
-
-            spec[name] = {
-                "signature": str(sig),
-                "docstring": docstring,
-                "parameters": {
-                    param_name: {
-                        "annotation": (
-                            str(param.annotation)
-                            if param.annotation != inspect.Parameter.empty
-                            else "Any"
-                        ),
-                        "default": (
-                            str(param.default)
-                            if param.default != inspect.Parameter.empty
-                            else None
-                        ),
-                    }
-                    for param_name, param in sig.parameters.items()
-                },
-                "return_annotation": (
-                    str(sig.return_annotation)
-                    if sig.return_annotation != inspect.Signature.empty
-                    else "Any"
-                ),
-            }
-
-        return spec
-
-    def run(self, code: str) -> ExecutionResult:
-        """Execute generated code and return the execution result."""
-        raise NotImplementedError(f"{type(self).__name__} does not execute code")
-
     def reset(self):
         """Reset the agent state."""
         pass
 
-
-@AgentBase.register()
-class CodeExecutor(AgentBase):
-    """Executes Python code strings in a persistent environment."""
-
-    name = "Code Executor"
-
-    def __init__(self):
-        """Initialize the executor with a clean global namespace."""
-        self.globals: Dict[str, Any] = {
-            "__builtins__": __builtins__,
+    def execute(self, code: str):
+        """Execute generated code and return a Gymnasium-style transition tuple."""
+        exec_result = self._exec_code(code)
+        obs = self.env.get_observation()
+        reward = self.compute_reward()
+        terminated = reward == 1.0
+        truncated = self.env.step_cnt > self.max_steps
+        info = {
+            "ok": exec_result["ok"],
+            "stdout": exec_result["stdout"],
+            "stderr": exec_result["stderr"],
         }
+        return obs, reward, bool(terminated), bool(truncated), info
 
-    @classmethod
-    def agent_type(cls) -> str:
-        return "code_executor"
+    def combined_doc(self) -> str:
+        """Aggregate function docs in a simple, consistent format.
 
-    def run(self, code: str) -> ExecutionResult:
-        """Execute a code string and capture results."""
+        Format per function:
+            name(signature)
+              Summary: first line of function doc
+              Doc: full function docstring (Google style recommended)
+        """
+        # we need to discuss this design further down the line
+        lines: list[str] = []
+        for name, fn in self.functions().items():
+            try:
+                sig = str(inspect.signature(fn))
+            except Exception:
+                sig = "(…)"
+            doc = inspect.getdoc(fn) or ""
+            # first = doc.splitlines()[0] if doc else ""
+            lines.append(f"{name}{sig}")
+            # if first:
+            #     lines.append(f"  Summary: {first}")
+            if doc:
+                lines.append("  Doc:")
+                lines.extend(f"    {ln}" for ln in doc.splitlines())
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    def _exec_code(self, code: str) -> dict[str, Any]:
+        obs = self._get_observation()
+        self._exec_globals["obs"] = obs
+        self._exec_globals["env"] = self._env
+        for fn_name, fn in self.functions().items():
+            self._exec_globals[fn_name] = fn
+
         stdout_buffer = io.StringIO()
+        tee_out = Tee(sys.stdout, stdout_buffer)
         stderr_buffer = io.StringIO()
-
+        tee_err = Tee(sys.stderr, stderr_buffer)
+        ok = True
         try:
-            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                exec(code, self.globals)
-
-            return ExecutionResult(
-                success=True,
-                stdout=stdout_buffer.getvalue(),
-                stderr=stderr_buffer.getvalue(),
-                error=None,
-            )
-
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            return ExecutionResult(
-                success=False,
-                stdout=stdout_buffer.getvalue(),
-                stderr=stderr_buffer.getvalue(),
-                error=error_msg,
-            )
-
-    def reset(self):
-        """Reset the executor's global namespace."""
-        self.globals = {
-            "__builtins__": __builtins__,
+            with (
+                contextlib.redirect_stdout(tee_out),
+                contextlib.redirect_stderr(tee_err),
+            ):
+                exec(code, self._exec_globals, self._exec_globals)
+        except BaseException:
+            ok = False
+            traceback.print_exc(file=tee_err)
+        return {
+            "ok": ok,
+            "stdout": stdout_buffer.getvalue(),
+            "stderr": stderr_buffer.getvalue(),
+            "result": self._exec_globals.get("RESULT"),
         }
+
+    def _init_exec_globals(self) -> None:
+        """Initialize the persistent globals dictionary for generated code."""
+        g: dict[str, Any] = {
+            "__name__": "__main__",
+            "env": self._env,
+            "INPUTS": {},
+            "RESULT": None,
+        }
+        for fn_name, fn in self.functions().items():
+            g[fn_name] = fn
+        self._exec_globals = g
+
+    def compute_reward(self) -> float:
+        """Compute the current reward."""
+        return 0.0
+
+    @abstractmethod
+    def functions(self) -> dict[str, Callable[..., Any]]:
+        """Return mapping of agent function name to callable."""
+        raise NotImplementedError
+
+    @property
+    def env(self):
+        """Low-level environment instance for direct interaction in code execution."""
+        return self._env

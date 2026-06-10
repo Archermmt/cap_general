@@ -1,13 +1,28 @@
-"""Tests for core CAP primitives: API docs, executor, and policy models."""
+"""Tests for core CAP agent, env, and policy primitives."""
 
 import pytest
-from cap_general.core.agent import AgentBase, CodeExecutor, ExecutionResult
-from cap_general.core.models import PolicyModel, StaticPolicyModel, CallablePolicyModel
-from cap_general.core.robot import CapEnv, RobotBase
+from cap_general.core.agent import AgentBase
+from cap_general.core.policy import (
+    CallablePolicy,
+    GraspNetPolicy,
+    PolicyBase,
+    PyrokiPolicy,
+    SAM3Policy,
+    StaticPolicy,
+    VLLMPolicy,
+)
+from cap_general.core.env import EnvBase
 
 
-class SimpleApi(AgentBase):
-    """A simple test API."""
+class SimpleAgent(AgentBase):
+    """A simple test agent."""
+
+    def functions(self):
+        """Return functions exposed by this agent."""
+        return {
+            "add": self.add,
+            "multiply": self.multiply,
+        }
 
     def add(self, a: int, b: int) -> int:
         """Add two numbers.
@@ -26,10 +41,10 @@ class SimpleApi(AgentBase):
         return x * y
 
 
-def test_cap_api_combined_doc():
+def test_agent_combined_doc():
     """Test that combined_doc extracts method signatures and docstrings."""
-    api = SimpleApi()
-    doc = api.combined_doc()
+    agent = SimpleAgent()
+    doc = agent.combined_doc()
 
     assert "add" in doc
     assert "multiply" in doc
@@ -39,92 +54,58 @@ def test_cap_api_combined_doc():
     assert "b: int" in doc or "b:int" in doc
 
 
-def test_code_executor_run_success():
-    """Test successful code execution."""
-    executor = CodeExecutor()
-    result = executor.run("x = 10\ny = 20\nresult = x + y")
-
-    assert result.success is True
-    assert result.error is None
-    assert executor.globals.get("result") == 30
-
-
-def test_code_executor_run_failure():
-    """Test failed code execution."""
-    executor = CodeExecutor()
-    result = executor.run("raise ValueError('test error')")
-
-    assert result.success is False
-    assert result.error is not None
-    assert "ValueError" in result.error
-
-
-def test_code_executor_persistent_globals():
-    """Test that globals persist across executions."""
-    executor = CodeExecutor()
-    executor.run("counter = 0")
-    executor.run("counter += 1")
-    executor.run("counter += 2")
-
-    assert executor.globals.get("counter") == 3
-
-
-def test_code_executor_stdout_capture():
-    """Test stdout capture."""
-    executor = CodeExecutor()
-    result = executor.run("print('hello world')")
-
-    assert result.success is True
-    assert "hello world" in result.stdout
-
-
-def test_static_policy_model_generate():
-    """Test static policy model returns fixed code."""
+def test_static_policy_inference():
+    """Test static policy returns fixed code."""
     fixed_code = "action = [1.0, 2.0, 3.0]"
-    model = StaticPolicyModel(code=fixed_code)
-    result = model.generate(prompt="test prompt")
+    model = StaticPolicy(code=fixed_code)
+    result = model.inference(prompt="test prompt")
 
     assert result.code == fixed_code
-    assert result.model_name == "StaticPolicyModel"
+    assert result.policy_name == "StaticPolicy"
 
 
-def test_callable_policy_model_generate():
-    """Test callable policy model uses a function to generate code."""
+def test_callable_policy_inference():
+    """Test callable policy uses a function to generate code."""
 
     def generator(prompt: str) -> str:
         return f"# Generated for: {prompt}\naction = [0.0, 0.0, 0.0]"
 
-    model = CallablePolicyModel(generator_fn=generator)
-    result = model.generate(prompt="lift cube")
+    model = CallablePolicy(generator_fn=generator)
+    result = model.inference(prompt="lift cube")
 
     assert "Generated for: lift cube" in result.code
     assert "action = [0.0, 0.0, 0.0]" in result.code
-    assert result.model_name == "CallablePolicyModel"
+    assert result.policy_name == "CallablePolicy"
 
 
-def test_policy_model_base_cannot_instantiate():
-    """Test that base PolicyModel cannot be instantiated directly."""
+def test_policy_base_cannot_instantiate():
+    """Test that base PolicyBase cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        PolicyModel()
+        PolicyBase()
 
 
 def test_core_registries_include_common_components():
     """Test that common core implementations are registered by type."""
-    assert AgentBase.get_registered_type("code_executor") is CodeExecutor
-    assert PolicyModel.get_registered_type("static") is StaticPolicyModel
-    assert PolicyModel.get_registered_type("callable") is CallablePolicyModel
-    assert RobotBase.get_registered_type("cap_env") is CapEnv
+    assert PolicyBase.get_registered_type("static") is StaticPolicy
+    assert PolicyBase.get_registered_type("callable") is CallablePolicy
+    assert PolicyBase.get_registered_type("vllm") is VLLMPolicy
+    assert PolicyBase.get_registered_type("sam3") is SAM3Policy
+    assert PolicyBase.get_registered_type("graspnet") is GraspNetPolicy
+    assert PolicyBase.get_registered_type("pyroki") is PyrokiPolicy
 
 
 def test_agent_register_decorator():
     """Test that agent subclasses can be registered by type."""
 
     @AgentBase.register()
-    class RegisteredApi(AgentBase):
-        name = "Registered API"
+    class RegisteredAgent(AgentBase):
+        name = "Registered Agent"
 
         @classmethod
         def agent_type(cls) -> str:
-            return "registered_api"
+            return "registered_agent"
 
-    assert AgentBase.get_registered_type("registered_api") is RegisteredApi
+        def functions(self):
+            return {}
+
+    assert AgentBase.get_registered_type("registered_agent") is RegisteredAgent
