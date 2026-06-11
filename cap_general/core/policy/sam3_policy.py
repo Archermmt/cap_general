@@ -5,7 +5,9 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.policy.base_policy import PolicyBase
+from cap_general.core.policy.base_policy import BasePolicy
+
+from .base_policy import BasePolicyConfig
 
 
 @dataclass
@@ -27,7 +29,7 @@ class Sam3PointResult:
 
 
 @dataclass
-class SAM3PolicyConfig:
+class SAM3PolicyConfig(BasePolicyConfig):
     """Configuration for SAM3Policy."""
 
     device: str = "cuda"
@@ -37,29 +39,14 @@ class SAM3PolicyConfig:
     enable_inst_interactivity: bool = True
 
 
-@PolicyBase.register()
-class SAM3Policy(PolicyBase):
+@BasePolicy.register()
+class SAM3Policy(BasePolicy):
     """Local SAM3 image segmentation model."""
 
-    name = "SAM3 Policy Model"
     config_cls = SAM3PolicyConfig
 
-    def __init__(
-        self,
-        device: str = "cuda",
-        checkpoint_path: str | None = None,
-        load_from_hf: bool = True,
-        confidence_threshold: float = 0.0,
-        enable_inst_interactivity: bool = True,
-        config: SAM3PolicyConfig | None = None,
-    ):
-        config = config or SAM3PolicyConfig(
-            device=device,
-            checkpoint_path=checkpoint_path,
-            load_from_hf=load_from_hf,
-            confidence_threshold=confidence_threshold,
-            enable_inst_interactivity=enable_inst_interactivity,
-        )
+    def __init__(self, config: SAM3PolicyConfig):
+        super().__init__(config=config)
         self._device = config.device
         self._checkpoint_path = config.checkpoint_path
         self._load_from_hf = config.load_from_hf
@@ -83,9 +70,7 @@ class SAM3Policy(PolicyBase):
             from sam3.model.sam3_image_processor import Sam3Processor
             from sam3.model_builder import build_sam3_image_model
         except ImportError as exc:
-            raise ImportError(
-                "SAM3Policy requires sam3 and torch to be installed."
-            ) from exc
+            raise ImportError("SAM3Policy requires sam3 and torch to be installed.") from exc
 
         if torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
@@ -212,7 +197,3 @@ class SAM3Policy(PolicyBase):
         if hasattr(tensor, "numpy"):
             return tensor.numpy()
         return np.asarray(tensor)
-
-    @property
-    def policy_name(self) -> str:
-        return "SAM3Policy"

@@ -2,16 +2,17 @@
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig, Tee
 from cap_general.core.base import RegisteredBase
+from cap_general.core.env import BaseEnv, BaseEnvConfig
 from cap_general.core.policy import (
+    BasePolicy,
+    BasePolicyConfig,
     CallablePolicy,
     CallablePolicyConfig,
     GraspNetPolicy,
     GraspNetPolicyConfig,
     HuggingFacePolicy,
     HuggingFacePolicyConfig,
-    PolicyBaseConfig,
     PolicyResult,
-    PolicyBase,
     PyrokiPolicy,
     PyrokiPolicyConfig,
     SAM3Policy,
@@ -21,7 +22,6 @@ from cap_general.core.policy import (
     VLLMPolicy,
     VLLMPolicyConfig,
 )
-from cap_general.core.env import BaseEnv, BaseEnvConfig
 
 __all__ = [
     "RegisteredBase",
@@ -29,8 +29,8 @@ __all__ = [
     "BaseAgentConfig",
     "Tee",
     "PolicyResult",
-    "PolicyBase",
-    "PolicyBaseConfig",
+    "BasePolicy",
+    "BasePolicyConfig",
     "StaticPolicy",
     "StaticPolicyConfig",
     "CallablePolicy",

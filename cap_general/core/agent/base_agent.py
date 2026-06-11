@@ -9,11 +9,12 @@ import time
 import traceback
 from abc import abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
 from cap_general.core.base import RegisteredBase
+from cap_general.core.env import BaseEnv
 
 
 class Tee(io.TextIOBase):
@@ -37,9 +38,11 @@ class BaseAgentConfig:
     """Configuration for constructing an agent."""
 
     env: dict[str, Any]
-    policys: dict[str, dict[str, Any]] = field(default_factory=dict)
+    policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     record_dir: str | Path = "agent_record"
     max_steps: int = 999999
+    reset_mode: str = "none"
+    record_execute: bool = True
 
 
 class BaseAgent(RegisteredBase):
@@ -54,39 +57,25 @@ class BaseAgent(RegisteredBase):
         """Return the registry key for this agent."""
         return "base_agent"
 
-    def __init__(self, config: BaseAgentConfig | dict[str, Any]):
+    def __init__(self, config: BaseAgentConfig):
         """Initialize an agent from config."""
-        config_obj = self._load_config(config=config)
-        self._env = self._build_env(config_obj.env)
-        self._policies = self._build_policys(config_obj.policys)
+        self._config = config
+        self._env: BaseEnv = self._build_env(self._config.env)
+        self._policies = self._build_policies(self._config.policies)
         self._exec_globals: dict[str, Any] = {}
-        self._max_steps = config_obj.max_steps
-        self._record_dir = Path(config_obj.record_dir)
+        self._max_steps = self._config.max_steps
+        self._record_dir = Path(self._config.record_dir)
+        self._reset_mode = self._config.reset_mode
+        self._record_execute = self._config.record_execute
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._exec_start: float | None = None
+        if self._reset_mode not in {"none", "execute", "trial"}:
+            raise ValueError("reset_mode must be one of 'none', 'execute', or 'trial'")
 
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> "BaseAgent":
         """Initialize an agent from a yaml config file."""
-        return cls(config=cls._load_yaml(config_path))
-
-    @classmethod
-    def _load_config(
-        cls,
-        config: BaseAgentConfig | dict[str, Any],
-    ) -> BaseAgentConfig:
-        data: dict[str, Any] = {}
-        if is_dataclass(config):
-            data.update(config.__dict__)
-        elif isinstance(config, dict):
-            data.update(config)
-        else:
-            raise TypeError(f"Unsupported config type: {type(config).__name__}")
-        return cls.config_cls(**data)
-
-    @staticmethod
-    def _load_yaml(config_path: str | Path) -> dict[str, Any]:
         try:
             import yaml
         except ImportError as exc:
@@ -96,42 +85,32 @@ class BaseAgent(RegisteredBase):
             data = yaml.safe_load(file) or {"agent": {}}
         if not isinstance(data, dict) or "agent" not in data:
             raise TypeError("Agent yaml config must contain a mapping at the top level")
-        return data["agent"]
+        return cls.from_config(data["agent"])
 
     @staticmethod
-    def _build_env(config: dict[str, Any] | None):
-        if config is None:
-            return None
-        from cap_general.core.env import BaseEnv
-
+    def _build_env(config: dict[str, Any]) -> BaseEnv:
         return BaseEnv.from_config(config)
 
     @staticmethod
-    def _build_policys(configs: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        from cap_general.core.policy import PolicyBase
+    def _build_policies(configs: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        from cap_general.core.policy import BasePolicy
 
-        return {
-            policy_name: PolicyBase.from_config(policy_config)
-            for policy_name, policy_config in configs.items()
-        }
+        return {name: BasePolicy.from_config(config) for name, config in configs.items()}
 
     def reset(self):
         """Reset the agent state."""
-        if self._env is not None:
-            self._env.reset()
+        self._env.reset()
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._exec_start = time.time()
 
-    def get_observation(self) -> Any:
+    def get_observation(self) -> dict:
         """Get the current observation from the configured environment."""
-        if self._env is None:
-            return None
-        return self._env.get_observation(images_only=True)
+        return self._env.get_observation()
 
     def describe_agent(self) -> dict:
         """Return the doc for cap-as-policy."""
-        return {"combined_doc": self.combined_doc(), "exec_prompt": self.exec_prompt}
+        return {"combined_doc": self.combined_doc(), "execute_rules": self.execute_rules}
 
     def run_policy(self, policy_name: str, method="generate", **kwargs: Any) -> Any:
         """Run a configured policy by name."""
@@ -145,6 +124,8 @@ class BaseAgent(RegisteredBase):
 
     def execute(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
+        if self._reset_mode == "execute":
+            self._env.reset(pose_only=True)
         self._exec_cnt += 1
         self._trial_cnt = 1
         return self._execute_once(code)
@@ -152,11 +133,12 @@ class BaseAgent(RegisteredBase):
     def retry(self):
         """Retry the last execution."""
         self._trial_cnt += 1
-        return self._execute_once(self._exec_codes[-1])
+        return self._execute_once(self._step_codes[-1])
 
     def _execute_once(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
-        assert self._env is not None, "Environment must be configured to execute code"
+        if self._reset_mode == "trial":
+            self._env.reset(pose_only=True)
         step_start, time_start = self._env.step_cnt, time.time()
         exec_result = self._exec_code(code)
         info = {
@@ -171,6 +153,8 @@ class BaseAgent(RegisteredBase):
         }
         self._step_infos.append(info)
         self._step_codes.append(code)
+        if self._record_execute:
+            self.record(len(self._step_infos) - 1)
         return info
 
     def record(self, step_idx: int = -1):
@@ -187,9 +171,14 @@ class BaseAgent(RegisteredBase):
         else:
             info, code = self._get_step_record(step_idx)
             start_frm, end_frm = info["step_start"], info["step_end"]
-            record_path = self._record_dir / self.step_dir
+            record_path = self._record_dir / "step_{}/trial_{}".format(
+                info["exec_cnt"],
+                info["trial_cnt"],
+            )
         record_path.mkdir(parents=True, exist_ok=True)
         record = self._env.record(record_path, start_frm=start_frm, end_frm=end_frm)
+        if step_idx != -1:
+            info["record"] = record
         self._write_json(record_path / "info.json", info)
         self._write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
@@ -286,8 +275,8 @@ class BaseAgent(RegisteredBase):
         raise NotImplementedError
 
     @property
-    def exec_prompt(self) -> str:
-        """Return the task prompt"""
+    def execute_rules(self) -> str:
+        """Return the rules for executing code."""
         return ""
 
     @property

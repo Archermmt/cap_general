@@ -1,6 +1,7 @@
 """Shared base helpers for core CAP components."""
 
 from abc import ABC
+from dataclasses import fields, is_dataclass
 from typing import Any, ClassVar, Dict, Type
 
 
@@ -38,11 +39,6 @@ class RegisteredBase(ABC):
         return cls._registry.get(registered_type)
 
     @classmethod
-    def get_registered_type(cls, registered_type: str) -> Type["RegisteredBase"] | None:
-        """Get a registered class by its registry key."""
-        return cls.get_registered_class(registered_type)
-
-    @classmethod
     def registered_types(cls) -> list[str]:
         """Return all registered type keys for this base class."""
         return list(cls._registry.keys())
@@ -53,14 +49,36 @@ class RegisteredBase(ABC):
         return dict(cls._registry)
 
     @classmethod
-    def registry(cls) -> Dict[str, Type["RegisteredBase"]]:
-        """Return a shallow copy of the current registry."""
-        return cls.get_registry()
-
-    @classmethod
     def create(cls, registered_type: str, *args: Any, **kwargs: Any) -> "RegisteredBase":
         """Instantiate a registered class by type key."""
         subclass = cls.get_registered_class(registered_type)
         if subclass is None:
             raise KeyError(f"Unknown registered type: {registered_type}")
         return subclass(*args, **kwargs)
+
+    @classmethod
+    def from_config(cls, config: Any) -> "RegisteredBase":
+        """Instantiate a registered subclass from config with a ``type`` field."""
+        if is_dataclass(config):
+            config_data = dict(config.__dict__)
+        elif isinstance(config, dict):
+            config_data = dict(config)
+        else:
+            raise TypeError(f"Expected config, got {type(config).__name__}")
+
+        registered_type = config_data.pop("type")
+        subclass = cls.get_registered_class(registered_type)
+        if subclass is None:
+            raise KeyError(f"Unknown registered type: {registered_type}")
+
+        config_cls = getattr(subclass, "config_cls", None)
+        if config_cls is None or not is_dataclass(config_cls):
+            raise TypeError(f"Registered class {subclass.__name__} must define dataclass config_cls")
+        config_obj = cls._build_dataclass_config(config_cls, config_data)
+        return subclass(config=config_obj)
+
+    @staticmethod
+    def _build_dataclass_config(config_cls, config_data: dict[str, Any]):
+        field_names = {field.name for field in fields(config_cls)}
+        values = {key: value for key, value in config_data.items() if key in field_names}
+        return config_cls(**values)

@@ -11,7 +11,7 @@ class FrankaCubeAgentConfig(BaseAgentConfig):
     """Configuration for FrankaCubeAgent."""
 
     env: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})
-    policys: dict[str, dict[str, Any]] = field(default_factory=dict)
+    policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     max_steps: int = 999999
     use_gui: bool = False
     sim_step: float = 0.01
@@ -27,9 +27,9 @@ class FrankaCubeAgent(BaseAgent):
 
     def __init__(
         self,
-        config: FrankaCubeAgentConfig | dict[str, Any],
+        config: FrankaCubeAgentConfig,
     ):
-        config_obj = self._load_config(config=config)
+        config_obj = config
         super().__init__(config=config_obj)
         self.use_gui = config_obj.use_gui
         self.sim_step = config_obj.sim_step

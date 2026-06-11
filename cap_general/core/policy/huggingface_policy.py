@@ -4,15 +4,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cap_general.core.policy.base_policy import (
+    BasePolicy,
     PolicyResult,
-    PolicyBase,
     apply_stop_sequences,
     normalize_prompt,
 )
 
+from .base_policy import BasePolicyConfig
+
 
 @dataclass
-class HuggingFacePolicyConfig:
+class HuggingFacePolicyConfig(BasePolicyConfig):
     """Configuration for HuggingFacePolicy."""
 
     model_path: str
@@ -33,59 +35,15 @@ class HuggingFacePolicyConfig:
     generation_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
-@PolicyBase.register()
-class HuggingFacePolicy(PolicyBase):
+@BasePolicy.register()
+class HuggingFacePolicy(BasePolicy):
     """A local Transformers policy loaded from a Hugging Face checkpoint."""
 
-    name = "Hugging Face Policy"
     config_cls = HuggingFacePolicyConfig
 
-    def __init__(
-        self,
-        model_path: str | None = None,
-        device: str = "auto",
-        torch_dtype: str | None = "auto",
-        device_map: str | dict[str, Any] | None = None,
-        trust_remote_code: bool = False,
-        local_files_only: bool = False,
-        cache_dir: str | None = None,
-        max_new_tokens: int = 512,
-        temperature: float = 0.2,
-        top_p: float | None = None,
-        do_sample: bool | None = None,
-        stop: list[str] | None = None,
-        return_full_text: bool = False,
-        model_kwargs: dict[str, Any] | None = None,
-        tokenizer_kwargs: dict[str, Any] | None = None,
-        generation_kwargs: dict[str, Any] | None = None,
-        config: HuggingFacePolicyConfig | None = None,
-    ):
-        """Initialize a local Transformers model.
-
-        Args mirror the common serving-time model options, but all inference
-        happens in-process with local model weights.
-        """
-        if config is None:
-            if model_path is None:
-                raise ValueError("HuggingFacePolicy requires model_path")
-            config = HuggingFacePolicyConfig(
-                model_path=model_path,
-                device=device,
-                torch_dtype=torch_dtype,
-                device_map=device_map,
-                trust_remote_code=trust_remote_code,
-                local_files_only=local_files_only,
-                cache_dir=cache_dir,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=do_sample,
-                stop=stop,
-                return_full_text=return_full_text,
-                model_kwargs=model_kwargs or {},
-                tokenizer_kwargs=tokenizer_kwargs or {},
-                generation_kwargs=generation_kwargs or {},
-            )
+    def __init__(self, config: HuggingFacePolicyConfig):
+        """Initialize a local Transformers model."""
+        super().__init__(config=config)
         self._model_path = config.model_path
         self._device = config.device
         self._torch_dtype = config.torch_dtype
@@ -140,9 +98,7 @@ class HuggingFacePolicy(PolicyBase):
                 self._tokenizer = AutoTokenizer.from_pretrained(
                     self._model_path, **tokenizer_kwargs
                 )
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    self._model_path, **model_kwargs
-                )
+                self._model = AutoModelForCausalLM.from_pretrained(self._model_path, **model_kwargs)
                 if self._device_map is None and self._device != "auto":
                     self._model.to(self._device)
                 self._model.eval()
@@ -195,9 +151,7 @@ class HuggingFacePolicy(PolicyBase):
         if self._device_map is None and self._device != "auto":
             inputs = inputs.to(self._device)
 
-        resolved_temperature = (
-            self._temperature if temperature is None else temperature
-        )
+        resolved_temperature = self._temperature if temperature is None else temperature
         resolved_top_p = self._top_p if top_p is None else top_p
         if do_sample is not None:
             resolved_do_sample = do_sample
@@ -207,9 +161,7 @@ class HuggingFacePolicy(PolicyBase):
             resolved_do_sample = resolved_temperature > 0
 
         kwargs = {
-            "max_new_tokens": self._max_new_tokens
-            if max_new_tokens is None
-            else max_new_tokens,
+            "max_new_tokens": self._max_new_tokens if max_new_tokens is None else max_new_tokens,
             "do_sample": resolved_do_sample,
             **self._generation_kwargs,
             **generation_kwargs,
@@ -230,14 +182,12 @@ class HuggingFacePolicy(PolicyBase):
             generated_tokens = outputs[0]
         else:
             generated_tokens = outputs[0][inputs["input_ids"].shape[-1] :]
-        generated_text = self._tokenizer.decode(
-            generated_tokens, skip_special_tokens=True
-        )
+        generated_text = self._tokenizer.decode(generated_tokens, skip_special_tokens=True)
         generated_text = apply_stop_sequences(generated_text, stop or self._stop)
 
         return PolicyResult(
             code=generated_text,
-            policy_name=self.policy_name,
+            policy_name=self.policy_type(),
             metadata={
                 "backend": "transformers",
                 "model_path": self._model_path,
@@ -247,7 +197,3 @@ class HuggingFacePolicy(PolicyBase):
                 "top_p": resolved_top_p,
             },
         )
-
-    @property
-    def policy_name(self) -> str:
-        return f"HuggingFacePolicy({self._model_path})"

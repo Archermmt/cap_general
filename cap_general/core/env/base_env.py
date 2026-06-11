@@ -3,7 +3,7 @@
 import io
 import time
 from abc import abstractmethod
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, SupportsFloat, TypeVar
 
@@ -28,7 +28,6 @@ ActType = TypeVar("ActType")
 class BaseEnvConfig:
     """Configuration for constructing an environment."""
 
-    env_type: str = "base_env"
     reset_time: float = 2.0
     video_fmt: str = ""
     image_keys: list[str] = field(default_factory=list)
@@ -46,55 +45,13 @@ class BaseEnv(RegisteredBase, Env):
         """Return the registry key for this environment."""
         return "base_env"
 
-    def __init__(self, config: BaseEnvConfig | None = None):
-        config = config or BaseEnvConfig()
+    def __init__(self, config: BaseEnvConfig):
         self._reset_time = config.reset_time
         self._video_fmt = config.video_fmt
         self._image_keys = list(config.image_keys or [])
         self._video_frames: dict[str, list[Any]] = {key: [] for key in self._image_keys}
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
-
-    @classmethod
-    def from_config(cls, config: "BaseEnvConfig | dict[str, Any]") -> "BaseEnv":
-        """Instantiate a registered environment from config."""
-        config_data = cls._normalize_component_config(config, "env_type")
-        env_type = config_data.pop("env_type")
-        env_cls = cls.get_registered_type(env_type)
-        if env_cls is None:
-            raise KeyError(f"Unknown env type: {env_type}")
-
-        config_cls = getattr(env_cls, "config_cls", None)
-        if config_cls is not None and is_dataclass(config_cls):
-            config_obj = cls._build_dataclass_config(config_cls, config_data)
-            return env_cls(config=config_obj)
-        return env_cls(**config_data)
-
-    @staticmethod
-    def _normalize_component_config(
-        config: "BaseEnvConfig | dict[str, Any]",
-        type_key: str,
-    ) -> dict[str, Any]:
-        if is_dataclass(config):
-            return dict(config.__dict__)
-        if not isinstance(config, dict):
-            raise TypeError(f"Expected config dict, got {type(config).__name__}")
-
-        data = dict(config.get("config", {}))
-        for key, value in config.items():
-            if key != "config":
-                data[key] = value
-        if "type" in data and type_key not in data:
-            data[type_key] = data.pop("type")
-        if type_key not in data:
-            raise KeyError(f"Missing config field: {type_key}")
-        return data
-
-    @staticmethod
-    def _build_dataclass_config(config_cls, config_data: dict[str, Any]):
-        field_names = {field.name for field in fields(config_cls)}
-        values = {key: value for key, value in config_data.items() if key in field_names}
-        return config_cls(**values)
 
     def reset(
         self,
@@ -135,6 +92,19 @@ class BaseEnv(RegisteredBase, Env):
         self._record_frame(obs)
         return obs, reward, terminated, truncated, info
 
+    def get_observation(self) -> dict:
+        """Return the last observation returned by step()."""
+        obs = {}
+        if self._image_keys and isinstance(self._last_obs, dict):
+            images = {key: self._last_obs[key] for key in self._image_keys if key in self._last_obs}
+            obs.update({"images": images, "main_image": images.get(self._image_keys[0])})
+        obs.update(self._normalize_states())
+        return obs
+
+    def _normalize_states(self) -> dict:
+        """Return normalized non-image state values."""
+        return {}
+
     def _record_frame(self, obs: ObsType) -> None:
         if not self._video_fmt or not self._image_keys:
             return
@@ -144,15 +114,6 @@ class BaseEnv(RegisteredBase, Env):
             frame = obs.get(key)
             if frame is not None:
                 self._video_frames.setdefault(key, []).append(frame)
-
-    def get_observation(self, images_only: bool = False) -> dict | ObsType:
-        """Return the current observation."""
-        if images_only:
-            if not self._image_keys or not isinstance(self._last_obs, dict):
-                return {"images": {}, "main_image": None}
-            images = {key: self._last_obs[key] for key in self._image_keys if key in self._last_obs}
-            return {"images": images, "main_image": images.get(self._image_keys[0])}
-        return self._last_obs
 
     def record(
         self, folder: str | Path, start_frm: int = 0, end_frm: int | None = None
@@ -214,3 +175,8 @@ class BaseEnv(RegisteredBase, Env):
     def step_cnt(self) -> int:
         """Get the current step count."""
         return self._step_cnt
+
+    @property
+    def last_obs(self) -> ObsType:
+        """Get the last observation."""
+        return self._last_obs

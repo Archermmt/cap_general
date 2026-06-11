@@ -1,14 +1,15 @@
 """Local Contact-GraspNet model implementation."""
 
-from dataclasses import dataclass
-import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from cap_general.core.policy.base_policy import PolicyBase
+from cap_general.core.policy.base_policy import BasePolicy
+
+from .base_policy import BasePolicyConfig
 
 
 @dataclass
@@ -62,7 +63,7 @@ def load_contact_graspnet_config(
 
 
 @dataclass
-class GraspNetPolicyConfig:
+class GraspNetPolicyConfig(BasePolicyConfig):
     """Configuration for GraspNetPolicy."""
 
     vendor_root: str | Path
@@ -72,32 +73,14 @@ class GraspNetPolicyConfig:
     device: str = "cuda"
 
 
-@PolicyBase.register()
-class GraspNetPolicy(PolicyBase):
+@BasePolicy.register()
+class GraspNetPolicy(BasePolicy):
     """Local Contact-GraspNet grasp planning model."""
 
-    name = "Contact-GraspNet Policy Model"
     config_cls = GraspNetPolicyConfig
 
-    def __init__(
-        self,
-        vendor_root: str | Path | None = None,
-        checkpoint_root: str | Path | None = None,
-        checkpoint_dir: str | Path | None = None,
-        checkpoint_name: str = "model.pt",
-        device: str = "cuda",
-        config: GraspNetPolicyConfig | None = None,
-    ):
-        if config is None:
-            if vendor_root is None:
-                raise ValueError("GraspNetPolicy requires vendor_root")
-            config = GraspNetPolicyConfig(
-                vendor_root=vendor_root,
-                checkpoint_root=checkpoint_root,
-                checkpoint_dir=checkpoint_dir,
-                checkpoint_name=checkpoint_name,
-                device=device,
-            )
+    def __init__(self, config: GraspNetPolicyConfig):
+        super().__init__(config=config)
         self._vendor_root = Path(config.vendor_root)
         self._checkpoint_root = (
             Path(config.checkpoint_root)
@@ -214,7 +197,3 @@ class GraspNetPolicy(PolicyBase):
         if {"pc_full", "pc_segment"}.issubset(kwargs):
             return self.plan_point_clouds(**kwargs)
         raise ValueError("Expected depth/cam_k/segmap or pc_full/pc_segment inputs")
-
-    @property
-    def policy_name(self) -> str:
-        return "GraspNetPolicy"

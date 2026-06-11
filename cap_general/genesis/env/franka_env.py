@@ -10,7 +10,6 @@ from cap_general.core.env import BaseEnv, BaseEnvConfig
 class FrankaEnvConfig(BaseEnvConfig):
     """Configuration for FrankaEnv."""
 
-    env_type: str = "genesis_franka"
     robot: Any | None = None
 
 
@@ -21,9 +20,8 @@ class FrankaEnv(BaseEnv):
     name = "Genesis Franka Env"
     config_cls = FrankaEnvConfig
 
-    def __init__(self, config: FrankaEnvConfig | None = None, robot: Any | None = None):
+    def __init__(self, config: FrankaEnvConfig):
         """Initialize with an optional Genesis robot instance."""
-        config = config or FrankaEnvConfig(robot=robot)
         super().__init__(config=config)
         self._robot = config.robot
 

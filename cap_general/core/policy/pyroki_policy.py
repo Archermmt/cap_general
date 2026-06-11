@@ -1,13 +1,15 @@
 """Local PyRoKi motion planning model implementation."""
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from cap_general.core.policy.base_policy import PolicyBase
+from cap_general.core.policy.base_policy import BasePolicy
+
+from .base_policy import BasePolicyConfig
 
 
 @dataclass
@@ -26,7 +28,7 @@ class PyrokiPlanResult:
 
 
 @dataclass
-class PyrokiPolicyConfig:
+class PyrokiPolicyConfig(BasePolicyConfig):
     """Configuration for PyrokiPolicy."""
 
     robot_urdf_name: str = "panda_description"
@@ -35,27 +37,14 @@ class PyrokiPolicyConfig:
     min_distance_from_limits: float = 0.15
 
 
-@PolicyBase.register()
-class PyrokiPolicy(PolicyBase):
+@BasePolicy.register()
+class PyrokiPolicy(BasePolicy):
     """Local PyRoKi IK and simple trajectory planning model."""
 
-    name = "PyRoKi Policy Model"
     config_cls = PyrokiPolicyConfig
 
-    def __init__(
-        self,
-        robot_urdf_name: str = "panda_description",
-        target_link_name: str = "panda_hand",
-        sphere_decomposition_path: str | Path | None = None,
-        min_distance_from_limits: float = 0.15,
-        config: PyrokiPolicyConfig | None = None,
-    ):
-        config = config or PyrokiPolicyConfig(
-            robot_urdf_name=robot_urdf_name,
-            target_link_name=target_link_name,
-            sphere_decomposition_path=sphere_decomposition_path,
-            min_distance_from_limits=min_distance_from_limits,
-        )
+    def __init__(self, config: PyrokiPolicyConfig):
+        super().__init__(config=config)
         self._robot_urdf_name = config.robot_urdf_name
         self._target_link_name = config.target_link_name
         self._sphere_decomposition_path = config.sphere_decomposition_path
@@ -75,9 +64,9 @@ class PyrokiPolicy(PolicyBase):
             return
 
         try:
+            import capx.integrations.motion.pyroki_snippets as pks
             import pyroki as pk
             from robot_descriptions.loaders.yourdfpy import load_robot_description
-            import capx.integrations.motion.pyroki_snippets as pks
         except ImportError as exc:
             raise ImportError(
                 "PyrokiPolicy requires pyroki, robot_descriptions, and "
@@ -199,7 +188,3 @@ class PyrokiPolicy(PolicyBase):
         if mode == "plan":
             return self.plan(**kwargs)
         raise ValueError(f"Unsupported PyRoKi inference mode: {mode}")
-
-    @property
-    def policy_name(self) -> str:
-        return "PyrokiPolicy"

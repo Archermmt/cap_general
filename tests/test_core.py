@@ -1,17 +1,19 @@
 """Tests for core CAP agent, env, and policy primitives."""
 
 import pytest
-from cap_general.core.agent import BaseAgent
+
+from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.env import BaseEnv
 from cap_general.core.policy import (
+    BasePolicy,
     CallablePolicy,
     GraspNetPolicy,
-    PolicyBase,
     PyrokiPolicy,
     SAM3Policy,
     StaticPolicy,
+    StaticPolicyConfig,
     VLLMPolicy,
 )
-from cap_general.core.env import BaseEnv
 
 
 @BaseEnv.register()
@@ -63,7 +65,7 @@ class SimpleAgent(BaseAgent):
 
 def test_agent_combined_doc():
     """Test that combined_doc extracts method signatures and docstrings."""
-    agent = SimpleAgent(config={"env": {"type": "core_dummy"}})
+    agent = SimpleAgent(config=BaseAgentConfig(env={"type": "core_dummy"}))
     doc = agent.combined_doc()
 
     assert "add" in doc
@@ -77,11 +79,11 @@ def test_agent_combined_doc():
 def test_static_policy_inference():
     """Test static policy returns fixed code."""
     fixed_code = "action = [1.0, 2.0, 3.0]"
-    model = StaticPolicy(code=fixed_code)
+    model = StaticPolicy(config=StaticPolicyConfig(code=fixed_code))
     result = model.inference(prompt="test prompt")
 
     assert result.code == fixed_code
-    assert result.policy_name == "StaticPolicy"
+    assert result.policy_name == "static"
 
 
 def test_callable_policy_inference():
@@ -90,29 +92,29 @@ def test_callable_policy_inference():
     def generator(prompt: str) -> str:
         return f"# Generated for: {prompt}\naction = [0.0, 0.0, 0.0]"
 
-    model = CallablePolicy(generator_fn=generator)
+    model = CallablePolicy.from_config({"type": "callable", "generator_fn": generator})
     result = model.inference(prompt="lift cube")
 
     assert "Generated for: lift cube" in result.code
     assert "action = [0.0, 0.0, 0.0]" in result.code
-    assert result.policy_name == "CallablePolicy"
+    assert result.policy_name == "callable"
 
 
 def test_policy_base_cannot_instantiate():
-    """Test that base PolicyBase cannot be instantiated directly."""
+    """Test that base BasePolicy cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        PolicyBase()
+        BasePolicy()
 
 
 def test_core_registries_include_common_components():
     """Test that common core implementations are registered by type."""
     assert BaseAgent.agent_type() == "base_agent"
-    assert PolicyBase.get_registered_type("static") is StaticPolicy
-    assert PolicyBase.get_registered_type("callable") is CallablePolicy
-    assert PolicyBase.get_registered_type("vllm") is VLLMPolicy
-    assert PolicyBase.get_registered_type("sam3") is SAM3Policy
-    assert PolicyBase.get_registered_type("graspnet") is GraspNetPolicy
-    assert PolicyBase.get_registered_type("pyroki") is PyrokiPolicy
+    assert BasePolicy.get_registered_class("static") is StaticPolicy
+    assert BasePolicy.get_registered_class("callable") is CallablePolicy
+    assert BasePolicy.get_registered_class("vllm") is VLLMPolicy
+    assert BasePolicy.get_registered_class("sam3") is SAM3Policy
+    assert BasePolicy.get_registered_class("graspnet") is GraspNetPolicy
+    assert BasePolicy.get_registered_class("pyroki") is PyrokiPolicy
 
 
 def test_agent_register_decorator():
@@ -129,4 +131,4 @@ def test_agent_register_decorator():
         def functions(self):
             return {}
 
-    assert BaseAgent.get_registered_type("registered_agent") is RegisteredAgent
+    assert BaseAgent.get_registered_class("registered_agent") is RegisteredAgent

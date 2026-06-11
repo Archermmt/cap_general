@@ -2,12 +2,14 @@
 
 from typing import Any, SupportsFloat
 
-from cap_general.core.env import BaseEnv
+from cap_general.core.env import BaseEnv, BaseEnvConfig
 
 
 @BaseEnv.register()
 class DummyEnv(BaseEnv):
     """Small concrete environment for base interface tests."""
+
+    name = "Dummy Env"
 
     @classmethod
     def env_type(cls) -> str:
@@ -32,7 +34,7 @@ class DummyEnv(BaseEnv):
 
 
 def test_env_base_reset_returns_gymnasium_tuple():
-    env = DummyEnv()
+    env = DummyEnv(config=BaseEnvConfig())
 
     obs, info = env.reset(seed=123, options={"difficulty": "easy"})
 
@@ -41,7 +43,7 @@ def test_env_base_reset_returns_gymnasium_tuple():
 
 
 def test_env_base_step_returns_gymnasium_tuple_and_tracks_step_count():
-    env = DummyEnv()
+    env = DummyEnv(config=BaseEnvConfig())
     env.reset()
 
     obs, reward, terminated, truncated, info = env.step({"move": 1})
@@ -56,4 +58,4 @@ def test_env_base_step_returns_gymnasium_tuple_and_tracks_step_count():
 
 def test_env_base_registry():
     assert BaseEnv.env_type() == "base_env"
-    assert BaseEnv.get_registered_type("dummy_env") is DummyEnv
+    assert BaseEnv.get_registered_class("dummy_env") is DummyEnv
