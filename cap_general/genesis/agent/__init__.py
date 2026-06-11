@@ -1,5 +1,5 @@
 """Genesis task agents."""
 
-from cap_general.genesis.agent.franka_cuda_agent import FrankaCudaAgent
+from cap_general.genesis.agent.franka_cube_agent import FrankaCubeAgent, FrankaCubeAgentConfig
 
-__all__ = ["FrankaCudaAgent"]
+__all__ = ["FrankaCubeAgent", "FrankaCubeAgentConfig"]

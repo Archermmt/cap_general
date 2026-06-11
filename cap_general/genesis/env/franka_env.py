@@ -1,19 +1,31 @@
 """Genesis Franka environment controller."""
 
+from dataclasses import dataclass
 from typing import Any, List, SupportsFloat
 
-from cap_general.core.env import EnvBase
+from cap_general.core.env import BaseEnv, BaseEnvConfig
 
 
-@EnvBase.register()
-class FrankaEnv(EnvBase):
+@dataclass
+class FrankaEnvConfig(BaseEnvConfig):
+    """Configuration for FrankaEnv."""
+
+    env_type: str = "genesis_franka"
+    robot: Any | None = None
+
+
+@BaseEnv.register()
+class FrankaEnv(BaseEnv):
     """Basic Franka environment operations for Genesis."""
 
     name = "Genesis Franka Env"
+    config_cls = FrankaEnvConfig
 
-    def __init__(self, robot: Any | None = None):
+    def __init__(self, config: FrankaEnvConfig | None = None, robot: Any | None = None):
         """Initialize with an optional Genesis robot instance."""
-        self._robot = robot
+        config = config or FrankaEnvConfig(robot=robot)
+        super().__init__(config=config)
+        self._robot = config.robot
 
     @classmethod
     def env_type(cls) -> str:
@@ -123,6 +135,7 @@ class FrankaEnv(EnvBase):
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
+        pose_only: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset environment state if the wrapped robot supports it."""
         if self._robot is not None and hasattr(self._robot, "reset"):

@@ -61,33 +61,56 @@ def load_contact_graspnet_config(
     return config
 
 
+@dataclass
+class GraspNetPolicyConfig:
+    """Configuration for GraspNetPolicy."""
+
+    vendor_root: str | Path
+    checkpoint_root: str | Path | None = None
+    checkpoint_dir: str | Path | None = None
+    checkpoint_name: str = "model.pt"
+    device: str = "cuda"
+
+
 @PolicyBase.register()
 class GraspNetPolicy(PolicyBase):
     """Local Contact-GraspNet grasp planning model."""
 
     name = "Contact-GraspNet Policy Model"
+    config_cls = GraspNetPolicyConfig
 
     def __init__(
         self,
-        vendor_root: str | Path,
+        vendor_root: str | Path | None = None,
         checkpoint_root: str | Path | None = None,
         checkpoint_dir: str | Path | None = None,
         checkpoint_name: str = "model.pt",
         device: str = "cuda",
+        config: GraspNetPolicyConfig | None = None,
     ):
-        self._vendor_root = Path(vendor_root)
+        if config is None:
+            if vendor_root is None:
+                raise ValueError("GraspNetPolicy requires vendor_root")
+            config = GraspNetPolicyConfig(
+                vendor_root=vendor_root,
+                checkpoint_root=checkpoint_root,
+                checkpoint_dir=checkpoint_dir,
+                checkpoint_name=checkpoint_name,
+                device=device,
+            )
+        self._vendor_root = Path(config.vendor_root)
         self._checkpoint_root = (
-            Path(checkpoint_root)
-            if checkpoint_root is not None
+            Path(config.checkpoint_root)
+            if config.checkpoint_root is not None
             else self._vendor_root / "checkpoints" / "contact_graspnet"
         )
         self._checkpoint_dir = (
-            Path(checkpoint_dir)
-            if checkpoint_dir is not None
+            Path(config.checkpoint_dir)
+            if config.checkpoint_dir is not None
             else self._checkpoint_root / "checkpoints"
         )
-        self._checkpoint_name = checkpoint_name
-        self._device = device
+        self._checkpoint_name = config.checkpoint_name
+        self._device = config.device
         self._estimator = None
 
     @classmethod

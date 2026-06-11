@@ -1,8 +1,9 @@
 """CAP agent components."""
 
-from cap_general.core.agent.base_agent import AgentBase, Tee
+from cap_general.core.agent.base_agent import BaseAgent, BaseAgentConfig, Tee
 
 __all__ = [
-    "AgentBase",
+    "BaseAgent",
+    "BaseAgentConfig",
     "Tee",
 ]

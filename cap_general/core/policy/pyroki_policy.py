@@ -25,11 +25,22 @@ class PyrokiPlanResult:
     dt: float
 
 
+@dataclass
+class PyrokiPolicyConfig:
+    """Configuration for PyrokiPolicy."""
+
+    robot_urdf_name: str = "panda_description"
+    target_link_name: str = "panda_hand"
+    sphere_decomposition_path: str | Path | None = None
+    min_distance_from_limits: float = 0.15
+
+
 @PolicyBase.register()
 class PyrokiPolicy(PolicyBase):
     """Local PyRoKi IK and simple trajectory planning model."""
 
     name = "PyRoKi Policy Model"
+    config_cls = PyrokiPolicyConfig
 
     def __init__(
         self,
@@ -37,11 +48,18 @@ class PyrokiPolicy(PolicyBase):
         target_link_name: str = "panda_hand",
         sphere_decomposition_path: str | Path | None = None,
         min_distance_from_limits: float = 0.15,
+        config: PyrokiPolicyConfig | None = None,
     ):
-        self._robot_urdf_name = robot_urdf_name
-        self._target_link_name = target_link_name
-        self._sphere_decomposition_path = sphere_decomposition_path
-        self._min_distance_from_limits = min_distance_from_limits
+        config = config or PyrokiPolicyConfig(
+            robot_urdf_name=robot_urdf_name,
+            target_link_name=target_link_name,
+            sphere_decomposition_path=sphere_decomposition_path,
+            min_distance_from_limits=min_distance_from_limits,
+        )
+        self._robot_urdf_name = config.robot_urdf_name
+        self._target_link_name = config.target_link_name
+        self._sphere_decomposition_path = config.sphere_decomposition_path
+        self._min_distance_from_limits = config.min_distance_from_limits
         self._robot = None
         self._robot_collision = None
         self._pk = None

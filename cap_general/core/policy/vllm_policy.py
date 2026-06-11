@@ -1,5 +1,6 @@
 """Local vLLM policy implementation."""
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from cap_general.core.policy.base_policy import (
@@ -9,15 +10,36 @@ from cap_general.core.policy.base_policy import (
 )
 
 
+@dataclass
+class VLLMPolicyConfig:
+    """Configuration for VLLMPolicy."""
+
+    model_path: str
+    dtype: str = "bfloat16"
+    tensor_parallel_size: int = 1
+    gpu_memory_utilization: float = 0.9
+    max_model_len: int | None = None
+    download_dir: str | None = None
+    trust_remote_code: bool = False
+    enforce_eager: bool | None = None
+    max_new_tokens: int = 512
+    temperature: float = 0.2
+    top_p: float | None = None
+    stop: list[str] | None = None
+    llm_kwargs: dict[str, Any] = field(default_factory=dict)
+    sampling_kwargs: dict[str, Any] = field(default_factory=dict)
+
+
 @PolicyBase.register()
 class VLLMPolicy(PolicyBase):
     """Local in-process vLLM policy."""
 
     name = "vLLM Policy"
+    config_cls = VLLMPolicyConfig
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str | None = None,
         dtype: str = "bfloat16",
         tensor_parallel_size: int = 1,
         gpu_memory_utilization: float = 0.9,
@@ -31,21 +53,41 @@ class VLLMPolicy(PolicyBase):
         stop: list[str] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
         sampling_kwargs: dict[str, Any] | None = None,
+        config: VLLMPolicyConfig | None = None,
     ):
-        self._model_path = model_path
-        self._dtype = dtype
-        self._tensor_parallel_size = tensor_parallel_size
-        self._gpu_memory_utilization = gpu_memory_utilization
-        self._max_model_len = max_model_len
-        self._download_dir = download_dir
-        self._trust_remote_code = trust_remote_code
-        self._enforce_eager = enforce_eager
-        self._max_new_tokens = max_new_tokens
-        self._temperature = temperature
-        self._top_p = top_p
-        self._stop = stop
-        self._llm_kwargs = llm_kwargs or {}
-        self._sampling_kwargs = sampling_kwargs or {}
+        if config is None:
+            if model_path is None:
+                raise ValueError("VLLMPolicy requires model_path")
+            config = VLLMPolicyConfig(
+                model_path=model_path,
+                dtype=dtype,
+                tensor_parallel_size=tensor_parallel_size,
+                gpu_memory_utilization=gpu_memory_utilization,
+                max_model_len=max_model_len,
+                download_dir=download_dir,
+                trust_remote_code=trust_remote_code,
+                enforce_eager=enforce_eager,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                stop=stop,
+                llm_kwargs=llm_kwargs or {},
+                sampling_kwargs=sampling_kwargs or {},
+            )
+        self._model_path = config.model_path
+        self._dtype = config.dtype
+        self._tensor_parallel_size = config.tensor_parallel_size
+        self._gpu_memory_utilization = config.gpu_memory_utilization
+        self._max_model_len = config.max_model_len
+        self._download_dir = config.download_dir
+        self._trust_remote_code = config.trust_remote_code
+        self._enforce_eager = config.enforce_eager
+        self._max_new_tokens = config.max_new_tokens
+        self._temperature = config.temperature
+        self._top_p = config.top_p
+        self._stop = config.stop
+        self._llm_kwargs = config.llm_kwargs
+        self._sampling_kwargs = config.sampling_kwargs
         self._llm = None
         self._sampling_params_cls = None
 

@@ -1,12 +1,12 @@
-"""Tests for Gymnasium-style EnvBase behavior."""
+"""Tests for Gymnasium-style BaseEnv behavior."""
 
 from typing import Any, SupportsFloat
 
-from cap_general.core.env import EnvBase
+from cap_general.core.env import BaseEnv
 
 
-@EnvBase.register()
-class DummyEnv(EnvBase):
+@BaseEnv.register()
+class DummyEnv(BaseEnv):
     """Small concrete environment for base interface tests."""
 
     @classmethod
@@ -55,4 +55,5 @@ def test_env_base_step_returns_gymnasium_tuple_and_tracks_step_count():
 
 
 def test_env_base_registry():
-    assert EnvBase.get_registered_type("dummy_env") is DummyEnv
+    assert BaseEnv.env_type() == "base_env"
+    assert BaseEnv.get_registered_type("dummy_env") is DummyEnv

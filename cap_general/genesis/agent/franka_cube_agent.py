@@ -1,28 +1,39 @@
 """Genesis Franka cube manipulation agent."""
 
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict
 
-from cap_general.core.agent import AgentBase
-from cap_general.genesis.env import FrankaEnv
+from cap_general.core.agent import BaseAgent, BaseAgentConfig
 
 
-@AgentBase.register()
-class FrankaCudaAgent(AgentBase):
+@dataclass
+class FrankaCubeAgentConfig(BaseAgentConfig):
+    """Configuration for FrankaCubeAgent."""
+
+    env: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})
+    policys: dict[str, dict[str, Any]] = field(default_factory=dict)
+    max_steps: int = 999999
+    use_gui: bool = False
+    sim_step: float = 0.01
+    horizon: int = 100
+
+
+@BaseAgent.register()
+class FrankaCubeAgent(BaseAgent):
     """Agent that runs a Franka cube grasp/lift task in Genesis."""
 
     name = "Genesis Franka Cube Agent"
+    config_cls = FrankaCubeAgentConfig
 
     def __init__(
         self,
-        env: FrankaEnv | None = None,
-        use_gui: bool = False,
-        sim_step: float = 0.01,
-        horizon: int = 100,
+        config: FrankaCubeAgentConfig | dict[str, Any],
     ):
-        self._env = env or FrankaEnv()
-        self.use_gui = use_gui
-        self.sim_step = sim_step
-        self.horizon = horizon
+        config_obj = self._load_config(config=config)
+        super().__init__(config=config_obj)
+        self.use_gui = config_obj.use_gui
+        self.sim_step = config_obj.sim_step
+        self.horizon = config_obj.horizon
         self.scene = None
         self.cube = None
         self.initial_cube_height = 0.0
@@ -61,7 +72,7 @@ class FrankaCudaAgent(AgentBase):
             self.initial_cube_height = float(self.cube.get_pos()[2])
         except ImportError:
             raise ImportError(
-                "Genesis is required for FrankaCudaAgent. "
+                "Genesis is required for FrankaCubeAgent. "
                 "Install it according to the Genesis documentation."
             )
 

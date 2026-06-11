@@ -1,5 +1,6 @@
 """Hugging Face policy implementation."""
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from cap_general.core.policy.base_policy import (
@@ -10,15 +11,38 @@ from cap_general.core.policy.base_policy import (
 )
 
 
+@dataclass
+class HuggingFacePolicyConfig:
+    """Configuration for HuggingFacePolicy."""
+
+    model_path: str
+    device: str = "auto"
+    torch_dtype: str | None = "auto"
+    device_map: str | dict[str, Any] | None = None
+    trust_remote_code: bool = False
+    local_files_only: bool = False
+    cache_dir: str | None = None
+    max_new_tokens: int = 512
+    temperature: float = 0.2
+    top_p: float | None = None
+    do_sample: bool | None = None
+    stop: list[str] | None = None
+    return_full_text: bool = False
+    model_kwargs: dict[str, Any] = field(default_factory=dict)
+    tokenizer_kwargs: dict[str, Any] = field(default_factory=dict)
+    generation_kwargs: dict[str, Any] = field(default_factory=dict)
+
+
 @PolicyBase.register()
 class HuggingFacePolicy(PolicyBase):
     """A local Transformers policy loaded from a Hugging Face checkpoint."""
 
     name = "Hugging Face Policy"
+    config_cls = HuggingFacePolicyConfig
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str | None = None,
         device: str = "auto",
         torch_dtype: str | None = "auto",
         device_map: str | dict[str, Any] | None = None,
@@ -34,28 +58,50 @@ class HuggingFacePolicy(PolicyBase):
         model_kwargs: dict[str, Any] | None = None,
         tokenizer_kwargs: dict[str, Any] | None = None,
         generation_kwargs: dict[str, Any] | None = None,
+        config: HuggingFacePolicyConfig | None = None,
     ):
         """Initialize a local Transformers model.
 
         Args mirror the common serving-time model options, but all inference
         happens in-process with local model weights.
         """
-        self._model_path = model_path
-        self._device = device
-        self._torch_dtype = torch_dtype
-        self._device_map = device_map
-        self._trust_remote_code = trust_remote_code
-        self._local_files_only = local_files_only
-        self._cache_dir = cache_dir
-        self._max_new_tokens = max_new_tokens
-        self._temperature = temperature
-        self._top_p = top_p
-        self._do_sample = do_sample
-        self._stop = stop
-        self._return_full_text = return_full_text
-        self._model_kwargs = model_kwargs or {}
-        self._tokenizer_kwargs = tokenizer_kwargs or {}
-        self._generation_kwargs = generation_kwargs or {}
+        if config is None:
+            if model_path is None:
+                raise ValueError("HuggingFacePolicy requires model_path")
+            config = HuggingFacePolicyConfig(
+                model_path=model_path,
+                device=device,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                trust_remote_code=trust_remote_code,
+                local_files_only=local_files_only,
+                cache_dir=cache_dir,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=do_sample,
+                stop=stop,
+                return_full_text=return_full_text,
+                model_kwargs=model_kwargs or {},
+                tokenizer_kwargs=tokenizer_kwargs or {},
+                generation_kwargs=generation_kwargs or {},
+            )
+        self._model_path = config.model_path
+        self._device = config.device
+        self._torch_dtype = config.torch_dtype
+        self._device_map = config.device_map
+        self._trust_remote_code = config.trust_remote_code
+        self._local_files_only = config.local_files_only
+        self._cache_dir = config.cache_dir
+        self._max_new_tokens = config.max_new_tokens
+        self._temperature = config.temperature
+        self._top_p = config.top_p
+        self._do_sample = config.do_sample
+        self._stop = config.stop
+        self._return_full_text = config.return_full_text
+        self._model_kwargs = config.model_kwargs
+        self._tokenizer_kwargs = config.tokenizer_kwargs
+        self._generation_kwargs = config.generation_kwargs
         self._model = None
         self._tokenizer = None
         self._torch = None

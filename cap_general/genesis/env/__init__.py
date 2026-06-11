@@ -1,5 +1,5 @@
 """Genesis environment controllers."""
 
-from cap_general.genesis.env.franka_env import FrankaEnv
+from cap_general.genesis.env.franka_env import FrankaEnv, FrankaEnvConfig
 
-__all__ = ["FrankaEnv"]
+__all__ = ["FrankaEnv", "FrankaEnvConfig"]

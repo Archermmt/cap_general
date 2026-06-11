@@ -1,7 +1,7 @@
 """Tests for core CAP agent, env, and policy primitives."""
 
 import pytest
-from cap_general.core.agent import AgentBase
+from cap_general.core.agent import BaseAgent
 from cap_general.core.policy import (
     CallablePolicy,
     GraspNetPolicy,
@@ -11,10 +11,30 @@ from cap_general.core.policy import (
     StaticPolicy,
     VLLMPolicy,
 )
-from cap_general.core.env import EnvBase
+from cap_general.core.env import BaseEnv
 
 
-class SimpleAgent(AgentBase):
+@BaseEnv.register()
+class CoreDummyEnv(BaseEnv):
+    """Small env for core agent tests."""
+
+    name = "Core Dummy Env"
+
+    @classmethod
+    def env_type(cls) -> str:
+        return "core_dummy"
+
+    def _reset(self, *, seed=None, options=None):
+        return self.get_observation(), {"seed": seed, "options": options or {}}
+
+    def _step(self, action):
+        return self.get_observation(), 0.0, False, False, {"action": action}
+
+    def get_observation(self):
+        return {"step": self.step_cnt}
+
+
+class SimpleAgent(BaseAgent):
     """A simple test agent."""
 
     def functions(self):
@@ -43,7 +63,7 @@ class SimpleAgent(AgentBase):
 
 def test_agent_combined_doc():
     """Test that combined_doc extracts method signatures and docstrings."""
-    agent = SimpleAgent()
+    agent = SimpleAgent(config={"env": {"type": "core_dummy"}})
     doc = agent.combined_doc()
 
     assert "add" in doc
@@ -86,6 +106,7 @@ def test_policy_base_cannot_instantiate():
 
 def test_core_registries_include_common_components():
     """Test that common core implementations are registered by type."""
+    assert BaseAgent.agent_type() == "base_agent"
     assert PolicyBase.get_registered_type("static") is StaticPolicy
     assert PolicyBase.get_registered_type("callable") is CallablePolicy
     assert PolicyBase.get_registered_type("vllm") is VLLMPolicy
@@ -97,8 +118,8 @@ def test_core_registries_include_common_components():
 def test_agent_register_decorator():
     """Test that agent subclasses can be registered by type."""
 
-    @AgentBase.register()
-    class RegisteredAgent(AgentBase):
+    @BaseAgent.register()
+    class RegisteredAgent(BaseAgent):
         name = "Registered Agent"
 
         @classmethod
@@ -108,4 +129,4 @@ def test_agent_register_decorator():
         def functions(self):
             return {}
 
-    assert AgentBase.get_registered_type("registered_agent") is RegisteredAgent
+    assert BaseAgent.get_registered_type("registered_agent") is RegisteredAgent

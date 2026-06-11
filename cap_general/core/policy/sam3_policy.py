@@ -26,11 +26,23 @@ class Sam3PointResult:
     scores: list[float]
 
 
+@dataclass
+class SAM3PolicyConfig:
+    """Configuration for SAM3Policy."""
+
+    device: str = "cuda"
+    checkpoint_path: str | None = None
+    load_from_hf: bool = True
+    confidence_threshold: float = 0.0
+    enable_inst_interactivity: bool = True
+
+
 @PolicyBase.register()
 class SAM3Policy(PolicyBase):
     """Local SAM3 image segmentation model."""
 
     name = "SAM3 Policy Model"
+    config_cls = SAM3PolicyConfig
 
     def __init__(
         self,
@@ -39,12 +51,20 @@ class SAM3Policy(PolicyBase):
         load_from_hf: bool = True,
         confidence_threshold: float = 0.0,
         enable_inst_interactivity: bool = True,
+        config: SAM3PolicyConfig | None = None,
     ):
-        self._device = device
-        self._checkpoint_path = checkpoint_path
-        self._load_from_hf = load_from_hf
-        self._confidence_threshold = confidence_threshold
-        self._enable_inst_interactivity = enable_inst_interactivity
+        config = config or SAM3PolicyConfig(
+            device=device,
+            checkpoint_path=checkpoint_path,
+            load_from_hf=load_from_hf,
+            confidence_threshold=confidence_threshold,
+            enable_inst_interactivity=enable_inst_interactivity,
+        )
+        self._device = config.device
+        self._checkpoint_path = config.checkpoint_path
+        self._load_from_hf = config.load_from_hf
+        self._confidence_threshold = config.confidence_threshold
+        self._enable_inst_interactivity = config.enable_inst_interactivity
         self._model = None
         self._processor = None
         self._torch = None

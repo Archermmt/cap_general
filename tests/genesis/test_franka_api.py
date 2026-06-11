@@ -1,9 +1,10 @@
 """Tests for Genesis Franka env and cube agent."""
 
 import pytest
-from cap_general.core.agent import AgentBase
-from cap_general.core.env import EnvBase
-from cap_general.genesis import FrankaCudaAgent, FrankaEnv
+
+from cap_general.core.agent import BaseAgent
+from cap_general.core.env import BaseEnv
+from cap_general.genesis import FrankaCubeAgent, FrankaCubeAgentConfig, FrankaEnv
 
 
 def test_franka_env_method_forwarding():
@@ -29,14 +30,14 @@ def test_franka_env_method_forwarding():
 
 
 def test_franka_env_registry_and_base():
-    """Test that FrankaEnv is a registered EnvBase subclass."""
-    assert issubclass(FrankaEnv, EnvBase)
-    assert EnvBase.get_registered_type("genesis_franka") is FrankaEnv
+    """Test that FrankaEnv is a registered BaseEnv subclass."""
+    assert issubclass(FrankaEnv, BaseEnv)
+    assert BaseEnv.get_registered_type("genesis_franka") is FrankaEnv
 
 
 def test_franka_cuda_agent_prompt_docs():
     """Test that combined_doc includes cube-task methods."""
-    agent = FrankaCudaAgent(env=FrankaEnv())
+    agent = FrankaCubeAgent(config=FrankaCubeAgentConfig())
     doc = agent.combined_doc()
 
     assert "get_observation" in doc
@@ -45,9 +46,9 @@ def test_franka_cuda_agent_prompt_docs():
 
 
 def test_franka_cuda_agent_registry_and_base():
-    """Test that FrankaCudaAgent is a registered AgentBase subclass."""
-    assert issubclass(FrankaCudaAgent, AgentBase)
-    assert AgentBase.get_registered_type("genesis_franka_cube") is FrankaCudaAgent
+    """Test that FrankaCubeAgent is a registered BaseAgent subclass."""
+    assert issubclass(FrankaCubeAgent, BaseAgent)
+    assert BaseAgent.get_registered_type("genesis_franka_cube") is FrankaCubeAgent
 
 
 def test_franka_env_with_none_robot():
