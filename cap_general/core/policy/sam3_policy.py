@@ -1,6 +1,7 @@
 """Local SAM3 segmentation model implementation."""
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -37,6 +38,13 @@ class SAM3PolicyConfig(BasePolicyConfig):
     load_from_hf: bool = True
     confidence_threshold: float = 0.0
     enable_inst_interactivity: bool = True
+    describe: str = field(
+        default=(
+            "Segments image regions from text prompts or point prompts using a "
+            "local SAM3 image segmentation model."
+        ),
+        kw_only=True,
+    )
 
 
 @BasePolicy.register()
@@ -45,8 +53,12 @@ class SAM3Policy(BasePolicy):
 
     config_cls = SAM3PolicyConfig
 
-    def __init__(self, config: SAM3PolicyConfig):
-        super().__init__(config=config)
+    def __init__(
+        self,
+        config: SAM3PolicyConfig,
+        logger: logging.Logger | None = None,
+    ):
+        super().__init__(config=config, logger=logger)
         self._device = config.device
         self._checkpoint_path = config.checkpoint_path
         self._load_from_hf = config.load_from_hf

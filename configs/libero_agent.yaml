@@ -1,0 +1,32 @@
+type: libero
+record_dir: ./outputs/libero
+max_retry: 5
+record_execute: true
+env:
+  type: libero
+  task_suite_name: libero_goal
+  task_id: 1
+  seed: 7
+  resolution: 256
+  libero_home: /Users/tongmeng/Desktop/codes/LIBERO
+  video_fmt: mp4
+  image_keys:
+    - agentview_image
+    - robot0_eye_in_hand_image
+policies:
+  starvla:
+    type: starvla
+    ckpt_path: /Users/tongmeng/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
+    device: auto
+    use_bf16: false
+    unnorm_key: null
+    use_ddim: true
+    num_ddim_steps: 10
+    image_size:
+      - 224
+      - 224
+server:
+  name: robot
+  host: 127.0.0.1
+  port: 8903
+  skill_folder: skills

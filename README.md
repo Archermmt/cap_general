@@ -131,7 +131,7 @@ from cap_general.genesis.apis.franka import GenesisFrankaApi
 franka_api = GenesisFrankaApi(robot=your_genesis_robot)
 
 # Get API documentation for policy model
-api_docs = franka_api.combined_doc()
+api_docs = franka_api._function_doc()
 
 # Use API methods
 franka_api.set_joint_positions([0.0, -0.3, 0.0, -2.0, 0.0, 1.5, 0.0])

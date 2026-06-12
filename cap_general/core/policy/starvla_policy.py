@@ -1,5 +1,6 @@
 """StarVLA policy implementation."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +22,13 @@ class StarVLAPolicyConfig(BasePolicyConfig):
     use_ddim: bool = True
     num_ddim_steps: int = 10
     image_size: tuple[int, int] | list[int] | None = field(default_factory=lambda: [224, 224])
+    describe: str = field(
+        default=(
+            "Predicts robot end-effector delta actions from camera images and "
+            "language task descriptions with StarVLA."
+        ),
+        kw_only=True,
+    )
 
 
 @BasePolicy.register()
@@ -29,8 +37,12 @@ class StarVLAPolicy(BasePolicy):
 
     config_cls = StarVLAPolicyConfig
 
-    def __init__(self, config: StarVLAPolicyConfig):
-        super().__init__(config=config)
+    def __init__(
+        self,
+        config: StarVLAPolicyConfig,
+        logger: logging.Logger | None = None,
+    ):
+        super().__init__(config=config, logger=logger)
         self._ckpt_path = config.ckpt_path
         self._device = config.device
         self._use_bf16 = config.use_bf16
@@ -66,15 +78,21 @@ class StarVLAPolicy(BasePolicy):
                 read_mode_config,
             )
         except ImportError as exc:
+            missing_module = getattr(exc, "name", None)
             raise ImportError(
                 "StarVLAPolicy requires starVLA, deployment, torch, pillow, and numpy "
-                "to be importable in the current environment."
+                f"to be importable in the current environment. Missing module: {missing_module!r}."
+                " Install StarVLA into the active Python environment."
             ) from exc
 
         framework = baseframework.from_pretrained(self._ckpt_path)
-        if self._use_bf16:
+        device = self._resolve_device(torch)
+        if self._use_bf16 and device.startswith("cuda"):
             framework = framework.to(torch.bfloat16)
-        self._framework = framework.to(self._device).eval()
+        elif self._use_bf16:
+            self.logger.warning("Skipping bfloat16 conversion because device=%s is not CUDA", device)
+        self._framework = framework.to(device).eval()
+        self._device = device
 
         model_cfg, _ = read_mode_config(self._ckpt_path)
         action_model_cfg = model_cfg["framework"]["action_model"]
@@ -93,6 +111,22 @@ class StarVLAPolicy(BasePolicy):
         )
         if self._unnorm_key is None:
             self._unnorm_key = self._norm_processor.unnorm_key
+
+    def _resolve_device(self, torch: Any) -> str:
+        requested = (self._device or "auto").lower()
+        if requested == "auto":
+            if torch.cuda.is_available():
+                return "cuda"
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                return "mps"
+            return "cpu"
+        if requested.startswith("cuda") and not torch.cuda.is_available():
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                self.logger.warning("CUDA requested but unavailable; using MPS on this machine")
+                return "mps"
+            self.logger.warning("CUDA requested but unavailable; using CPU")
+            return "cpu"
+        return self._device
 
     def reset(self, task_description: str | None = None) -> None:
         """Reset cached episode-level action chunks."""

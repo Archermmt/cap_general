@@ -1,0 +1,29 @@
+{
+  "ok": false,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/core/policy/starvla_policy.py\", line 71, in _load_model\n    from deployment.model_server.policy_norm_processor import (  # type: ignore[import-not-found]\n  File \"/Users/tongmeng/Desktop/codes/starVLA/deployment/model_server/policy_norm_processor.py\", line 32, in <module>\n    from starVLA.dataloader.gr00t_lerobot.registry import (\n  File \"/Users/tongmeng/Desktop/codes/starVLA/starVLA/dataloader/gr00t_lerobot/registry.py\", line 37, in <module>\n    from starVLA.dataloader.gr00t_lerobot.data_config import (\n  File \"/Users/tongmeng/Desktop/codes/starVLA/starVLA/dataloader/gr00t_lerobot/data_config.py\", line 8, in <module>\n    from starVLA.dataloader.gr00t_lerobot.datasets import ModalityConfig\n  File \"/Users/tongmeng/Desktop/codes/starVLA/starVLA/dataloader/gr00t_lerobot/datasets.py\", line 52, in <module>\n    from starVLA.dataloader.gr00t_lerobot.transform import ComposedModalityTransform\n  File \"/Users/tongmeng/Desktop/codes/starVLA/starVLA/dataloader/gr00t_lerobot/transform/__init__.py\", line 29, in <module>\n    from .video import (\n  File \"/Users/tongmeng/Desktop/codes/starVLA/starVLA/dataloader/gr00t_lerobot/transform/video.py\", line 18, in <module>\n    import albumentations as A\nModuleNotFoundError: No module named 'albumentations'\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/core/agent/base_agent.py\", line 394, in _execute_code\n    exec(code, self._exec_globals, self._exec_globals)\n  File \"<string>\", line 1, in <module>\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/libero/agent/libero_agent.py\", line 85, in libero_vla_episode\n    response = self._run_policy(policy_name, example=example, step=step_idx)\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/core/agent/base_agent.py\", line 421, in _run_policy\n    return policy_method(**kwargs)\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/core/policy/starvla_policy.py\", line 169, in inference\n    self._load_model()\n  File \"/Users/tongmeng/Desktop/codes/cap_general/cap_general/core/policy/starvla_policy.py\", line 82, in _load_model\n    raise ImportError(\nImportError: StarVLAPolicy requires starVLA, deployment, torch, pillow, and numpy to be importable in the current environment. Missing module: 'albumentations'. Install StarVLA into the active Python environment.\n",
+  "result": null,
+  "step_start": 0,
+  "step_end": 0,
+  "duration": 0.0016939640045166016,
+  "exec_cnt": 3,
+  "trial_cnt": 1,
+  "reward": 0.0,
+  "truncated": false,
+  "obs": {
+    "images": {
+      "agentview_image": "outputs/libero/step_3/trial_1/agentview_image_0.png",
+      "robot0_eye_in_hand_image": "outputs/libero/step_3/trial_1/robot0_eye_in_hand_image_0.png"
+    },
+    "main_image": "outputs/libero/step_3/trial_1/agentview_image_0.png",
+    "robot0_eef_pos": "[-0.2223983  -0.0183747   1.15445003]",
+    "robot0_eef_quat": "[ 0.99859083 -0.02045507 -0.04845237 -0.00709367]",
+    "robot0_gripper_qpos": "[ 0.020833 -0.020833]",
+    "robot0_joint_pos": "[-0.01858793 -0.1490713  -0.02690551 -2.47824178  0.00987954  2.23193464\n  0.77540636]",
+    "robot0_joint_pos_cos": "[ 0.99982725  0.98890943  0.99963807 -0.78793332  0.9999512  -0.61401572\n  0.71413664]",
+    "robot0_joint_pos_sin": "[-0.01858686 -0.1485198  -0.02690227 -0.61576057  0.00987938  0.7892938\n  0.70000633]",
+    "robot0_joint_vel": "[0. 0. 0. 0. 0. 0. 0.]",
+    "robot0_eef_axis_angle": "[ 3.15141235 -0.06455333 -0.15290887]",
+    "robot0_gripper_open": "[1.]"
+  }
+}

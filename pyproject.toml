@@ -1,3 +1,32 @@
+[project]
+name = "cap-general"
+version = "0.1.0"
+description = "Code-as-Policy framework components."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.20.0",
+    "gymnasium>=0.29.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+libero = [
+    "robosuite==1.4.0",
+    "bddl==1.0.1",
+    "future==0.18.2",
+    "gym==0.25.2",
+]
+
+[project.scripts]
+capcmd = "cap_general.interface.main:main"
+
+[tool.setuptools.packages.find]
+include = ["cap_general*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -5,10 +34,13 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
-[tool.black]
-line-length = 88
-target-version = ['py310']
+[tool.ruff]
+line-length = 120
+target-version = "py310"
 
-[tool.isort]
-profile = "black"
-multi_line_output = 3
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

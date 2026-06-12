@@ -6,13 +6,9 @@ from cap_general.core.agent import BaseAgent, BaseAgentConfig
 from cap_general.core.env import BaseEnv
 from cap_general.core.policy import (
     BasePolicy,
-    CallablePolicy,
     GraspNetPolicy,
     PyrokiPolicy,
     SAM3Policy,
-    StaticPolicy,
-    StaticPolicyConfig,
-    VLLMPolicy,
 )
 
 
@@ -26,13 +22,13 @@ class CoreDummyEnv(BaseEnv):
     def env_type(cls) -> str:
         return "core_dummy"
 
-    def _reset(self, *, seed=None, options=None):
-        return self.get_observation(), {"seed": seed, "options": options or {}}
+    def _reset(self, options=None):
+        return {"step": self.step_cnt}, {"seed": self._seed, "options": options or {}}
 
     def _step(self, action):
-        return self.get_observation(), 0.0, False, False, {"action": action}
+        return {"step": self.step_cnt}, 0.0, False, False, {"action": action}
 
-    def get_observation(self):
+    def get_observation(self, folder):
         return {"step": self.step_cnt}
 
 
@@ -63,10 +59,10 @@ class SimpleAgent(BaseAgent):
         return x * y
 
 
-def test_agent_combined_doc():
-    """Test that combined_doc extracts method signatures and docstrings."""
+def test_agent__function_doc():
+    """Test that _function_doc extracts method signatures and docstrings."""
     agent = SimpleAgent(config=BaseAgentConfig(env={"type": "core_dummy"}))
-    doc = agent.combined_doc()
+    doc = agent._function_doc()
 
     assert "add" in doc
     assert "multiply" in doc
@@ -74,30 +70,6 @@ def test_agent_combined_doc():
     assert "Multiply two numbers" in doc
     assert "a: int" in doc or "a:int" in doc
     assert "b: int" in doc or "b:int" in doc
-
-
-def test_static_policy_inference():
-    """Test static policy returns fixed code."""
-    fixed_code = "action = [1.0, 2.0, 3.0]"
-    model = StaticPolicy(config=StaticPolicyConfig(code=fixed_code))
-    result = model.inference(prompt="test prompt")
-
-    assert result.code == fixed_code
-    assert result.policy_name == "static"
-
-
-def test_callable_policy_inference():
-    """Test callable policy uses a function to generate code."""
-
-    def generator(prompt: str) -> str:
-        return f"# Generated for: {prompt}\naction = [0.0, 0.0, 0.0]"
-
-    model = CallablePolicy.from_config({"type": "callable", "generator_fn": generator})
-    result = model.inference(prompt="lift cube")
-
-    assert "Generated for: lift cube" in result.code
-    assert "action = [0.0, 0.0, 0.0]" in result.code
-    assert result.policy_name == "callable"
 
 
 def test_policy_base_cannot_instantiate():
@@ -109,9 +81,6 @@ def test_policy_base_cannot_instantiate():
 def test_core_registries_include_common_components():
     """Test that common core implementations are registered by type."""
     assert BaseAgent.agent_type() == "base_agent"
-    assert BasePolicy.get_registered_class("static") is StaticPolicy
-    assert BasePolicy.get_registered_class("callable") is CallablePolicy
-    assert BasePolicy.get_registered_class("vllm") is VLLMPolicy
     assert BasePolicy.get_registered_class("sam3") is SAM3Policy
     assert BasePolicy.get_registered_class("graspnet") is GraspNetPolicy
     assert BasePolicy.get_registered_class("pyroki") is PyrokiPolicy

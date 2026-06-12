@@ -1,7 +1,8 @@
 """Local PyRoKi motion planning model implementation."""
 
 import json
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,13 @@ class PyrokiPolicyConfig(BasePolicyConfig):
     target_link_name: str = "panda_hand"
     sphere_decomposition_path: str | Path | None = None
     min_distance_from_limits: float = 0.15
+    describe: str = field(
+        default=(
+            "Solves robot inverse kinematics and plans simple Cartesian "
+            "interpolation trajectories with PyRoKi."
+        ),
+        kw_only=True,
+    )
 
 
 @BasePolicy.register()
@@ -43,8 +51,12 @@ class PyrokiPolicy(BasePolicy):
 
     config_cls = PyrokiPolicyConfig
 
-    def __init__(self, config: PyrokiPolicyConfig):
-        super().__init__(config=config)
+    def __init__(
+        self,
+        config: PyrokiPolicyConfig,
+        logger: logging.Logger | None = None,
+    ):
+        super().__init__(config=config, logger=logger)
         self._robot_urdf_name = config.robot_urdf_name
         self._target_link_name = config.target_link_name
         self._sphere_decomposition_path = config.sphere_decomposition_path

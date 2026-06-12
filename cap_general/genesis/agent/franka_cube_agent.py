@@ -91,7 +91,7 @@ class FrankaCubeAgent(BaseAgent):
             "cube_height": cube_pos[2],
         }
 
-    def compute_reward(self) -> float:
+    def _compute_reward(self) -> float:
         """Compute reward from cube lift height."""
         if self.cube is None:
             return 0.0
@@ -109,7 +109,7 @@ class FrankaCubeAgent(BaseAgent):
         """Return cube-task functions exposed to generated code."""
         return {
             "get_observation": self.get_observation,
-            "compute_reward": self.compute_reward,
+            "_compute_reward": self._compute_reward,
             "is_success": self.is_success,
             "step_simulation": self.step_simulation,
             "run": self.run,
@@ -150,7 +150,7 @@ class FrankaCubeAgent(BaseAgent):
                 actions_fn(obs)
 
             self.step_simulation()
-            reward = self.compute_reward()
+            reward = self._compute_reward()
             total_reward += reward
 
             if self.is_success():

@@ -1,11 +1,12 @@
 """Base classes for Gymnasium-style environment control loops."""
 
 import io
+import logging
 import time
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, SupportsFloat, TypeVar
+from typing import Any, ClassVar, SupportsFloat
 
 try:
     from gymnasium import Env
@@ -14,20 +15,19 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
     class Env:
         """Minimal fallback matching the Gymnasium Env reset hook."""
 
-        def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
+        def reset(self, options: dict[str, Any] | None = None):
             self.np_random = None
 
 
 from cap_general.core.base import RegisteredBase
-
-ObsType = TypeVar("ObsType")
-ActType = TypeVar("ActType")
+from cap_general.core.utils import ActType, ObsType
 
 
 @dataclass
 class BaseEnvConfig:
     """Configuration for constructing an environment."""
 
+    seed: int | None = None
     reset_time: float = 2.0
     video_fmt: str = ""
     image_keys: list[str] = field(default_factory=list)
@@ -45,7 +45,9 @@ class BaseEnv(RegisteredBase, Env):
         """Return the registry key for this environment."""
         return "base_env"
 
-    def __init__(self, config: BaseEnvConfig):
+    def __init__(self, config: BaseEnvConfig, logger: logging.Logger | None = None):
+        self._logger = logger or logging.getLogger(__name__)
+        self._seed = config.seed
         self._reset_time = config.reset_time
         self._video_fmt = config.video_fmt
         self._image_keys = list(config.image_keys or [])
@@ -53,30 +55,18 @@ class BaseEnv(RegisteredBase, Env):
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
 
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-        pose_only: bool = False,
-    ) -> tuple[ObsType, dict[str, Any]]:
+    def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment and return the initial observation and info."""
         self._step_cnt = 0
         self._video_frames = {key: [] for key in self._image_keys}
-        obs, info = self._reset(seed=seed, options=options, pose_only=pose_only)
+        obs, info = self._reset(options=options)
         self._last_obs = obs
         if self._reset_time > 0:
             time.sleep(self._reset_time)
         return obs, info
 
     @abstractmethod
-    def _reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
-        pose_only: bool = False,
-    ) -> tuple[ObsType, dict[str, Any]]:
+    def _reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment and return the initial observation and info."""
         raise NotImplementedError
 
@@ -92,28 +82,29 @@ class BaseEnv(RegisteredBase, Env):
         self._record_frame(obs)
         return obs, reward, terminated, truncated, info
 
-    def get_observation(self) -> dict:
+    def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
         obs = {}
         if self._image_keys and isinstance(self._last_obs, dict):
-            images = {key: self._last_obs[key] for key in self._image_keys if key in self._last_obs}
-            obs.update({"images": images, "main_image": images.get(self._image_keys[0])})
+            try:
+                import imageio.v3 as iio
+            except ImportError as exc:
+                raise ImportError("Saving observation images requires imageio") from exc
+
+            image_dir = Path(folder)
+            image_dir.mkdir(parents=True, exist_ok=True)
+            images = {}
+            for image_key in self._image_keys:
+                image = self._last_obs.get(image_key)
+                if image is None:
+                    continue
+                image_path = image_dir / f"{image_key}_{self._step_cnt}.png"
+                iio.imwrite(image_path, self._frame_to_array_for_key(image_key, image))
+                images[image_key] = str(image_path)
+            if images:
+                obs.update({"images": images, "main_image": images.get(self._image_keys[0])})
         obs.update(self._normalize_states())
         return obs
-
-    def _normalize_states(self) -> dict:
-        """Return normalized non-image state values."""
-        return {}
-
-    def _record_frame(self, obs: ObsType) -> None:
-        if not self._video_fmt or not self._image_keys:
-            return
-        if not isinstance(obs, dict):
-            return
-        for key in self._image_keys:
-            frame = obs.get(key)
-            if frame is not None:
-                self._video_frames.setdefault(key, []).append(frame)
 
     def record(
         self, folder: str | Path, start_frm: int = 0, end_frm: int | None = None
@@ -131,18 +122,37 @@ class BaseEnv(RegisteredBase, Env):
             selected_frames = frames[start_frm : end + 1]
             if not selected_frames:
                 continue
-            video_path = record_path / f"{image_key}_{start_frm:06d}_{end:06d}.{self._video_fmt}"
-            videos[image_key] = str(self._save_video(video_path, selected_frames))
-        return {"videos": videos, "main_video": videos[self._image_keys[0]]}
+            video_path = record_path / f"{image_key}_{start_frm}_{end}.{self._video_fmt}"
+            videos[image_key] = str(self._save_video(video_path, selected_frames, image_key=image_key))
+        main_video = videos.get(self._image_keys[0]) if self._image_keys else None
+        return {"videos": videos, "main_video": main_video}
+
+    def _normalize_states(self) -> dict:
+        """Return normalized non-image state values."""
+        return {}
+
+    def _record_frame(self, obs: ObsType) -> None:
+        if not self._video_fmt or not self._image_keys:
+            return
+        if not isinstance(obs, dict):
+            return
+        for key in self._image_keys:
+            frame = obs.get(key)
+            if frame is not None:
+                self._video_frames.setdefault(key, []).append(frame)
 
     @classmethod
-    def _save_video(cls, path: Path, frames: list[Any]) -> Path:
+    def _save_video(cls, path: Path, frames: list[Any], image_key: str | None = None) -> Path:
         try:
             import imageio.v3 as iio
         except ImportError as exc:
             raise ImportError("Saving video requires imageio") from exc
-        iio.imwrite(path, [cls._frame_to_array(frame) for frame in frames])
+        iio.imwrite(path, [cls._frame_to_array_for_key(image_key, frame) for frame in frames])
         return path
+
+    @classmethod
+    def _frame_to_array_for_key(cls, image_key: str | None, frame: Any):
+        return cls._frame_to_array(frame)
 
     @staticmethod
     def _frame_to_array(frame: Any):
@@ -161,6 +171,11 @@ class BaseEnv(RegisteredBase, Env):
         if array.dtype != np.uint8:
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
+    @property
+    def logger(self) -> logging.Logger:
+        """Shared logger for this environment."""
+        return self._logger
 
     @abstractmethod
     def _step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:

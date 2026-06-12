@@ -1,5 +1,6 @@
 """Hugging Face policy implementation."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +34,13 @@ class HuggingFacePolicyConfig(BasePolicyConfig):
     model_kwargs: dict[str, Any] = field(default_factory=dict)
     tokenizer_kwargs: dict[str, Any] = field(default_factory=dict)
     generation_kwargs: dict[str, Any] = field(default_factory=dict)
+    describe: str = field(
+        default=(
+            "Generates text or code from prompts with a local Hugging Face "
+            "Transformers causal language model."
+        ),
+        kw_only=True,
+    )
 
 
 @BasePolicy.register()
@@ -41,9 +49,13 @@ class HuggingFacePolicy(BasePolicy):
 
     config_cls = HuggingFacePolicyConfig
 
-    def __init__(self, config: HuggingFacePolicyConfig):
+    def __init__(
+        self,
+        config: HuggingFacePolicyConfig,
+        logger: logging.Logger | None = None,
+    ):
         """Initialize a local Transformers model."""
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
         self._model_path = config.model_path
         self._device = config.device
         self._torch_dtype = config.torch_dtype

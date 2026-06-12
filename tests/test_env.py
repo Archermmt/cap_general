@@ -17,26 +17,24 @@ class DummyEnv(BaseEnv):
 
     def _reset(
         self,
-        *,
-        seed: int | None = None,
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return self.get_observation(), {"seed": seed, "options": options or {}}
+        return {"step": self.step_cnt}, {"seed": self._seed, "options": options or {}}
 
     def _step(
         self,
         action: Any,
     ) -> tuple[dict[str, Any], SupportsFloat, bool, bool, dict[str, Any]]:
-        return self.get_observation(), 0.0, False, False, {"action": action}
+        return {"step": self.step_cnt}, 0.0, False, False, {"action": action}
 
-    def get_observation(self) -> dict[str, Any]:
+    def get_observation(self, folder) -> dict[str, Any]:
         return {"step": self.step_cnt}
 
 
 def test_env_base_reset_returns_gymnasium_tuple():
-    env = DummyEnv(config=BaseEnvConfig())
+    env = DummyEnv(config=BaseEnvConfig(seed=123))
 
-    obs, info = env.reset(seed=123, options={"difficulty": "easy"})
+    obs, info = env.reset(options={"difficulty": "easy"})
 
     assert obs == {"step": 0}
     assert info == {"seed": 123, "options": {"difficulty": "easy"}}

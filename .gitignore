@@ -56,3 +56,4 @@ genesis_cache/
 
 # Logs
 *.log
+*_record

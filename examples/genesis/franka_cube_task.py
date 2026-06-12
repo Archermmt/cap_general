@@ -12,21 +12,23 @@ Usage:
     uv run python examples/cap/franka_cube_task.py --model-path /path/to/model
 """
 
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import argparse
+
 from cap_general.core.models import (
-    StaticPolicyModel,
     CallablePolicyModel,
     HuggingFacePolicyModel,
+    StaticPolicyModel,
 )
 from cap_general.genesis.apis.franka import GenesisFrankaApi
-from cap_general.core.env import CapEnv
 from cap_general.genesis.tasks.franka_cube import FrankaCubeLiftTask
+
+from cap_general.core.env import CapEnv
 
 
 def create_static_policy_code() -> str:
@@ -99,9 +101,7 @@ reward = 0.1
 done = False
 """
 
-    return CallablePolicyModel(
-        generator_fn=policy_generator, model_name="RuleBasedPolicy"
-    )
+    return CallablePolicyModel(generator_fn=policy_generator, model_name="RuleBasedPolicy")
 
 
 def run_with_static_policy():
@@ -114,7 +114,7 @@ def run_with_static_policy():
     franka_api = GenesisFrankaApi(robot=None)  # No actual robot for this example
 
     # Get API documentation
-    api_docs = franka_api.combined_doc()
+    api_docs = franka_api._function_doc()
 
     # Create task description
     task_description = """
@@ -184,7 +184,7 @@ def run_with_callable_policy():
 
     # Create API
     franka_api = GenesisFrankaApi(robot=None)
-    api_docs = franka_api.combined_doc()
+    api_docs = franka_api._function_doc()
 
     # Create task description
     task_description = """
@@ -247,7 +247,7 @@ def run_with_huggingface_model(model_path: str):
     try:
         # Create API
         franka_api = GenesisFrankaApi(robot=None)
-        api_docs = franka_api.combined_doc()
+        api_docs = franka_api._function_doc()
 
         # Create task description
         task_description = """
@@ -258,7 +258,8 @@ def run_with_huggingface_model(model_path: str):
         # Load Hugging Face model
         print("\nLoading model (this may take a while)...")
         policy_model = HuggingFacePolicyModel(
-            model_path=model_path, device="cpu"  # Use "cuda" if GPU available
+            model_path=model_path,
+            device="cpu",  # Use "cuda" if GPU available
         )
 
         # Create CAP environment

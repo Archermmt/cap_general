@@ -1,7 +1,8 @@
 """Local Contact-GraspNet model implementation."""
 
+import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,13 @@ class GraspNetPolicyConfig(BasePolicyConfig):
     checkpoint_dir: str | Path | None = None
     checkpoint_name: str = "model.pt"
     device: str = "cuda"
+    describe: str = field(
+        default=(
+            "Predicts 6-DoF object grasps from RGB-D-derived point clouds, depth, "
+            "camera intrinsics, and segmentation masks using Contact-GraspNet."
+        ),
+        kw_only=True,
+    )
 
 
 @BasePolicy.register()
@@ -79,8 +87,12 @@ class GraspNetPolicy(BasePolicy):
 
     config_cls = GraspNetPolicyConfig
 
-    def __init__(self, config: GraspNetPolicyConfig):
-        super().__init__(config=config)
+    def __init__(
+        self,
+        config: GraspNetPolicyConfig,
+        logger: logging.Logger | None = None,
+    ):
+        super().__init__(config=config, logger=logger)
         self._vendor_root = Path(config.vendor_root)
         self._checkpoint_root = (
             Path(config.checkpoint_root)

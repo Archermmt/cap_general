@@ -57,7 +57,7 @@ class RegisteredBase(ABC):
         return subclass(*args, **kwargs)
 
     @classmethod
-    def from_config(cls, config: Any) -> "RegisteredBase":
+    def from_config(cls, config: Any, **kwargs: Any) -> "RegisteredBase":
         """Instantiate a registered subclass from config with a ``type`` field."""
         if is_dataclass(config):
             config_data = dict(config.__dict__)
@@ -75,7 +75,7 @@ class RegisteredBase(ABC):
         if config_cls is None or not is_dataclass(config_cls):
             raise TypeError(f"Registered class {subclass.__name__} must define dataclass config_cls")
         config_obj = cls._build_dataclass_config(config_cls, config_data)
-        return subclass(config=config_obj)
+        return subclass(config=config_obj, **kwargs)
 
     @staticmethod
     def _build_dataclass_config(config_cls, config_data: dict[str, Any]):

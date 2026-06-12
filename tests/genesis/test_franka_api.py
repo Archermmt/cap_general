@@ -41,12 +41,12 @@ def test_franka_env_registry_and_base():
 
 
 def test_franka_cuda_agent_prompt_docs():
-    """Test that combined_doc includes cube-task methods."""
+    """Test that _function_doc includes cube-task methods."""
     agent = FrankaCubeAgent(config=FrankaCubeAgentConfig())
-    doc = agent.combined_doc()
+    doc = agent._function_doc()
 
     assert "get_observation" in doc
-    assert "compute_reward" in doc
+    assert "_compute_reward" in doc
     assert "run" in doc
 
 

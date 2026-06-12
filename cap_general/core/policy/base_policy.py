@@ -1,7 +1,8 @@
 """Base classes for policies."""
 
 from abc import abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
 from typing import Any, ClassVar, Optional
 
 from cap_general.core.base import RegisteredBase
@@ -45,7 +46,10 @@ def normalize_prompt(prompt: str | list[dict[str, Any]]) -> str | list[dict[str,
 class BasePolicyConfig:
     """Configuration for constructing a policy."""
 
-    pass
+    describe: str = field(
+        default="Generic policy interface for local model inference.",
+        kw_only=True,
+    )
 
 
 class BasePolicy(RegisteredBase):
@@ -55,8 +59,9 @@ class BasePolicy(RegisteredBase):
     config_cls: ClassVar[type[BasePolicyConfig]] = BasePolicyConfig
     registry_key_method: ClassVar[str] = "policy_type"
 
-    def __init__(self, config: BasePolicyConfig):
+    def __init__(self, config: BasePolicyConfig, logger: logging.Logger | None = None):
         self._config = config
+        self._logger = logger or logging.getLogger(__name__)
 
     @classmethod
     def policy_type(cls) -> str:
@@ -67,6 +72,16 @@ class BasePolicy(RegisteredBase):
     def inference(self, *args: Any, **kwargs: Any) -> Any:
         """Run local model inference."""
         pass
+
+    @property
+    def describe(self) -> str:
+        """Return the configured policy capability description."""
+        return self._config.describe
+
+    @property
+    def logger(self) -> logging.Logger:
+        """Shared logger for this policy."""
+        return self._logger
 
     @property
     def name(self) -> str:

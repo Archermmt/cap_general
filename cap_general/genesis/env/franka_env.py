@@ -1,6 +1,8 @@
 """Genesis Franka environment controller."""
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, List, SupportsFloat
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
@@ -20,9 +22,13 @@ class FrankaEnv(BaseEnv):
     name = "Genesis Franka Env"
     config_cls = FrankaEnvConfig
 
-    def __init__(self, config: FrankaEnvConfig):
+    def __init__(
+        self,
+        config: FrankaEnvConfig,
+        logger: logging.Logger | None = None,
+    ):
         """Initialize with an optional Genesis robot instance."""
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
         self._robot = config.robot
 
     @classmethod
@@ -105,9 +111,7 @@ class FrankaEnv(BaseEnv):
     def move_to_pose(self, x: float, y: float, z: float, duration: float = 1.0) -> bool:
         """Move the end-effector to a Cartesian position."""
         if self._robot is None:
-            print(
-                f"[Mock] move_to_pose called with x={x}, y={y}, z={z}, duration={duration}"
-            )
+            print(f"[Mock] move_to_pose called with x={x}, y={y}, z={z}, duration={duration}")
             return True
 
         try:
@@ -130,15 +134,12 @@ class FrankaEnv(BaseEnv):
 
     def _reset(
         self,
-        *,
-        seed: int | None = None,
         options: dict[str, Any] | None = None,
-        pose_only: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset environment state if the wrapped robot supports it."""
         if self._robot is not None and hasattr(self._robot, "reset"):
             self._robot.reset()
-        return self.get_observation(), {"seed": seed, "options": options or {}}
+        return self.get_observation(folder=Path(".")), {"seed": self._seed, "options": options or {}}
 
     def _step(
         self, action: dict[str, Any] | None = None
@@ -153,17 +154,17 @@ class FrankaEnv(BaseEnv):
             pose = action["pose"]
             self.move_to_pose(float(pose[0]), float(pose[1]), float(pose[2]))
 
-        obs = self.get_observation()
-        return obs, self.compute_reward(), self.task_completed(), False, {"action": action}
+        obs = self.get_observation(folder=Path("."))
+        return obs, self._compute_reward(), self.task_completed(), False, {"action": action}
 
-    def get_observation(self) -> dict[str, Any]:
+    def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Return a lightweight environment observation."""
         return {
             "joint_positions": self.get_joint_positions(),
             "ee_pose": self.get_ee_pose(),
         }
 
-    def compute_reward(self) -> SupportsFloat:
+    def _compute_reward(self) -> SupportsFloat:
         """Compute the current reward."""
         return 0.0
 
