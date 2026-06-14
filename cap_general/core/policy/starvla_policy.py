@@ -18,6 +18,7 @@ class StarVLAPolicyConfig(BasePolicyConfig):
     ckpt_path: str
     device: str = "cuda"
     use_bf16: bool = False
+    action_dtype: str | None = None
     unnorm_key: str | None = None
     use_ddim: bool = True
     num_ddim_steps: int = 10
@@ -46,6 +47,7 @@ class StarVLAPolicy(BasePolicy):
         self._ckpt_path = config.ckpt_path
         self._device = config.device
         self._use_bf16 = config.use_bf16
+        self._action_dtype = config.action_dtype
         self._unnorm_key = config.unnorm_key
         self._use_ddim = config.use_ddim
         self._num_ddim_steps = config.num_ddim_steps
@@ -92,6 +94,7 @@ class StarVLAPolicy(BasePolicy):
         elif self._use_bf16:
             self.logger.warning("Skipping bfloat16 conversion because device=%s is not CUDA", device)
         self._framework = framework.to(device).eval()
+        self._patch_action_model_input_dtype(torch)
         self._device = device
 
         model_cfg, _ = read_mode_config(self._ckpt_path)
@@ -127,6 +130,26 @@ class StarVLAPolicy(BasePolicy):
             self.logger.warning("CUDA requested but unavailable; using CPU")
             return "cpu"
         return self._device
+
+    def _patch_action_model_input_dtype(self, torch: Any) -> None:
+        if self._action_dtype is None:
+            return
+
+        action_model = getattr(self._framework, "action_model", None)
+        if action_model is None or getattr(action_model, "_cap_dtype_patched", False):
+            return
+
+        dtype = getattr(torch, self._action_dtype, None)
+        if dtype is None:
+            raise ValueError(f"Unknown StarVLA action_dtype: {self._action_dtype!r}")
+
+        predict_action = action_model.predict_action
+
+        def _predict_action_with_dtype(actions_hidden_states, *args, **kwargs):
+            return predict_action(actions_hidden_states.to(dtype=dtype), *args, **kwargs)
+
+        action_model.predict_action = _predict_action_with_dtype
+        action_model._cap_dtype_patched = True
 
     def reset(self, task_description: str | None = None) -> None:
         """Reset cached episode-level action chunks."""

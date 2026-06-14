@@ -17,8 +17,9 @@ policies:
   starvla:
     type: starvla
     ckpt_path: /Users/tongmeng/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
-    device: auto
+    device: cpu
     use_bf16: false
+    action_dtype: float32
     unnorm_key: null
     use_ddim: true
     num_ddim_steps: 10
