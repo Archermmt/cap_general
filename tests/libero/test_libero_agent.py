@@ -19,14 +19,8 @@ from __future__ import annotations
 import asyncio
 import os
 import platform
-import sys
-from pathlib import Path
 
-if __package__:
-    from ..utils import call_tool, print_execution_summary, print_record
-else:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import call_tool, print_execution_summary, print_record
+from cap_general.core.utils.test_utils import call_tool, print_execution_summary, print_record
 
 if platform.system() == "Darwin":
     if os.environ.get("MUJOCO_GL") == "egl":
