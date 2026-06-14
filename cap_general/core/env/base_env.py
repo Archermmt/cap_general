@@ -28,7 +28,7 @@ class BaseEnvConfig:
     """Configuration for constructing an environment."""
 
     seed: int | None = None
-    reset_time: float = 2.0
+    reset_time: float = 5.0
     video_fmt: str = ""
     image_keys: list[str] = field(default_factory=list)
 
@@ -61,6 +61,7 @@ class BaseEnv(RegisteredBase, Env):
         self._video_frames = {key: [] for key in self._image_keys}
         obs, info = self._reset(options=options)
         self._last_obs = obs
+        print(f"[TMINFO] reset in {self._reset_time}s", flush=True)
         if self._reset_time > 0:
             time.sleep(self._reset_time)
         return obs, info
@@ -84,26 +85,18 @@ class BaseEnv(RegisteredBase, Env):
 
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
-        obs = {}
+        images = {}
         if self._image_keys and isinstance(self._last_obs, dict):
-            try:
-                import imageio.v3 as iio
-            except ImportError as exc:
-                raise ImportError("Saving observation images requires imageio") from exc
-
             image_dir = Path(folder)
             image_dir.mkdir(parents=True, exist_ok=True)
-            images = {}
             for image_key in self._image_keys:
                 image = self._last_obs.get(image_key)
                 if image is None:
                     continue
                 image_path = image_dir / f"{image_key}_{self._step_cnt}.png"
-                iio.imwrite(image_path, self._frame_to_array_for_key(image_key, image))
-                images[image_key] = str(image_path)
-            if images:
-                obs.update({"images": images, "main_image": images.get(self._image_keys[0])})
-        obs.update(self._normalize_states())
+                images[image_key] = self._save_image(image_path, image)
+        main_image = images.get(self._image_keys[0]) if self._image_keys else None
+        obs = {"images": images, "main_image": main_image, **self._normalize_states()}
         return obs
 
     def record(
@@ -123,7 +116,7 @@ class BaseEnv(RegisteredBase, Env):
             if not selected_frames:
                 continue
             video_path = record_path / f"{image_key}_{start_frm}_{end}.{self._video_fmt}"
-            videos[image_key] = str(self._save_video(video_path, selected_frames, image_key=image_key))
+            videos[image_key] = self._save_video(video_path, selected_frames)
         main_video = videos.get(self._image_keys[0]) if self._image_keys else None
         return {"videos": videos, "main_video": main_video}
 
@@ -141,18 +134,21 @@ class BaseEnv(RegisteredBase, Env):
             if frame is not None:
                 self._video_frames.setdefault(key, []).append(frame)
 
-    @classmethod
-    def _save_video(cls, path: Path, frames: list[Any], image_key: str | None = None) -> Path:
+    def _save_video(self, path: Path, frames: list[Any]) -> Path:
         try:
             import imageio.v3 as iio
         except ImportError as exc:
             raise ImportError("Saving video requires imageio") from exc
-        iio.imwrite(path, [cls._frame_to_array_for_key(image_key, frame) for frame in frames])
-        return path
+        iio.imwrite(path, [self._frame_to_array(frame) for frame in frames])
+        return str(path)
 
-    @classmethod
-    def _frame_to_array_for_key(cls, image_key: str | None, frame: Any):
-        return cls._frame_to_array(frame)
+    def _save_image(self, path: Path, image: Any) -> Path:
+        try:
+            import imageio.v3 as iio
+        except ImportError as exc:
+            raise ImportError("Saving observation images requires imageio") from exc
+        iio.imwrite(path, self._frame_to_array(image))
+        return str(path)
 
     @staticmethod
     def _frame_to_array(frame: Any):

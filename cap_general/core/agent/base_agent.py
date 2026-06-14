@@ -77,11 +77,11 @@ class BaseAgent(RegisteredBase):
     def __init__(self, config: BaseAgentConfig):
         """Initialize an agent from config."""
         self._config = config
-        self._record_dir = Path(self._config.record_dir)
-        self._logger = self._build_logger(self._record_dir)
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
+        self._record_dir = Path(self._config.record_dir)
+        self._logger = self._build_logger(self._record_dir)
         self._reset_frequency = ResetFrequency(self._config.reset_frequency)
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []

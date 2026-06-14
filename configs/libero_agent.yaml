@@ -8,6 +8,7 @@ env:
   task_id: 1
   seed: 7
   resolution: 256
+  reset_time: 5
   libero_home: /Users/tongmeng/Desktop/codes/LIBERO
   video_fmt: mp4
   image_keys:
