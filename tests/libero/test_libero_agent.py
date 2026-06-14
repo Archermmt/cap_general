@@ -34,7 +34,7 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 _DEFAULT_CONFIG = "configs/libero_agent.yaml"
 _DEFAULT_MAX_STEPS = 300
-_DEFAULT_TRIAL_NUM = 3
+_DEFAULT_TRIAL_NUM = 1
 
 TASKS = [
     "put the bowl on the stove",
