@@ -1,0 +1,89 @@
+---
+name: {agent_id}_reset_agent
+description: Reset the {agent_name} agent with its MCP-registered reset tool, then display the returned obs.main_image with the media image display tool.
+metadata: {"nanobot":{"emoji":"🔄"}}
+---
+
+# Reset Agent Skill
+
+Reset the current `{agent_name}` agent by calling `{agent_id}_reset`, then use the returned `obs` object to display the primary image with the `media` tool.
+
+## Features
+
+- Reset the active `{agent_name}` agent or environment
+- Support reset options such as `reset_level` and `episode_idx`
+- Read the post-reset observation from the `{agent_id}_reset` return value
+- Display the returned `main_image` with `media_type="image"` and `mode="display"`
+
+## Tool Parameters
+
+The reset skill uses the `{agent_id}_reset` tool.
+
+### Required Parameters
+
+None.
+
+### Optional Parameters
+
+- `options` (object): Reset options passed to `{agent_id}_reset`.
+  - `reset_level`: Reset scope. `0` resets robot pose, `1` resets environment, `2` resets full agent state. Defaults to full agent reset.
+  - `episode_idx`: LIBERO initial state index. Defaults to `0` when used by LIBERO.
+
+## Usage Examples
+
+### Reset The Agent
+
+Reset the agent with default options:
+
+```json
+{"name": "{agent_id}_reset", "arguments": {"options": {}}}
+```
+
+For LIBERO-style episodes, reset to the first initial state:
+
+```json
+{"name": "{agent_id}_reset", "arguments": {"options": {"episode_idx": 0}}}
+```
+
+### Use Returned Post-Reset State
+
+The reset response includes `obs`; use that object directly instead of calling `{agent_id}_get_obs` again.
+
+Example reset response shape:
+
+```json
+{
+  "ok": true,
+  "obs": {
+    "images": {
+      "agentview_image": "outputs/libero/step_0/trial_0/agentview_image_0.png"
+    },
+    "main_image": "outputs/libero/step_0/trial_0/agentview_image_0.png",
+    "robot0_eef_pos": [0.0, 0.0, 0.0]
+  }
+}
+```
+
+Display the returned `obs.main_image`:
+
+```json
+{"name": "media", "arguments": {"media_type": "image", "mode": "display", "media_path": "<absolute path from obs.main_image>", "prompt": "Post-reset agent observation"}}
+```
+
+If `obs.main_image` is missing but `obs.images` contains camera images, display the first useful camera image from `obs.images`.
+
+## Required Workflow
+
+1. Call `{agent_id}_reset`.
+2. Read `obs` from the reset response.
+3. If `obs.main_image` is present, convert it to an absolute path if needed.
+4. Call `media` with `media_type="image"`, `mode="display"`, and the `obs.main_image` path.
+5. If `obs.main_image` is missing, display the first available path from `obs.images`.
+
+## Important Rules
+
+1. **ALWAYS use `{agent_id}_reset`** to reset the agent. Do not call environment internals directly.
+2. **Use the `obs` returned by reset**. Do not call `{agent_id}_get_obs` just to fetch the post-reset image.
+3. **Display the returned primary image** using the `media` tool with `media_type="image"` and `mode="display"`.
+4. **Use absolute paths for `media` display**. If reset returns a relative image path, convert it to an absolute local path before calling `media`.
+5. **Do not pass unsupported reset options**. If unsure, use an empty `options` object or inspect `{agent_id}_agent_doc` for reset rules.

@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.utils import ActType, ObsType
+from cap_general.core.utils import ActType, ObsType, ResetLevel
 
 
 @dataclass
@@ -57,8 +57,10 @@ class BaseEnv(RegisteredBase, Env):
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment and return the initial observation and info."""
-        self._step_cnt = 0
-        self._video_frames = {key: [] for key in self._image_keys}
+        reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
+        if reset_level >= ResetLevel.AGENT:
+            self._step_cnt = 0
+            self._video_frames = {key: [] for key in self._image_keys}
         obs, info = self._reset(options=options)
         self._last_obs = obs
         if self._reset_time > 0:

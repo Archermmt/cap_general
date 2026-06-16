@@ -29,7 +29,8 @@ policies:
       - 224
       - 224
 server:
-  name: robot
+  agent_name: 七仔
+  agent_id: robot
   host: 127.0.0.1
   port: 8903
-  skill_folder: skills
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

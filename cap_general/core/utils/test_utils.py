@@ -10,7 +10,7 @@ def print_execution_summary(prefix: str, result: dict[str, Any]) -> None:
     print(
         f"{prefix} Execution summary: "
         f"steps: {result.get('step_start')}..{result.get('step_end')}, "
-        f"duration: {result.get('duration')}s, "
+        f"duration: {result.get('duration')}, "
         f"reward: {result.get('reward')}"
     )
 
@@ -20,7 +20,7 @@ def print_record(prefix: str, record: dict[str, Any]) -> None:
     print(
         f"\n{prefix} Record summary: "
         f"step: {info.get('total_step')}, "
-        f"duration: {info.get('total_duration')}s, "
+        f"duration: {info.get('total_duration')}, "
         f"execute: {info.get('total_execute')}"
     )
 

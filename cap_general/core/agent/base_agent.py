@@ -42,10 +42,20 @@ class Tee(io.TextIOBase):
 class ServerConfig:
     """Configuration for the MCP server used by an agent."""
 
-    name: str = "mcp"
+    agent_name: str = "mcp"
+    agent_id: str = "mcp"
     host: str = "127.0.0.1"
     port: int = 8080
     skill_folder: str = "skills"
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        """Keep old ``name`` configs usable while preferring agent_id/name."""
+        if self.name:
+            if self.agent_id == "mcp":
+                self.agent_id = self.name
+            if self.agent_name == "mcp":
+                self.agent_name = self.name
 
 
 @dataclass
@@ -77,6 +87,7 @@ class BaseAgent(RegisteredBase):
     def __init__(self, config: BaseAgentConfig):
         """Initialize an agent from config."""
         self._config = config
+        self._config.server = self._build_server_config(self._config.server)
         self._record_dir = Path(self._config.record_dir)
         self._logger = self._build_logger(self._record_dir)
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
@@ -98,7 +109,7 @@ class BaseAgent(RegisteredBase):
         """Return the MCP server URL configured by an agent YAML file."""
         data = cls._load_yaml_config(config_path)
         server = data.get("server", {})
-        s_config = ServerConfig(**server) if isinstance(server, dict) else server
+        s_config = cls._build_server_config(server)
         return f"http://{s_config.host}:{s_config.port}/mcp"
 
     @staticmethod
@@ -142,6 +153,16 @@ class BaseAgent(RegisteredBase):
         return logger
 
     @staticmethod
+    def _build_server_config(config: ServerConfig | dict[str, Any] | None) -> ServerConfig:
+        if config is None:
+            return ServerConfig()
+        if isinstance(config, ServerConfig):
+            return config
+        if isinstance(config, dict):
+            return ServerConfig(**config)
+        raise TypeError(f"Expected ServerConfig or dict, got {type(config).__name__}")
+
+    @staticmethod
     def _build_env(config: dict[str, Any], logger: logging.Logger) -> BaseEnv:
         return BaseEnv.from_config(config, logger=logger)
 
@@ -172,7 +193,7 @@ class BaseAgent(RegisteredBase):
             self._step_infos, self._step_codes = [], []
             self._plan, self._plan_start = {}, time.time()
             self._clear_record_dir_contents()
-        return {"ok": True}
+        return {"ok": True, "obs": self.get_obs()}
 
     def agent_doc(self) -> dict:
         """Return agent instructions and available tool references.
@@ -257,7 +278,7 @@ class BaseAgent(RegisteredBase):
                 "executes": self._step_infos,
                 "total_execute": len(self._step_infos),
                 "total_step": self._env.step_cnt,
-                "total_duration": time.time() - self._plan_start,
+                "total_duration": self._format_duration(time.time() - self._plan_start),
             }
             code = self._join_codes()
             start_frm, end_frm = 0, self._env.step_cnt
@@ -311,7 +332,8 @@ class BaseAgent(RegisteredBase):
             raise ImportError("Serving an agent over MCP requires the mcp package") from exc
 
         s_config = self._config.server
-        server = FastMCP(s_config.name, host=s_config.host, port=s_config.port)
+        self._copy_skills_for_server(s_config)
+        server = FastMCP(s_config.agent_id, host=s_config.host, port=s_config.port)
         for method_name in (
             "reset",
             "agent_doc",
@@ -328,17 +350,60 @@ class BaseAgent(RegisteredBase):
                 self._logger.info("MCP tool call: %s", _name)
                 return _method(*args, **kwargs)
 
-            _wrapped.__doc__ = f"[{s_config.name} only] " + self._mcp_tool_doc(method_name, method)
+            _wrapped.__doc__ = f"[{s_config.agent_id} only] " + self._mcp_tool_doc(method_name, method)
             _wrapped.__signature__ = inspect.signature(method)  # type: ignore[attr-defined]
             server.tool()(_wrapped)
 
         self._logger.info(
             "Starting MCP server %s at http://%s:%s/mcp",
-            s_config.name,
+            s_config.agent_id,
             s_config.host,
             s_config.port,
         )
         server.run(transport=transport)
+
+    def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
+        """Render agent-bound skills under ``skill_folder/agent_id``."""
+        source_dir = Path(__file__).resolve().parents[2] / "skills"
+        target_dir = Path(server_config.skill_folder).expanduser() / server_config.agent_id
+        if not source_dir.exists():
+            self._logger.warning("Skill source directory does not exist: %s", source_dir)
+            return target_dir
+        if target_dir.resolve() == source_dir.resolve():
+            raise ValueError("server.skill_folder/agent_id must not point to the source skills directory")
+
+        target_resolved = target_dir.resolve()
+        source_paths = [
+            path
+            for path in source_dir.rglob("*")
+            if "__pycache__" not in path.parts
+            and not (path.resolve() == target_resolved or target_resolved in path.resolve().parents)
+        ]
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        replacements = {
+            "{agent_id}": server_config.agent_id,
+            "{agent_name}": server_config.agent_name,
+        }
+        for source_path in source_paths:
+            relative_path = source_path.relative_to(source_dir)
+            target_path = target_dir / relative_path
+            if source_path.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if source_path.name == "SKILL.md":
+                content = source_path.read_text(encoding="utf-8")
+                for old, new in replacements.items():
+                    content = content.replace(old, new)
+                target_path.write_text(content, encoding="utf-8")
+            else:
+                shutil.copy2(source_path, target_path)
+
+        self._logger.info("Copied skills to %s", target_dir)
+        return target_dir
 
     def _mcp_tool_doc(self, method_name: str, method: Callable[..., Any]) -> str:
         """Return the docstring to expose for an MCP tool."""
@@ -369,7 +434,7 @@ class BaseAgent(RegisteredBase):
             **exec_result,
             "step_start": step_start,
             "step_end": self._env.step_cnt,
-            "duration": time.time() - time_start,
+            "duration": self._format_duration(time.time() - time_start),
             "exec_cnt": self._exec_cnt,
             "trial_cnt": self._trial_cnt,
             "reward": self._compute_reward(),
@@ -512,6 +577,10 @@ class BaseAgent(RegisteredBase):
             file.write(text)
             if text and not text.endswith("\n"):
                 file.write("\n")
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        return f"{seconds:.2f}s"
 
     @abstractmethod
     def functions(self) -> dict[str, Callable[..., Any]]:
