@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from cap_general.core.agent import BaseAgent
+from cap_general.frameworks import import_frameworks
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
     )
 
     parsed = parser.parse_args(sys.argv[1:2])
+    import_frameworks()
     # pylint: disable=import-outside-toplevel
     if parsed.subcommand in ("server"):
         sub_parser = argparse.ArgumentParser(parsed.subcommand)

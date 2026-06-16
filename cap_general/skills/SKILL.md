@@ -1,6 +1,6 @@
 ---
 name: {agent_id}_skills
-description: Overview of cap_general agent-bound skills and rules for when to read and use them.
+description: All cap_general skills are bound to {agent_name}; before calling any {agent_name} tool, read the relevant skill instructions first. Questions like "what is {agent_name} doing", "show me {agent_name}", or "current state/status/observation" should use get_state.
 metadata: {"nanobot":{"emoji":"🧭"}}
 ---
 
@@ -10,7 +10,7 @@ This directory contains skills for working with `cap_general` CAP agents. These 
 
 ## Available Skills
 
-- `get_state`: Read the current state with `{agent_id}_get_obs`, then display the returned `main_image` with the `media` image display tool.
+- `get_state`: Read the current state with `{agent_id}_get_obs`, then display the returned `main_image` with the `media` image display tool. Use this for status/observation queries such as "what is {agent_name} doing?", "show me {agent_name}", "let me see {agent_name}", "current state", "current view", or "what does {agent_name} see?"
 - `reset_agent`: Reset the agent with `{agent_id}_reset`, then fetch and display the post-reset `main_image`.
 - `execute_task`: Decompose a robot manipulation task, execute subtasks with `{agent_id}_execute`, retry with `{agent_id}_retry`, update the plan, and record the final run.
 
@@ -23,6 +23,7 @@ This directory contains skills for working with `cap_general` CAP agents. These 
 
 ## Routing
 
+- User asks what `{agent_name}` is doing, asks to see `{agent_name}`, asks for current status/state/view/observation, or asks "让我看看{agent_name}在干什么": read `get_state/SKILL.md`.
 - Need the current observation or image: read `get_state/SKILL.md`.
 - Need to reset the environment or agent: read `reset_agent/SKILL.md`.
 - Need to complete a manipulation task through code execution: read `execute_task/SKILL.md`.

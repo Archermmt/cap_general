@@ -1,6 +1,5 @@
 """Base classes for Gymnasium-style environment control loops."""
 
-import io
 import logging
 import time
 from abc import abstractmethod
@@ -20,7 +19,7 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.utils import ActType, ObsType, ResetLevel
+from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
 
 
 @dataclass
@@ -61,11 +60,10 @@ class BaseEnv(RegisteredBase, Env):
         if reset_level >= ResetLevel.AGENT:
             self._step_cnt = 0
             self._video_frames = {key: [] for key in self._image_keys}
-        obs, info = self._reset(options=options)
-        self._last_obs = obs
+        self._last_obs, info = self._reset(options=options)
         if self._reset_time > 0:
             time.sleep(self._reset_time)
-        return obs, info
+        return self._last_obs, info
 
     @abstractmethod
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
@@ -95,7 +93,7 @@ class BaseEnv(RegisteredBase, Env):
                 if image is None:
                     continue
                 image_path = image_dir / f"{image_key}_{self._step_cnt}.png"
-                images[image_key] = self._save_image(image_path, image)
+                images[image_key] = save_image(image_path, image)
         main_image = images.get(self._image_keys[0]) if self._image_keys else None
         obs = {"images": images, "main_image": main_image, **self._normalize_states()}
         return obs
@@ -117,7 +115,7 @@ class BaseEnv(RegisteredBase, Env):
             if not selected_frames:
                 continue
             video_path = record_path / f"{image_key}_{start_frm}_{end}.{self._video_fmt}"
-            videos[image_key] = self._save_video(video_path, selected_frames)
+            videos[image_key] = save_video(video_path, selected_frames)
         main_video = videos.get(self._image_keys[0]) if self._image_keys else None
         return {"videos": videos, "main_video": main_video}
 
@@ -134,40 +132,6 @@ class BaseEnv(RegisteredBase, Env):
             frame = obs.get(key)
             if frame is not None:
                 self._video_frames.setdefault(key, []).append(frame)
-
-    def _save_video(self, path: Path, frames: list[Any]) -> Path:
-        try:
-            import imageio.v3 as iio
-        except ImportError as exc:
-            raise ImportError("Saving video requires imageio") from exc
-        iio.imwrite(path, [self._frame_to_array(frame) for frame in frames])
-        return str(path)
-
-    def _save_image(self, path: Path, image: Any) -> Path:
-        try:
-            import imageio.v3 as iio
-        except ImportError as exc:
-            raise ImportError("Saving observation images requires imageio") from exc
-        iio.imwrite(path, self._frame_to_array(image))
-        return str(path)
-
-    @staticmethod
-    def _frame_to_array(frame: Any):
-        try:
-            import numpy as np
-            from PIL import Image
-        except ImportError as exc:
-            raise ImportError("Saving video frames requires pillow and numpy") from exc
-
-        if isinstance(frame, bytes):
-            frame = Image.open(io.BytesIO(frame))
-        if hasattr(frame, "convert"):
-            frame = frame.convert("RGB")
-
-        array = np.asarray(frame)
-        if array.dtype != np.uint8:
-            array = np.clip(array, 0, 255).astype(np.uint8)
-        return array
 
     @property
     def logger(self) -> logging.Logger:

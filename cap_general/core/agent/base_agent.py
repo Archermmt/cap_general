@@ -4,7 +4,6 @@ import contextlib
 import functools
 import inspect
 import io
-import json
 import logging
 import shutil
 import sys
@@ -19,7 +18,16 @@ from typing import Any, ClassVar
 from cap_general.core.base import RegisteredBase
 from cap_general.core.env import BaseEnv, BaseEnvConfig
 from cap_general.core.policy import BasePolicyConfig
-from cap_general.core.utils import ResetLevel, ResetMode
+from cap_general.core.utils import (
+    ResetLevel,
+    ResetMode,
+    build_file_logger,
+    remove_path,
+    summarize_value,
+    to_json_safe,
+    write_json,
+    write_text,
+)
 
 
 class Tee(io.TextIOBase):
@@ -88,7 +96,7 @@ class BaseAgent(RegisteredBase):
         """Initialize an agent from config."""
         self._config = config
         self._config.server = self._build_server_config(self._config.server)
-        self._record_dir = Path(self._config.record_dir)
+        self._record_dir = Path(self._config.record_dir).expanduser().resolve()
         self._logger = self._build_logger(self._record_dir)
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
@@ -97,6 +105,7 @@ class BaseAgent(RegisteredBase):
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._plan, self._plan_start = {}, 0
+        self.reset()
 
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> "BaseAgent":
@@ -124,33 +133,11 @@ class BaseAgent(RegisteredBase):
             data = yaml.safe_load(file) or {}
         if not isinstance(data, dict):
             raise TypeError("Agent yaml config must contain a mapping at the top level")
-        return data.get("agent", data)
+        return data
 
     @staticmethod
     def _build_logger(record_dir: Path) -> logging.Logger:
-        record_dir.mkdir(parents=True, exist_ok=True)
-        logger = logging.getLogger(f"cap_general.agent.{record_dir.resolve()}")
-        logger.setLevel(logging.INFO)
-        logger.propagate = False
-        log_path = record_dir / "agent.log"
-        existing_handler = next(
-            (
-                handler
-                for handler in logger.handlers
-                if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == log_path.resolve()
-            ),
-            None,
-        )
-        if existing_handler is None:
-            handler = logging.FileHandler(log_path, encoding="utf-8")
-            handler.setLevel(logging.INFO)
-            handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s %(levelname)s %(name)s: %(message)s",
-                )
-            )
-            logger.addHandler(handler)
-        return logger
+        return build_file_logger(record_dir, logger_name=f"cap.{record_dir.resolve()}")
 
     @staticmethod
     def _build_server_config(config: ServerConfig | dict[str, Any] | None) -> ServerConfig:
@@ -289,8 +276,8 @@ class BaseAgent(RegisteredBase):
             record_path = self._record_dir / "step_{}/trial_{}".format(info["exec_cnt"], info["trial_cnt"])
         record_path.mkdir(parents=True, exist_ok=True)
         record = self._env.record(record_path, start_frm=start_frm, end_frm=end_frm)
-        self._write_json(record_path / "info.json", info)
-        self._write_text(record_path / "code.py", code)
+        write_json(record_path / "info.json", info)
+        write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
 
     def update_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -313,7 +300,8 @@ class BaseAgent(RegisteredBase):
             A dict containing the environment observation. Image observations are
             returned as local file paths.
         """
-        return self._env.get_observation(self._record_dir / self.step_dir)
+        result = self._env.get_observation(self._record_dir / self.step_dir)
+        return to_json_safe(result)
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server for this agent.
@@ -347,7 +335,12 @@ class BaseAgent(RegisteredBase):
 
             @functools.wraps(method)  # pylint: disable=cell-var-from-loop
             def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                self._logger.info("MCP tool call: %s", _name)
+                self._logger.info(
+                    "MCP tool call: %s args=%s kwargs=%s",
+                    _name,
+                    summarize_value(args),
+                    summarize_value(kwargs),
+                )
                 return _method(*args, **kwargs)
 
             _wrapped.__doc__ = f"[{s_config.agent_id} only] " + self._mcp_tool_doc(method_name, method)
@@ -541,14 +534,14 @@ class BaseAgent(RegisteredBase):
 
     def _clear_current_step_dir(self) -> None:
         """Remove artifacts for the current execute/trial slot before writing new ones."""
-        self._remove_path(self._record_dir / self.step_dir)
+        remove_path(self._record_dir / self.step_dir)
 
     def _clear_record_dir_contents(self) -> None:
         """Remove all run artifacts under ``record_dir`` after a full agent reset."""
         self._close_record_file_handlers()
         self._record_dir.mkdir(parents=True, exist_ok=True)
         for child in self._record_dir.iterdir():
-            self._remove_path(child)
+            remove_path(child)
         self._logger = self._build_logger(self._record_dir)
 
     def _close_record_file_handlers(self) -> None:
@@ -556,27 +549,6 @@ class BaseAgent(RegisteredBase):
             if isinstance(handler, logging.FileHandler):
                 self._logger.removeHandler(handler)
                 handler.close()
-
-    @staticmethod
-    def _remove_path(path: Path) -> None:
-        if not path.exists() and not path.is_symlink():
-            return
-        if path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-
-    @staticmethod
-    def _write_json(path: Path, data: Any) -> None:
-        with path.open("w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2, default=str)
-
-    @staticmethod
-    def _write_text(path: Path, text: str) -> None:
-        with path.open("w", encoding="utf-8") as file:
-            file.write(text)
-            if text and not text.endswith("\n"):
-                file.write("\n")
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

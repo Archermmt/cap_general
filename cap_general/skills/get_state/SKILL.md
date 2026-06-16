@@ -1,12 +1,20 @@
 ---
 name: {agent_id}_get_state
-description: Get the current state and observation of the {agent_name} agent by calling its MCP-registered get_obs tool. Use this before planning, after actions, or whenever the current environment state is needed.
+description: Get and display the current state/observation/view of the {agent_name} agent by calling get_obs. Use this when the user asks what {agent_name} is doing, wants to see {agent_name}, or asks for current status/state/view/observation.
 metadata: {"nanobot":{"emoji":"📍"}}
 ---
 
 # Get State Skill
 
 Get the current agent state by calling the `{agent_id}_get_obs` MCP tool. This returns the latest observation saved by the agent environment, including image paths when image observations are available and normalized state fields when the environment provides them.
+
+Use this skill for present-state questions, including:
+
+- "What is `{agent_name}` doing?"
+- "Show me `{agent_name}`."
+- "Let me see what `{agent_name}` is doing."
+- "Current state/status/view/observation."
+- "让我看看`{agent_name}`在干什么。"
 
 ## Features
 
