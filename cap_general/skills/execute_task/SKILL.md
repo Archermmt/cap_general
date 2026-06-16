@@ -27,9 +27,8 @@ This task can execute many subtasks before the final response. The user sees not
 You MUST call `message` at these checkpoints:
 
 1. **After planning**: immediately after `{agent_id}_update_plan`, send the main task and numbered subtask list.
-2. **Before each verification**: send a one-line progress update identifying the subtask, exec count, and trial count.
-3. **After each verification update**: immediately after `{agent_id}_update_plan`, send the SUCCESS/FAIL result and brief notes.
-4. **After final record**: send the returned `record.code` in a fenced Python block before displaying the final video.
+2. **After each verification update**: immediately after `{agent_id}_update_plan`, send the SUCCESS/FAIL result and brief notes.
+3. **After final record**: send the returned `record.code` in a fenced Python block before displaying the final video.
 
 These `message` calls are proactive status pushes. When `message` is used, the final normal LLM text response may be suppressed, so treat `message` as the communication channel for progress and final text summary during this skill.
 
@@ -148,17 +147,6 @@ If the subtask failed, call `retry`:
 
 Retry at most `max_retry` times after the first `execute` attempt. If `retry` returns `ok: false` with `error: "max_retry_exceeded"`, stop retrying that subtask.
 
-Before verification, tell the user which subtask/trial is being checked:
-
-```json
-{
-  "name": "message",
-  "arguments": {
-    "content": "Verifying task (Exec <exec_cnt>/<total_subtasks> Trial <trial_cnt>/<max_retry>): <subtask>"
-  }
-}
-```
-
 Display the returned `obs.main_image` so the user can see the verification frame:
 
 ```json
@@ -203,7 +191,7 @@ Immediately after `update_plan`, send the verification result to the user with `
 {
   "name": "message",
   "arguments": {
-    "content": "Verification result (Exec <exec_cnt> Trial <trial_cnt>): <subtask>\nResult: <SUCCESS or FAIL>\nNotes: <brief visual or execution assessment>"
+    "content": "Verification result (Exec <exec_cnt>/<total_subtasks> Trial <trial_cnt>/<max_retry>): <subtask>\nResult: <SUCCESS or FAIL>\nNotes: <brief visual or execution assessment>"
   }
 }
 ```
@@ -267,7 +255,6 @@ for subtask in subtasks:
     attempts = 0
     while True:
         image = response.get("obs", {}).get("main_image")
-        message(content=f"Verifying task (Exec {response['exec_cnt']}/{len(subtasks)} Trial {response['trial_cnt']}/{max_retry}): {subtask}")
         if image:
             media_display(
                 media_type="image",
