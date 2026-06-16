@@ -20,6 +20,7 @@ This directory contains skills for working with `cap_general` CAP agents. These 
 2. **Read the relevant skill before agent-bound calls.** For any operation involving `{agent_name}`, read the matching skill first and follow its workflow. Do not directly call `{agent_name}` tools without reading the skill.
 3. **Use the skill-specific tool sequence.** For example, use `get_state` before calling `{agent_id}_get_obs`, `reset_agent` before calling `{agent_id}_reset`, and `execute_task` before calling `{agent_id}_execute` or `{agent_id}_retry`.
 4. **Respect exact tool names.** Replace `{agent_name}` with the active agent name and call only the MCP-registered tool names documented by the relevant skill.
+5. **Do not use long-goal/long_task mode by default for robot tasks.** Unless the user explicitly says the robot task should run in the background, continue asynchronously, or be tracked as a sustained background objective, do not call `long_task` and do not enter long-goal mode for `{agent_name}` robot operations. Use the normal skill workflow instead.
 
 ## Routing
 

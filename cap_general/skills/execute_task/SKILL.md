@@ -39,13 +39,7 @@ Do not use `message` to display images or videos. Use the `media` tool for `obs.
 
 ### 1. Reset The Agent
 
-Always reset before starting a new episode:
-
-```json
-{"name": "{agent_id}_reset", "arguments": {"options": {"episode_idx": 0}}}
-```
-
-If the environment does not use `episode_idx`, an empty options object is acceptable:
+Always reset before starting a new episode. Follow the `{agent_id}_reset` MCP tool schema and documentation for supported options:
 
 ```json
 {"name": "{agent_id}_reset", "arguments": {"options": {}}}
@@ -253,7 +247,7 @@ If `main_video` is missing but `videos` contains camera videos, display the firs
 ## Complete Pseudo-Code
 
 ```python
-reset(options={"episode_idx": 0})
+reset(options={})
 
 doc = agent_doc()
 function_doc = doc["function_doc"]

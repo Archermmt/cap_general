@@ -15,19 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+from cap_general.core import utils as cap_utils
 from cap_general.core.base import RegisteredBase
 from cap_general.core.env import BaseEnv, BaseEnvConfig
 from cap_general.core.policy import BasePolicyConfig
-from cap_general.core.utils import (
-    ResetLevel,
-    ResetMode,
-    build_file_logger,
-    remove_path,
-    summarize_value,
-    to_json_safe,
-    write_json,
-    write_text,
-)
 
 
 class Tee(io.TextIOBase):
@@ -76,7 +67,7 @@ class BaseAgentConfig:
     record_dir: str | Path = "agent_record"
     max_steps: int = 5000
     max_retry: int = 5
-    reset_mode: ResetMode | str = ResetMode.NEVER
+    reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
     record_execute: bool = True
 
 
@@ -101,7 +92,7 @@ class BaseAgent(RegisteredBase):
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
-        self._reset_mode = ResetMode(self._config.reset_mode)
+        self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._plan, self._plan_start = {}, 0
@@ -137,7 +128,7 @@ class BaseAgent(RegisteredBase):
 
     @staticmethod
     def _build_logger(record_dir: Path) -> logging.Logger:
-        return build_file_logger(record_dir, logger_name=f"cap.{record_dir.resolve()}")
+        return cap_utils.build_file_logger(record_dir, logger_name=f"cap.{record_dir.resolve()}")
 
     @staticmethod
     def _build_server_config(config: ServerConfig | dict[str, Any] | None) -> ServerConfig:
@@ -174,8 +165,8 @@ class BaseAgent(RegisteredBase):
         """
         options = dict(options or {})
         self._env.reset(options=options)
-        reset_level = ResetLevel(options.get("reset_level", ResetLevel.AGENT))
-        if reset_level >= ResetLevel.AGENT:
+        reset_level = cap_utils.ResetLevel(options.get("reset_level", cap_utils.ResetLevel.AGENT))
+        if reset_level >= cap_utils.ResetLevel.AGENT:
             self._exec_cnt, self._trial_cnt = 0, 0
             self._step_infos, self._step_codes = [], []
             self._plan, self._plan_start = {}, time.time()
@@ -216,8 +207,8 @@ class BaseAgent(RegisteredBase):
             ``stdout``, ``stderr``, ``result``, ``reward``, ``truncated``,
             ``exec_cnt``, ``trial_cnt``, step range metadata, and ``obs``.
         """
-        if self._reset_mode is ResetMode.PER_EXEC:
-            self.reset(options={"reset_level": ResetLevel.ROBOT})
+        if self._reset_mode is cap_utils.ResetMode.PER_EXEC:
+            self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         self._exec_cnt += 1
         self._trial_cnt = 1
         return self._execute_once(code)
@@ -276,8 +267,8 @@ class BaseAgent(RegisteredBase):
             record_path = self._record_dir / "step_{}/trial_{}".format(info["exec_cnt"], info["trial_cnt"])
         record_path.mkdir(parents=True, exist_ok=True)
         record = self._env.record(record_path, start_frm=start_frm, end_frm=end_frm)
-        write_json(record_path / "info.json", info)
-        write_text(record_path / "code.py", code)
+        cap_utils.write_json(record_path / "info.json", info)
+        cap_utils.write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
 
     def update_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -301,7 +292,7 @@ class BaseAgent(RegisteredBase):
             returned as local file paths.
         """
         result = self._env.get_observation(self._record_dir / self.step_dir)
-        return to_json_safe(result)
+        return cap_utils.to_json_safe(result)
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server for this agent.
@@ -338,8 +329,8 @@ class BaseAgent(RegisteredBase):
                 self._logger.info(
                     "MCP tool call: %s args=%s kwargs=%s",
                     _name,
-                    summarize_value(args),
-                    summarize_value(kwargs),
+                    cap_utils.summarize_value(args),
+                    cap_utils.summarize_value(kwargs),
                 )
                 return _method(*args, **kwargs)
 
@@ -418,8 +409,8 @@ class BaseAgent(RegisteredBase):
     def _execute_once(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
         self._clear_current_step_dir()
-        if self._reset_mode is ResetMode.PER_TRIAL:
-            self.reset(options={"reset_level": ResetLevel.ROBOT})
+        if self._reset_mode is cap_utils.ResetMode.PER_TRIAL:
+            self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         step_start, time_start = self._env.step_cnt, time.time()
         exec_result = self._execute_code(code)
         max_steps = self._config.max_steps
@@ -534,14 +525,14 @@ class BaseAgent(RegisteredBase):
 
     def _clear_current_step_dir(self) -> None:
         """Remove artifacts for the current execute/trial slot before writing new ones."""
-        remove_path(self._record_dir / self.step_dir)
+        cap_utils.remove_path(self._record_dir / self.step_dir)
 
     def _clear_record_dir_contents(self) -> None:
         """Remove all run artifacts under ``record_dir`` after a full agent reset."""
         self._close_record_file_handlers()
         self._record_dir.mkdir(parents=True, exist_ok=True)
         for child in self._record_dir.iterdir():
-            remove_path(child)
+            cap_utils.remove_path(child)
         self._logger = self._build_logger(self._record_dir)
 
     def _close_record_file_handlers(self) -> None:
