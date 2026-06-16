@@ -64,7 +64,7 @@ class BaseAgentConfig:
     env: BaseEnvConfig
     policies: dict[str, BasePolicyConfig]
     server: ServerConfig = field(default_factory=ServerConfig)
-    record_dir: str | Path = "agent_record"
+    record_dir: str | Path = "outputs"
     max_steps: int = 5000
     max_retry: int = 5
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER

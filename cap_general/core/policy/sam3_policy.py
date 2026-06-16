@@ -40,8 +40,7 @@ class SAM3PolicyConfig(BasePolicyConfig):
     enable_inst_interactivity: bool = True
     describe: str = field(
         default=(
-            "Segments image regions from text prompts or point prompts using a "
-            "local SAM3 image segmentation model."
+            "Segments image regions from text prompts or point prompts using a local SAM3 image segmentation model."
         ),
         kw_only=True,
     )
@@ -103,16 +102,12 @@ class SAM3Policy(BasePolicy):
                 load_from_HF=True,
             )
         else:
-            self._model = build_sam3_image_model(
-                enable_inst_interactivity=self._enable_inst_interactivity
-            )
+            self._model = build_sam3_image_model(enable_inst_interactivity=self._enable_inst_interactivity)
 
         if hasattr(self._model, "to") and self._device:
             self._model = self._model.to(self._device)
         self._processor = Sam3Processor(
-            self._model,
-            device=self._device,
-            confidence_threshold=self._confidence_threshold,
+            self._model, device=self._device, confidence_threshold=self._confidence_threshold
         )
         self._torch = torch
 
@@ -150,12 +145,7 @@ class SAM3Policy(BasePolicy):
             masks_np = masks_np.squeeze(1)
 
         results = [
-            Sam3MaskResult(
-                mask=masks_np[i] > 0,
-                box=boxes_np[i].tolist(),
-                score=float(scores_np[i]),
-                label=text_prompt,
-            )
+            Sam3MaskResult(mask=masks_np[i] > 0, box=boxes_np[i].tolist(), score=float(scores_np[i]), label=text_prompt)
             for i in range(len(scores_np))
         ]
         return sorted(results, key=lambda item: item.score, reverse=True)
@@ -173,10 +163,7 @@ class SAM3Policy(BasePolicy):
             point_array = np.array([list(point_coords)], dtype=np.float32)
             point_labels = np.array([1], dtype=np.int64)
             masks, scores, _ = self._model.predict_inst(
-                state,
-                point_coords=point_array,
-                point_labels=point_labels,
-                multimask_output=True,
+                state, point_coords=point_array, point_labels=point_labels, multimask_output=True
             )
 
         masks_np = np.asarray(masks)

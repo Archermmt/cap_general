@@ -1,11 +1,12 @@
 """Genesis-specific CAP components."""
 
-from cap_general.frameworks.genesis.agent import FrankaCubeAgent, FrankaCubeAgentConfig
-from cap_general.frameworks.genesis.env import FrankaEnv, FrankaEnvConfig
+from cap_general.frameworks.genesis.agent import FrankaAgent, FrankaAgentConfig
+from cap_general.frameworks.genesis.env import FrankaEnv, FrankaEnvConfig, ObjConfig
 
 __all__ = [
     "FrankaEnv",
     "FrankaEnvConfig",
-    "FrankaCubeAgent",
-    "FrankaCubeAgentConfig",
+    "ObjConfig",
+    "FrankaAgent",
+    "FrankaAgentConfig",
 ]

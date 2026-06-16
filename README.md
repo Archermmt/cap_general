@@ -47,7 +47,7 @@ cap_general/
 │           ├── env/
 │           │   └── franka_env.py
 │           └── agent/
-│               └── franka_cube_agent.py
+│               └── franka_agent.py
 ├── tests/                    # Test files
 │   └── genesis/
 │       ├── test_core.py      # Core primitives tests
