@@ -68,6 +68,9 @@ class BasePolicy(RegisteredBase):
         """Return the registry key for this policy."""
         return "base"
 
+    def reset(self, *args: Any, **kwargs: Any) -> None:
+        """Load or initialize policy resources and reset transient state."""
+
     @abstractmethod
     def inference(self, *args: Any, **kwargs: Any) -> Any:
         """Run local model inference."""

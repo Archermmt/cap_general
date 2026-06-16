@@ -80,8 +80,8 @@ class HuggingFacePolicy(BasePolicy):
     def policy_type(cls) -> str:
         return "huggingface"
 
-    def _load_model(self):
-        """Lazily load the model and tokenizer."""
+    def reset(self) -> None:
+        """Load the model and tokenizer if needed."""
         if self._model is None:
             try:
                 import torch
@@ -156,7 +156,7 @@ class HuggingFacePolicy(BasePolicy):
         **generation_kwargs: Any,
     ) -> PolicyResult:
         """Run local Transformers inference."""
-        self._load_model()
+        self.reset()
 
         formatted_prompt = self._format_prompt(prompt)
         inputs = self._tokenizer(formatted_prompt, return_tensors="pt")

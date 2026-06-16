@@ -70,8 +70,8 @@ class PyrokiPolicy(BasePolicy):
     def policy_type(cls) -> str:
         return "pyroki"
 
-    def _load_model(self):
-        """Lazily load PyRoKi robot locally."""
+    def reset(self) -> None:
+        """Load PyRoKi robot locally if needed."""
         if self._robot is not None:
             return
 
@@ -116,7 +116,7 @@ class PyrokiPolicy(BasePolicy):
         prev_cfg: list[float] | np.ndarray | None = None,
     ) -> PyrokiIkResult:
         """Solve local inverse kinematics."""
-        self._load_model()
+        self.reset()
         pose = np.asarray(target_pose_wxyz_xyz, dtype=np.float64)
         prev = np.asarray(prev_cfg, dtype=np.float64) if prev_cfg is not None else None
         if prev is None:
@@ -144,7 +144,7 @@ class PyrokiPolicy(BasePolicy):
         dt: float = 0.02,
     ) -> PyrokiPlanResult:
         """Plan a local linear-interpolation IK trajectory."""
-        self._load_model()
+        self.reset()
         start = np.asarray(start_pose_wxyz_xyz, dtype=np.float64)
         end = np.asarray(end_pose_wxyz_xyz, dtype=np.float64)
         trajectory = self._plan_trajectory_linear_ik(

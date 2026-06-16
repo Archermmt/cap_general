@@ -96,7 +96,7 @@ class BaseAgent(RegisteredBase):
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._plan, self._plan_start = {}, 0
-        self.reset()
+        self._clear_record_dir_contents()
 
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> "BaseAgent":
@@ -142,13 +142,18 @@ class BaseAgent(RegisteredBase):
 
     @staticmethod
     def _build_env(config: dict[str, Any], logger: logging.Logger) -> BaseEnv:
-        return BaseEnv.from_config(config, logger=logger)
+        env = BaseEnv.from_config(config, logger=logger)
+        env.reset()
+        return env
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
         from cap_general.core.policy import BasePolicy
 
-        return {n: BasePolicy.from_config(c, logger=logger) for n, c in configs.items()}
+        policies = {n: BasePolicy.from_config(c, logger=logger) for n, c in configs.items()}
+        for policy in policies.values():
+            policy.reset()
+        return policies
 
     def reset(self, options: dict[str, Any] | None = None):
         """Reset the agent, environment, or robot to a requested scope.

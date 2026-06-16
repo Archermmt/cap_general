@@ -72,8 +72,8 @@ class SAM3Policy(BasePolicy):
     def policy_type(cls) -> str:
         return "sam3"
 
-    def _load_model(self):
-        """Lazily load SAM3 locally."""
+    def reset(self) -> None:
+        """Load SAM3 locally if needed."""
         if self._model is not None:
             return
 
@@ -129,7 +129,7 @@ class SAM3Policy(BasePolicy):
 
     def segment(self, image: Any, text_prompt: str) -> list[Sam3MaskResult]:
         """Run local text-prompt segmentation."""
-        self._load_model()
+        self.reset()
         pil_image = self._to_pil(image)
         device_type = "cuda" if "cuda" in self._device else "cpu"
 
@@ -162,7 +162,7 @@ class SAM3Policy(BasePolicy):
 
     def segment_point(self, image: Any, point_coords: tuple[float, float]) -> Sam3PointResult:
         """Run local point-prompt segmentation."""
-        self._load_model()
+        self.reset()
         if getattr(self._model, "inst_interactive_predictor", None) is None:
             raise RuntimeError("SAM3 instance interactivity is not enabled")
 

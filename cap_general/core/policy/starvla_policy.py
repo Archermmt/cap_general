@@ -63,57 +63,62 @@ class StarVLAPolicy(BasePolicy):
     def policy_type(cls) -> str:
         return "starvla"
 
-    def _load_model(self) -> None:
-        """Lazily load StarVLA and its action normalization processor."""
-        if self._framework is not None:
-            return
+    def reset(self, task_description: str | None = None) -> None:
+        """Load StarVLA resources if needed and reset episode action chunks."""
+        if self._framework is None or self._norm_processor is None:
+            try:
+                import torch
+                from deployment.model_server.policy_norm_processor import (  # type: ignore[import-not-found]
+                    PolicyNormProcessor,
+                )
+                from starVLA.model.framework.base_framework import (  # type: ignore[import-not-found]
+                    baseframework,
+                )
+                from starVLA.model.framework.share_tools import (  # type: ignore[import-not-found]
+                    read_mode_config,
+                )
+            except ImportError as exc:
+                missing_module = getattr(exc, "name", None)
+                raise ImportError(
+                    "StarVLAPolicy requires starVLA, deployment, torch, pillow, and numpy "
+                    f"to be importable in the current environment. Missing module: {missing_module!r}."
+                    " Install StarVLA into the active Python environment."
+                ) from exc
 
-        try:
-            import torch
-            from deployment.model_server.policy_norm_processor import (  # type: ignore[import-not-found]
-                PolicyNormProcessor,
-            )
-            from starVLA.model.framework.base_framework import (  # type: ignore[import-not-found]
-                baseframework,
-            )
-            from starVLA.model.framework.share_tools import (  # type: ignore[import-not-found]
-                read_mode_config,
-            )
-        except ImportError as exc:
-            missing_module = getattr(exc, "name", None)
-            raise ImportError(
-                "StarVLAPolicy requires starVLA, deployment, torch, pillow, and numpy "
-                f"to be importable in the current environment. Missing module: {missing_module!r}."
-                " Install StarVLA into the active Python environment."
-            ) from exc
+            framework = baseframework.from_pretrained(self._ckpt_path)
+            device = self._resolve_device(torch)
+            if self._use_bf16 and device.startswith("cuda"):
+                framework = framework.to(torch.bfloat16)
+            elif self._use_bf16:
+                self.logger.warning(
+                    "Skipping bfloat16 conversion because device=%s is not CUDA",
+                    device,
+                )
+            self._framework = framework.to(device).eval()
+            self._patch_action_model_input_dtype(torch)
+            self._device = device
 
-        framework = baseframework.from_pretrained(self._ckpt_path)
-        device = self._resolve_device(torch)
-        if self._use_bf16 and device.startswith("cuda"):
-            framework = framework.to(torch.bfloat16)
-        elif self._use_bf16:
-            self.logger.warning("Skipping bfloat16 conversion because device=%s is not CUDA", device)
-        self._framework = framework.to(device).eval()
-        self._patch_action_model_input_dtype(torch)
-        self._device = device
+            model_cfg, _ = read_mode_config(self._ckpt_path)
+            action_model_cfg = model_cfg["framework"]["action_model"]
+            if "action_horizon" in action_model_cfg:
+                self._action_chunk_size = int(action_model_cfg["action_horizon"])
+            elif "future_action_window_size" in action_model_cfg:
+                self._action_chunk_size = int(action_model_cfg["future_action_window_size"]) + 1
+            else:
+                raise ValueError(
+                    "StarVLAPolicy checkpoint config has no action_horizon or "
+                    "future_action_window_size"
+                )
 
-        model_cfg, _ = read_mode_config(self._ckpt_path)
-        action_model_cfg = model_cfg["framework"]["action_model"]
-        if "action_horizon" in action_model_cfg:
-            self._action_chunk_size = int(action_model_cfg["action_horizon"])
-        elif "future_action_window_size" in action_model_cfg:
-            self._action_chunk_size = int(action_model_cfg["future_action_window_size"]) + 1
-        else:
-            raise ValueError(
-                "StarVLAPolicy checkpoint config has no action_horizon or future_action_window_size"
+            self._norm_processor = PolicyNormProcessor(
+                self._ckpt_path,
+                unnorm_key=self._unnorm_key,
             )
+            if self._unnorm_key is None:
+                self._unnorm_key = self._norm_processor.unnorm_key
 
-        self._norm_processor = PolicyNormProcessor(
-            self._ckpt_path,
-            unnorm_key=self._unnorm_key,
-        )
-        if self._unnorm_key is None:
-            self._unnorm_key = self._norm_processor.unnorm_key
+        self._task_description = task_description
+        self._raw_actions = None
 
     def _resolve_device(self, torch: Any) -> str:
         requested = (self._device or "auto").lower()
@@ -151,11 +156,6 @@ class StarVLAPolicy(BasePolicy):
         action_model.predict_action = _predict_action_with_dtype
         action_model._cap_dtype_patched = True
 
-    def reset(self, task_description: str | None = None) -> None:
-        """Reset cached episode-level action chunks."""
-        self._task_description = task_description
-        self._raw_actions = None
-
     def predict_action(
         self,
         examples: list[dict[str, Any]],
@@ -163,7 +163,8 @@ class StarVLAPolicy(BasePolicy):
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Predict and unnormalize StarVLA action chunks."""
-        self._load_model()
+        if self._framework is None or self._norm_processor is None:
+            self.reset()
         output = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(output["normalized_actions"])
         actions = np.stack(
@@ -189,7 +190,8 @@ class StarVLAPolicy(BasePolicy):
         **predict_kwargs: Any,
     ) -> dict[str, Any]:
         """Run one StarVLA policy step and return an action dictionary."""
-        self._load_model()
+        if self._framework is None or self._norm_processor is None:
+            self.reset()
         example = self._build_example(
             example=example,
             image=image,

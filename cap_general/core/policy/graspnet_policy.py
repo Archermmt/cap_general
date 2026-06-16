@@ -112,8 +112,8 @@ class GraspNetPolicy(BasePolicy):
     def policy_type(cls) -> str:
         return "graspnet"
 
-    def _load_model(self):
-        """Lazily load Contact-GraspNet locally."""
+    def reset(self) -> None:
+        """Load Contact-GraspNet locally if needed."""
         if self._estimator is not None:
             return
 
@@ -156,7 +156,7 @@ class GraspNetPolicy(BasePolicy):
         forward_passes: int = 1,
     ) -> GraspNetResult:
         """Plan grasps from depth, camera intrinsics, and segmentation map."""
-        self._load_model()
+        self.reset()
         z_range = [0.2, 2.0] if z_range is None else z_range
         pc_full, pc_segments, _ = self._estimator.extract_point_clouds(
             depth,
@@ -185,7 +185,7 @@ class GraspNetPolicy(BasePolicy):
         forward_passes: int = 1,
     ) -> GraspNetResult:
         """Plan grasps from precomputed point clouds."""
-        self._load_model()
+        self.reset()
         pred_grasps, scores, contact_pts, _ = self._estimator.predict_scene_grasps(
             pc_full,
             pc_segments={segmap_id: pc_segment},
