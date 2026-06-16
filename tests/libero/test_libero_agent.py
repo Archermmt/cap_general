@@ -55,7 +55,7 @@ RESULT = {{"success": success, "task": {task!r}}}
 
 def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     from cap_general.core.agent import BaseAgent
-    from cap_general.libero.agent import LiberoAgent  # noqa: F401
+    from cap_general.frameworks.libero.agent import LiberoAgent  # noqa: F401
 
     print(f"[test] Loading LiberoAgent from: {config}")
     agent = BaseAgent.from_yaml(config)

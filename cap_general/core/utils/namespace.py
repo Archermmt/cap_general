@@ -6,12 +6,23 @@ from enum import Enum, IntEnum
 class ResetNamespace:
     """Namespace for reset semantics shared by agents and environments."""
 
-    class Frequency(str, Enum):
+    class ResetMode(str, Enum):
         """When an agent should reset its environment."""
 
         NEVER = "never"
-        EXECUTE = "execute"
-        TRIAL = "trial"
+        PER_EXEC = "per_exec"
+        PER_TRIAL = "per_trial"
+
+        @classmethod
+        def _missing_(cls, value):
+            legacy_values = {
+                "execute": cls.PER_EXEC,
+                "exec": cls.PER_EXEC,
+                "trial": cls.PER_TRIAL,
+            }
+            if isinstance(value, str):
+                return legacy_values.get(value)
+            return None
 
     class EnvLevel(IntEnum):
         """Agent reset scope."""
@@ -22,6 +33,7 @@ class ResetNamespace:
 
 
 Reset = ResetNamespace
-ResetFrequency = ResetNamespace.Frequency
+ResetMode = ResetNamespace.ResetMode
+ResetFrequency = ResetNamespace.ResetMode
 ResetLevel = ResetNamespace.EnvLevel
 EnvResetLevel = ResetNamespace.EnvLevel

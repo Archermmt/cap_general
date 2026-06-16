@@ -1,6 +1,6 @@
 """LIBERO environment controllers."""
 
-from cap_general.libero.env.libero_env import (
+from cap_general.frameworks.libero.env.libero_env import (
     LiberoEnv,
     LiberoEnvConfig,
     build_example_from_obs,

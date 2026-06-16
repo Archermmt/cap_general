@@ -5,6 +5,7 @@ from cap_general.core.utils.namespace import (
     Reset,
     ResetFrequency,
     ResetLevel,
+    ResetMode,
     ResetNamespace,
 )
 from cap_general.core.utils.typing import ActType, ObsType
@@ -12,6 +13,7 @@ from cap_general.core.utils.typing import ActType, ObsType
 __all__ = [
     "Reset",
     "ResetNamespace",
+    "ResetMode",
     "ResetFrequency",
     "ResetLevel",
     "EnvResetLevel",

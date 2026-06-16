@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import numpy as np
+
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
-from cap_general.libero.env.libero_env import build_example_from_obs
+from cap_general.frameworks.libero.env.libero_env import _binarize_gripper_open, build_example_from_obs
 
 
 @dataclass
@@ -75,23 +77,21 @@ class LiberoAgent(BaseAgent):
         Returns:
             True when the LIBERO success predicate is reached.
         """
-        if hasattr(self._env, "set_task_goal"):
-            self._env.set_task_goal(task)
-
-        self._reset_vla_policy(policy_name, task)
+        self._env.set_task_goal(task)
         obs, done = self._env.last_obs, False
         for step_idx in range(max_steps):
             example = build_example_from_obs(obs, task)
             response = self._run_policy(policy_name, example=example, step=step_idx)
-            obs, _reward, terminated, truncated, _info = self._env.step(response)
+            raw = response.get("raw_action", response)
+            action = np.concatenate(
+                [
+                    np.asarray(raw["world_vector"], dtype=np.float32).reshape(-1)[:3],
+                    np.asarray(raw["rotation_delta"], dtype=np.float32).reshape(-1)[:3],
+                    _binarize_gripper_open(raw["open_gripper"]),
+                ]
+            )
+            obs, _reward, terminated, truncated, _info = self._env.step(action.tolist())
             done = bool(terminated or truncated)
             if done:
                 break
         return done
-
-    def _reset_vla_policy(self, policy_name: str, task_description: str | None) -> None:
-        if policy_name not in self._policies:
-            return
-        policy = self._policies[policy_name]
-        if callable(getattr(policy, "reset", None)):
-            self._run_policy(policy_name, method="reset", task_description=task_description)

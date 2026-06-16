@@ -61,7 +61,6 @@ class BaseEnv(RegisteredBase, Env):
         self._video_frames = {key: [] for key in self._image_keys}
         obs, info = self._reset(options=options)
         self._last_obs = obs
-        print(f"[TMINFO] reset in {self._reset_time}s", flush=True)
         if self._reset_time > 0:
             time.sleep(self._reset_time)
         return obs, info

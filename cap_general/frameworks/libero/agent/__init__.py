@@ -1,6 +1,6 @@
 """LIBERO task agents."""
 
-from cap_general.libero.agent.libero_agent import (
+from cap_general.frameworks.libero.agent.libero_agent import (
     LiberoAgent,
     LiberoAgentConfig,
 )

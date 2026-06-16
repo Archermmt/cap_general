@@ -19,7 +19,7 @@ from typing import Any, ClassVar
 from cap_general.core.base import RegisteredBase
 from cap_general.core.env import BaseEnv, BaseEnvConfig
 from cap_general.core.policy import BasePolicyConfig
-from cap_general.core.utils import ResetFrequency, ResetLevel
+from cap_general.core.utils import ResetLevel, ResetMode
 
 
 class Tee(io.TextIOBase):
@@ -58,7 +58,7 @@ class BaseAgentConfig:
     record_dir: str | Path = "agent_record"
     max_steps: int = 5000
     max_retry: int = 5
-    reset_frequency: ResetFrequency | str = ResetFrequency.NEVER
+    reset_mode: ResetMode | str = ResetMode.NEVER
     record_execute: bool = True
 
 
@@ -77,12 +77,12 @@ class BaseAgent(RegisteredBase):
     def __init__(self, config: BaseAgentConfig):
         """Initialize an agent from config."""
         self._config = config
+        self._record_dir = Path(self._config.record_dir)
+        self._logger = self._build_logger(self._record_dir)
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
-        self._record_dir = Path(self._config.record_dir)
-        self._logger = self._build_logger(self._record_dir)
-        self._reset_frequency = ResetFrequency(self._config.reset_frequency)
+        self._reset_mode = ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._plan, self._plan_start = {}, 0
@@ -208,7 +208,7 @@ class BaseAgent(RegisteredBase):
             ``stdout``, ``stderr``, ``result``, ``reward``, ``truncated``,
             ``exec_cnt``, ``trial_cnt``, step range metadata, and ``obs``.
         """
-        if self._reset_frequency is ResetFrequency.EXECUTE:
+        if self._reset_mode is ResetMode.PER_EXEC:
             self.reset(options={"reset_level": ResetLevel.ROBOT})
         self._exec_cnt += 1
         self._trial_cnt = 1
@@ -360,7 +360,7 @@ class BaseAgent(RegisteredBase):
     def _execute_once(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
         self._clear_current_step_dir()
-        if self._reset_frequency is ResetFrequency.TRIAL:
+        if self._reset_mode is ResetMode.PER_TRIAL:
             self.reset(options={"reset_level": ResetLevel.ROBOT})
         step_start, time_start = self._env.step_cnt, time.time()
         exec_result = self._execute_code(code)

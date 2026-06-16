@@ -107,6 +107,7 @@ class LiberoEnvConfig(BaseEnvConfig):
     resolution: int = _DEFAULT_RESOLUTION
     libero_home: str | None = None
     image_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_IMAGE_KEYS))
+    reset_settle_steps: int = 10
 
 
 @BaseEnv.register()
@@ -128,6 +129,7 @@ class LiberoEnv(BaseEnv):
         self._seed = int(config.seed)
         self._resolution = int(config.resolution)
         self._libero_home = self._resolve_libero_home(config.libero_home)
+        self._reset_settle_steps = int(config.reset_settle_steps)
         self._task_env = None
         self._task_suite = None
         self._task = None
@@ -237,6 +239,10 @@ class LiberoEnv(BaseEnv):
         episode_idx = int(options.get("episode_idx", 0))
         self._task_env.reset()
         obs = self._task_env.set_init_state(self._initial_states[episode_idx])
+        for _ in range(self._reset_settle_steps):
+            obs, _, done, _ = self._task_env.step(_DUMMY_ACTION)
+            if done:
+                break
         return obs, info
 
     def _reset_robot(self) -> dict[str, Any]:
@@ -252,7 +258,7 @@ class LiberoEnv(BaseEnv):
         sim.forward()
         problem.timestep = 0
         problem.done = False
-        return self._task_env._get_observations()
+        return self._task_env.env._get_observations()
 
     def _step(self, action: Any) -> tuple[dict[str, Any], SupportsFloat, bool, bool, dict[str, Any]]:
         """Apply a 7D LIBERO action and return a Gymnasium step tuple."""
@@ -311,12 +317,19 @@ class LiberoEnv(BaseEnv):
             states["robot0_gripper_open"] = _binarize_gripper_open(states["robot0_gripper_qpos"])
         return states
 
-    @classmethod
-    def _frame_to_array_for_key(cls, image_key: str | None, frame: Any):
-        array = super()._frame_to_array_for_key(image_key, frame)
-        if image_key == "agentview_image":
-            return np.ascontiguousarray(array[::-1])
-        return array
+    def _record_frame(self, obs: Any) -> None:
+        if isinstance(obs, dict) and "agentview_image" in obs:
+            obs = {**obs, "agentview_image": np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])}
+        super()._record_frame(obs)
+
+    def get_observation(self, folder) -> dict:
+        orig = self._last_obs
+        if isinstance(orig, dict) and "agentview_image" in orig:
+            self._last_obs = {**orig, "agentview_image": np.ascontiguousarray(orig["agentview_image"][::-1, ::-1])}
+        try:
+            return super().get_observation(folder)
+        finally:
+            self._last_obs = orig
 
     def set_task_goal(self, task: int | str) -> None:
         """Hot-swap LIBERO success predicates without resetting physics state."""

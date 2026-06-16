@@ -1,6 +1,7 @@
 type: libero
 record_dir: ./outputs/libero
 max_retry: 5
+reset_mode: per_trial
 record_execute: true
 env:
   type: libero

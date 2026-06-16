@@ -5,6 +5,7 @@ from cap_general.core.agent import (
     BaseAgentConfig,
     ResetFrequency,
     ResetLevel,
+    ResetMode,
     ServerConfig,
     Tee,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "BaseAgent",
     "BaseAgentConfig",
     "ServerConfig",
+    "ResetMode",
     "ResetFrequency",
     "ResetLevel",
     "Reset",

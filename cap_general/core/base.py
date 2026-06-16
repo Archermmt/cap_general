@@ -80,5 +80,10 @@ class RegisteredBase(ABC):
     @staticmethod
     def _build_dataclass_config(config_cls, config_data: dict[str, Any]):
         field_names = {field.name for field in fields(config_cls)}
+        if "reset_mode" in field_names and "reset_frequency" not in field_names:
+            config_data = dict(config_data)
+            legacy_reset_frequency = config_data.pop("reset_frequency", None)
+            if legacy_reset_frequency is not None:
+                config_data.setdefault("reset_mode", legacy_reset_frequency)
         values = {key: value for key, value in config_data.items() if key in field_names}
         return config_cls(**values)

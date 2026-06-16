@@ -4,7 +4,7 @@ import pytest
 
 from cap_general.core.agent import BaseAgent
 from cap_general.core.env import BaseEnv
-from cap_general.genesis import (
+from cap_general.frameworks.genesis import (
     FrankaCubeAgent,
     FrankaCubeAgentConfig,
     FrankaEnv,
