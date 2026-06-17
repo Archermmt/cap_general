@@ -1,0 +1,24 @@
+type: robosuite
+record_dir: ./outputs/robosuite
+max_retry: 5
+reset_mode: never
+record_execute: true
+env:
+  type: robosuite
+  low_level: robosuite_cube_env
+  seed: 7
+  reset_time: 0
+  video_fmt: mp4
+  image_keys: []
+  privileged: false
+  enable_render: true
+  viser_debug: false
+  max_steps: 1500
+  mock_fallback: true
+policies: {}
+server:
+  agent_name: 七仔
+  agent_id: cap
+  host: 127.0.0.1
+  port: 8904
+  skill_folder: skills
