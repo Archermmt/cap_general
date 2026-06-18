@@ -46,27 +46,3 @@ def save_image(path: str | Path, image: Any) -> str:
     target_path = Path(path)
     iio.imwrite(target_path, frame_to_array(image))
     return str(target_path)
-
-
-def depth_to_rgb(depth: Any):
-    """Convert a depth map to an RGB uint8 image for debugging."""
-    try:
-        import numpy as np
-    except ImportError as exc:
-        raise ImportError("Converting depth images requires numpy") from exc
-
-    depth_arr = np.asarray(depth, dtype=np.float32)
-    finite = np.isfinite(depth_arr)
-    if not np.any(finite):
-        return np.zeros((*depth_arr.shape, 3), dtype=np.uint8)
-
-    valid = depth_arr[finite]
-    lo = float(valid.min())
-    hi = float(valid.max())
-    if hi <= lo:
-        normalized = np.zeros_like(depth_arr, dtype=np.float32)
-    else:
-        normalized = (depth_arr - lo) / (hi - lo)
-    normalized = np.where(finite, normalized, 0.0)
-    gray = np.clip(normalized * 255.0, 0, 255).astype(np.uint8)
-    return np.repeat(gray[..., None], 3, axis=-1)

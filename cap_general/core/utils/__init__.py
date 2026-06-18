@@ -1,8 +1,14 @@
 """Core utility namespaces."""
 
+from cap_general.core.utils.depth_utils import (
+    deproject_pixel_to_camera,
+    depth_color_to_pointcloud,
+    depth_to_pointcloud,
+    depth_to_rgb,
+)
 from cap_general.core.utils.filesystem import remove_path, write_json, write_text
 from cap_general.core.utils.logging import build_file_logger
-from cap_general.core.utils.media import depth_to_rgb, frame_to_array, save_image, save_video
+from cap_general.core.utils.media import frame_to_array, save_image, save_video
 from cap_general.core.utils.namespace import (
     EnvResetLevel,
     Reset,
@@ -28,6 +34,9 @@ __all__ = [
     "frame_to_array",
     "save_image",
     "save_video",
+    "deproject_pixel_to_camera",
+    "depth_color_to_pointcloud",
+    "depth_to_pointcloud",
     "depth_to_rgb",
     "to_json_safe",
     "summarize_value",
