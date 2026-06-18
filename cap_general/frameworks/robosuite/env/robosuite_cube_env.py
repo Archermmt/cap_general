@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from cap_general.frameworks.robosuite.env.robosuite_base_env import RobosuiteBaseEnv
+from cap_general.core.env import BaseEnv
+from cap_general.frameworks.robosuite.env.robosuite_base_env import RobosuiteBaseEnv, RobosuiteBaseEnvConfig
+
+
+@dataclass
+class RobosuiteCubeEnvConfig(RobosuiteBaseEnvConfig):
+    """Configuration for RobosuiteCubeEnv.
+
+    ``low_level`` and ``mock_fallback`` are accepted for compatibility with
+    older wrapper-style yaml files.
+    """
+
+    low_level: str = "robosuite_cube_env"
+    mock_fallback: bool = False
 
 
 class MockRobosuiteCubeEnv:
@@ -87,31 +103,34 @@ class MockRobosuiteCubeEnv:
         return []
 
 
+@BaseEnv.register()
 class RobosuiteCubeEnv(RobosuiteBaseEnv):
     """Robosuite Franka Stack environment compatible with FrankaControlApi."""
 
+    name = "Robosuite Cube Env"
+    config_cls = RobosuiteCubeEnvConfig
     _SUBSAMPLE_RATE = 5
+
+    @classmethod
+    def env_type(cls) -> str:
+        return "robosuite"
 
     def __init__(
         self,
-        controller_cfg: str = "cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json",
-        max_steps: int = 1500,
-        seed: int | None = None,
-        viser_debug: bool = False,
-        privileged: bool = False,
-        enable_render: bool = False,
+        config: RobosuiteCubeEnvConfig | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
-        super().__init__(
-            controller_cfg=controller_cfg,
-            max_steps=max_steps,
-            seed=seed,
-            viser_debug=viser_debug,
-            privileged=privileged,
-            enable_render=enable_render,
-        )
+        if config is None:
+            config = RobosuiteCubeEnvConfig()
+        super().__init__(config=config, logger=logger)
+        self._mock_env: MockRobosuiteCubeEnv | None = None
         try:
             self._init_robosuite_stack()
         except Exception as exc:
+            if config.mock_fallback:
+                self.logger.warning("Falling back to mock Robosuite cube env: %s", exc)
+                self._mock_env = MockRobosuiteCubeEnv()
+                return
             raise RuntimeError(f"Failed to initialize RobosuiteCubeEnv: {exc}") from exc
 
     def _init_robosuite_stack(self) -> None:
@@ -176,6 +195,12 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+            self._seed = seed
+        return BaseEnv.reset(self, options=options)
+
+    def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self._mock_env is not None:
+            return self._mock_env.reset(seed=self._seed, options=options)
         self.robosuite_env.reset()
         self.robosuite_env.sim.data.qpos[6] -= np.pi
         self._step_count = 0
@@ -189,12 +214,17 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         self._current_joints = np.asarray(robosuite_obs["robot0_joint_pos"], dtype=np.float64)
         self._current_joints[6] -= np.pi
         self._refresh_gripper_pose()
-        return self.get_observation(), {
+        if self._video_fmt:
+            self.enable_video_capture(True, clear=True)
+        obs = self.get_observation()
+        return obs, {
             "task_prompt": "Place the primary cube on top of the secondary cube. Quaternions are WXYZ.",
             "options": options or {},
         }
 
     def object_pose(self, name: str):
+        if self._mock_env is not None:
+            return self._mock_env.object_pose(name)
         obs = self.get_observation()
         aliases = {
             "red cube": "primary",
@@ -224,12 +254,18 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         return pose_dict
 
     def compute_reward(self) -> float:
+        if self._mock_env is not None:
+            return float(self._mock_env.compute_reward())
         return float(self.robosuite_env.reward(action=None))
 
     def task_completed(self) -> bool:
+        if self._mock_env is not None:
+            return bool(self._mock_env.task_completed())
         return bool(self.robosuite_env._check_success())
 
-    def get_observation(self) -> dict[str, Any]:
+    def get_observation(self, folder: str | Path | None = None) -> dict[str, Any]:
+        if self._mock_env is not None:
+            return self._mock_env.get_observation()
         robosuite_obs = self.robosuite_env._get_observations()
         pose_dict = self._cube_pose_dict(robosuite_obs)
         robosuite_obs["cube_poses"] = {
@@ -256,8 +292,37 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         self._compute_gripper_obs(robosuite_obs)
         return robosuite_obs
 
+    def _set_gripper(self, fraction: float) -> None:
+        if self._mock_env is not None:
+            self._mock_env._set_gripper(fraction)
+            return
+        super()._set_gripper(fraction)
+
+    def _step_once(self) -> None:
+        if self._mock_env is not None:
+            self._mock_env._step_once()
+            return
+        super()._step_once()
+
+    def move_to_joints_blocking(
+        self,
+        joints: np.ndarray,
+        *,
+        tolerance: float = 0.02,
+        max_steps: int = 100,
+    ) -> None:
+        if self._mock_env is not None:
+            self._mock_env.move_to_joints_blocking(joints, tolerance=tolerance, max_steps=max_steps)
+            return
+        super().move_to_joints_blocking(joints, tolerance=tolerance, max_steps=max_steps)
+
+    def get_video_frames_range(self, start: int, end: int):
+        if self._mock_env is not None:
+            return self._mock_env.get_video_frames_range(start, end)
+        return super().get_video_frames_range(start, end)
+
 
 # Typo-compatible alias for callers that used "cude" from the request text.
 RobosuiteCudeEnv = RobosuiteCubeEnv
 
-__all__ = ["MockRobosuiteCubeEnv", "RobosuiteCubeEnv", "RobosuiteCudeEnv"]
+__all__ = ["MockRobosuiteCubeEnv", "RobosuiteCubeEnv", "RobosuiteCudeEnv", "RobosuiteCubeEnvConfig"]

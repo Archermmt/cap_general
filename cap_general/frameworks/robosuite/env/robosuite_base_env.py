@@ -2,15 +2,36 @@
 
 from __future__ import annotations
 
+import logging
 import os
-from typing import Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, SupportsFloat
 
 import numpy as np
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 
+from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core import utils as cap_utils
 
-class RobosuiteBaseEnv:
+
+_DEFAULT_CONTROLLER_CFG = str(Path(__file__).resolve().parent / "controllers" / "panda_joint_ctrl.json")
+
+
+@dataclass
+class RobosuiteBaseEnvConfig(BaseEnvConfig):
+    """Configuration for RobosuiteBaseEnv."""
+
+    controller_cfg: str = _DEFAULT_CONTROLLER_CFG
+    max_steps: int = 1500
+    viser_debug: bool = False
+    privileged: bool = False
+    enable_render: bool = False
+    reset_time: float = 0.0
+
+
+class RobosuiteBaseEnv(BaseEnv):
     """Base class for single-arm Robosuite Franka low-level environments."""
 
     _SUBSAMPLE_RATE: int = 5
@@ -18,18 +39,18 @@ class RobosuiteBaseEnv:
 
     def __init__(
         self,
-        controller_cfg: str,
-        max_steps: int = 1500,
-        seed: int | None = None,
-        viser_debug: bool = False,
-        privileged: bool = False,
-        enable_render: bool = False,
+        config: RobosuiteBaseEnvConfig,
+        logger: logging.Logger | None = None,
     ) -> None:
-        self.controller_cfg = controller_cfg
-        self.max_steps = int(max_steps)
-        self.viser_debug = bool(viser_debug)
-        self.privileged = bool(privileged)
-        self.enable_render = bool(enable_render)
+        super().__init__(config=config, logger=logger)
+        controller_cfg = Path(config.controller_cfg).expanduser()
+        if not controller_cfg.exists():
+            controller_cfg = Path(_DEFAULT_CONTROLLER_CFG)
+        self.controller_cfg = str(controller_cfg)
+        self.max_steps = int(config.max_steps)
+        self.viser_debug = bool(config.viser_debug)
+        self.privileged = bool(config.privileged)
+        self.enable_render = bool(config.enable_render)
         self.save_camera_name = "robot0_robotview"
         self.render_camera_names = [self.save_camera_name]
         self.segmentation_level = "instance"
@@ -37,7 +58,7 @@ class RobosuiteBaseEnv:
         self._render_height = 512
         self._step_count = 0
         self._sim_step_count = 0
-        self._rng = np.random.default_rng(seed)
+        self._rng = np.random.default_rng(config.seed)
         self._record_frames = False
         self._frame_buffer: list[np.ndarray] = []
         self._wrist_frame_buffer: list[np.ndarray] = []
@@ -46,6 +67,34 @@ class RobosuiteBaseEnv:
         self._subsample_rate = self._SUBSAMPLE_RATE
         self._current_joints = np.zeros(7, dtype=np.float64)
         self._gripper_fraction = 1.0
+
+    def _reset(self, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
+        raise NotImplementedError("Subclasses must implement _reset")
+
+    def _step(self, action: Any) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+        self._step_count += 1
+        obs = self.get_observation()
+        reward = self.compute_reward()
+        return obs, reward, False, self._step_count >= self.max_steps, {}
+
+    def get_observation(self, folder: str | Path | None = None) -> dict[str, Any]:
+        raise NotImplementedError("Subclasses must implement get_observation")
+
+    @property
+    def step_cnt(self) -> int:
+        return len(self._frame_buffer)
+
+    def record(self, folder: str | Path, start_frm: int = 0, end_frm: int | None = None) -> dict[str, Any]:
+        if not self._video_fmt:
+            return {"videos": {}, "main_video": None}
+        end = end_frm if end_frm is not None else len(self._frame_buffer)
+        frames = [frame.copy() for frame in self._frame_buffer[start_frm:end]]
+        if not frames:
+            return {"videos": {}, "main_video": None}
+        record_path = Path(folder)
+        record_path.mkdir(parents=True, exist_ok=True)
+        main_video = cap_utils.save_video(record_path / f"agentview.{self._video_fmt}", frames)
+        return {"videos": {"agentview": main_video}, "main_video": main_video}
 
     def _init_robot_links(self) -> None:
         self.gripper_metric_length = 0.04
@@ -134,12 +183,6 @@ class RobosuiteBaseEnv:
             self._do_robosuite_step(action)
             self._record_frame_if_needed()
             self._sim_step_count += 1
-
-    def step(self, action: Any) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
-        self._step_count += 1
-        obs = self.get_observation()
-        reward = self.compute_reward()
-        return obs, reward, False, self._step_count >= self.max_steps, {}
 
     def enable_video_capture(self, enabled: bool = True, *, clear: bool = True, wrist_camera: bool = False) -> None:
         self._record_frames = enabled

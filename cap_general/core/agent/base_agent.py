@@ -69,6 +69,7 @@ class BaseAgentConfig:
     max_retry: int = 5
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
     record_execute: bool = True
+    debug: bool = False
 
 
 class BaseAgent(RegisteredBase):

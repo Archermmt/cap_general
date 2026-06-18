@@ -112,11 +112,9 @@ class RobosuiteAgent(BaseAgent):
         return self.oracle_code
 
     def get_object_pose(
-        self,
-        object_name: str,
-        return_bbox_extent: bool = False,
+        self, object_name: str, return_bbox_extent: bool = False
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-        """Get an object's pose from privileged state or local perception policies.
+        """Get an object's pose from local perception policies.
 
         Args:
             object_name: Natural-language object name such as ``"red cube"``.
@@ -125,19 +123,51 @@ class RobosuiteAgent(BaseAgent):
         Returns:
             ``(position, quaternion_wxyz, extent_or_none)``.
         """
-        privileged = self._privileged_object_pose(object_name)
-        if privileged is not None:
-            position, quat, extent = privileged
-            return position, quat, extent if return_bbox_extent else None
-        # Perception fallback: keep the interface wired to local policies, while
-        # letting policy errors surface with useful context when models are configured.
+        import open3d as o3d
+        import viser.transforms as vtf
+
         obs = self._env.get_observation(self._record_dir / self.step_dir)
         rgb, depth, intrinsics = self._main_rgbd(obs)
-        masks = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
-        if not masks:
+        if self._config.debug:
+            self._save_rgbd(rgb, depth, caller="get_object_pose")
+
+        depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
+        valid_depth = ~np.isnan(depth_2d)
+
+        results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
+        if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
-        mask = np.asarray(masks[0].mask, dtype=bool)
-        position, quat, extent = self._pose_from_mask(depth, intrinsics, mask)
+        scores = [result.score for result in results]
+        best_idx = int(np.argmax(scores))
+        mask = np.asarray(results[best_idx].mask, dtype=bool) & valid_depth
+
+        ys_all, xs_all = np.where(valid_depth)
+        z_all = depth_2d[ys_all, xs_all]
+        fx, fy = intrinsics[0, 0], intrinsics[1, 1]
+        cx, cy = intrinsics[0, 2], intrinsics[1, 2]
+        points = np.column_stack(((xs_all - cx) * z_all / fx, (ys_all - cy) * z_all / fy, z_all))
+        selected = mask[ys_all, xs_all]
+        if not np.any(selected):
+            raise ValueError(f"Empty SAM3 mask after depth filtering for {object_name!r}")
+
+        o3d_points = o3d.geometry.PointCloud()
+        o3d_points.points = o3d.utility.Vector3dVector(points[selected])
+        o3d_points, _ = o3d_points.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        obb = o3d_points.get_oriented_bounding_box()
+
+        cam_extr_tf = vtf.SE3.from_rotation_and_translation(
+            rotation=vtf.SO3(wxyz=obs["robot0_robotview"]["pose"][3:]),
+            translation=obs["robot0_robotview"]["pose"][:3],
+        )
+        obb_tf = vtf.SE3.from_rotation_and_translation(
+            rotation=vtf.SO3.from_matrix(obb.R),
+            translation=obb.center,
+        )
+        obb_tf_world = cam_extr_tf @ obb_tf
+
+        position = np.asarray(obb_tf_world.wxyz_xyz[-3:], dtype=np.float64)
+        quat = np.asarray(obb_tf_world.wxyz_xyz[:4], dtype=np.float64)
+        extent = np.asarray(obb.extent, dtype=np.float64)
         return position, quat, extent if return_bbox_extent else None
 
     def sample_grasp_pose(self, object_name: str) -> tuple[np.ndarray, np.ndarray]:
@@ -149,27 +179,45 @@ class RobosuiteAgent(BaseAgent):
         Returns:
             ``(position, quaternion_wxyz)`` for a gripper grasp pose.
         """
-        privileged = self._privileged_object_pose(object_name)
-        if privileged is not None:
-            position, quat, _extent = privileged
-            return position.copy(), quat.copy()
+        import viser.transforms as vtf
+
         obs = self._env.get_observation(self._record_dir / self.step_dir)
         rgb, depth, intrinsics = self._main_rgbd(obs)
-        masks = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
-        if not masks:
+        if self._config.debug:
+            self._save_rgbd(rgb, depth, caller="sample_grasp_pose")
+
+        depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
+
+        results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
+        if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
-        mask = np.asarray(masks[0].mask, dtype=np.int32)
+        scores = [result.score for result in results]
+        best_idx = int(np.argmax(scores))
+        segmentation = np.asarray(results[best_idx].mask, dtype=np.int32)
+        queried_instance_idx = 1
+
         grasps = self._run_policy(
             self._graspnet_policy,
             method="plan",
-            depth=depth[:, :, 0] if depth.ndim == 3 else depth,
+            depth=depth_2d,
             cam_k=intrinsics,
-            segmap=mask,
-            segmap_id=1,
+            segmap=segmentation,
+            segmap_id=queried_instance_idx,
         )
-        best_idx = int(np.asarray(grasps.scores).argmax())
-        pose = np.asarray(grasps.grasps[best_idx], dtype=np.float64)
-        return pose[:3, 3], self._matrix_to_wxyz(pose[:3, :3])
+        grasp_scores = np.asarray(grasps.scores)
+        grasp_poses = grasps.grasps
+
+        grasp_sample_tf = vtf.SE3.from_matrix(
+            np.asarray(grasp_poses[grasp_scores.argmax()], dtype=np.float64)
+        ) @ vtf.SE3.from_translation(np.array([0, 0, 0.12]))
+
+        cam_extr_tf = vtf.SE3.from_rotation_and_translation(
+            rotation=vtf.SO3(wxyz=obs["robot0_robotview"]["pose"][3:]),
+            translation=obs["robot0_robotview"]["pose"][:3],
+        )
+        grasp_sample_tf_world = cam_extr_tf @ grasp_sample_tf
+
+        return grasp_sample_tf_world.wxyz_xyz[-3:], grasp_sample_tf_world.wxyz_xyz[:4]
 
     def goto_pose(
         self,
@@ -193,15 +241,15 @@ class RobosuiteAgent(BaseAgent):
 
     def open_gripper(self) -> None:
         """Open gripper fully."""
-        self._env.low_level_env._set_gripper(1.0)
+        self._env._set_gripper(1.0)
         for _ in range(30):
-            self._env.low_level_env._step_once()
+            self._env._step_once()
 
     def close_gripper(self) -> None:
         """Close gripper fully."""
-        self._env.low_level_env._set_gripper(0.0)
+        self._env._set_gripper(0.0)
         for _ in range(30):
-            self._env.low_level_env._step_once()
+            self._env._step_once()
 
     def home_pose(self) -> None:
         """Move the robot to a safe home pose."""
@@ -217,7 +265,7 @@ class RobosuiteAgent(BaseAgent):
             ],
             dtype=np.float64,
         )
-        self._env.low_level_env.move_to_joints_blocking(joints)
+        self._env.move_to_joints_blocking(joints)
 
     def _compute_reward(self) -> float:
         return float(self._env.compute_reward())
@@ -234,25 +282,7 @@ class RobosuiteAgent(BaseAgent):
             )
             joints = np.asarray(result.joint_positions, dtype=np.float64)
         self._ik_cfg = joints
-        self._env.low_level_env.move_to_joints_blocking(joints[:7])
-
-    def _privileged_object_pose(
-        self,
-        object_name: str,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-        low_level = self._env.low_level_env
-        if hasattr(low_level, "object_pose"):
-            return tuple(np.asarray(v, dtype=np.float64) for v in low_level.object_pose(object_name))
-        obs = low_level.get_observation()
-        objects = obs.get("objects")
-        if isinstance(objects, dict) and object_name in objects:
-            obj = objects[object_name]
-            return (
-                np.asarray(obj["position"], dtype=np.float64),
-                np.asarray(obj.get("quat", [1.0, 0.0, 0.0, 0.0]), dtype=np.float64),
-                np.asarray(obj.get("extent", [0.04, 0.04, 0.04]), dtype=np.float64),
-            )
-        return None
+        self._env.move_to_joints_blocking(joints[:7])
 
     @staticmethod
     def _main_rgbd(obs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -266,22 +296,47 @@ class RobosuiteAgent(BaseAgent):
         return rgb, depth, intrinsics
 
     @staticmethod
-    def _pose_from_mask(
-        depth: np.ndarray,
+    def _pose_from_mask_obb(
+        depth_2d: np.ndarray,
         intrinsics: np.ndarray,
         mask: np.ndarray,
+        obs: dict,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        import open3d as o3d
+        from scipy.spatial.transform import Rotation
+
         ys, xs = np.where(mask)
         if len(xs) == 0:
-            raise ValueError("Empty segmentation mask")
-        z_img = depth[:, :, 0] if depth.ndim == 3 else depth
-        z = z_img[ys, xs]
+            raise ValueError("Empty segmentation mask after NaN filtering")
+        z = depth_2d[ys, xs]
         fx, fy = intrinsics[0, 0], intrinsics[1, 1]
         cx, cy = intrinsics[0, 2], intrinsics[1, 2]
         points = np.column_stack(((xs - cx) * z / fx, (ys - cy) * z / fy, z))
-        center = points.mean(axis=0)
-        extent = points.max(axis=0) - points.min(axis=0)
-        return center, np.array([1.0, 0.0, 0.0, 0.0]), extent
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        obb = pcd.get_oriented_bounding_box()
+
+        cam_pose = obs["robot0_robotview"]["pose"]
+        cam_rot = Rotation.from_quat([cam_pose[4], cam_pose[5], cam_pose[6], cam_pose[3]])
+        center_world = np.asarray(cam_pose[:3], dtype=np.float64) + cam_rot.apply(obb.center)
+        rot_world = cam_rot * Rotation.from_matrix(obb.R)
+        xyzw = rot_world.as_quat()
+        wxyz = np.array([xyzw[3], xyzw[0], xyzw[1], xyzw[2]], dtype=np.float64)
+        return center_world, wxyz, np.asarray(obb.extent, dtype=np.float64)
+
+    def _save_rgbd(self, rgb: np.ndarray, depth: np.ndarray, caller: str = "") -> None:
+        """Save rgb_image.jpg and depth_image.jpg for debugging."""
+        from PIL import Image as _Image
+
+        from cap_general.core import utils as cap_utils
+
+        d2d = depth[:, :, 0] if depth.ndim == 3 else depth
+        prefix = f"{caller}." if caller else ""
+        debug_dir = self._record_dir / self.step_dir
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        _Image.fromarray(cap_utils.depth_to_rgb(d2d)).save(debug_dir / f"{prefix}depth_image.jpg")
+        _Image.fromarray(rgb).save(debug_dir / f"{prefix}rgb_image.jpg")
 
     def _apply_tcp_offset(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
         from scipy.spatial.transform import Rotation

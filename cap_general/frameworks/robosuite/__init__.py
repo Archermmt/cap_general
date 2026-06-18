@@ -9,19 +9,19 @@ from cap_general.frameworks.robosuite.agent import (
 from cap_general.frameworks.robosuite.env import (
     MockRobosuiteCubeEnv,
     RobosuiteBaseEnv,
+    RobosuiteBaseEnvConfig,
     RobosuiteCubeEnv,
+    RobosuiteCubeEnvConfig,
     RobosuiteCudeEnv,
-    RobosuiteEnv,
-    RobosuiteEnvConfig,
 )
 
 __all__ = [
     "RobosuiteBaseEnv",
+    "RobosuiteBaseEnvConfig",
     "RobosuiteCubeEnv",
+    "RobosuiteCubeEnvConfig",
     "RobosuiteCudeEnv",
     "MockRobosuiteCubeEnv",
-    "RobosuiteEnv",
-    "RobosuiteEnvConfig",
     "RobosuiteAgent",
     "RobosuiteAgentConfig",
     "PROMPT",
