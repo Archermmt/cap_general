@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -127,14 +126,14 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         self._refresh_gripper_pose()
         if self._video_fmt:
             self.enable_video_capture(True, clear=True)
-        obs = self.get_observation()
+        obs = self._get_robot_obs()
         return obs, {
             "task_prompt": "Place the primary cube on top of the secondary cube. Quaternions are WXYZ.",
             "options": options or {},
         }
 
     def object_pose(self, name: str):
-        obs = self.get_observation()
+        obs = self._get_robot_obs()
         aliases = {
             "red cube": "primary",
             "green cube": "secondary",
@@ -160,10 +159,7 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
     def compute_reward(self) -> float:
         return float(self.robosuite_env.reward(action=None))
 
-    def task_completed(self) -> bool:
-        return bool(self.robosuite_env._check_success())
-
-    def get_observation(self, folder: str | Path | None = None) -> dict[str, Any]:
+    def _get_robot_obs(self) -> dict[str, Any]:
         robosuite_obs = self.robosuite_env._get_observations()
         pose_dict = self._cube_pose_dict(robosuite_obs)
         robosuite_obs["cube_poses"] = {key: np.asarray(value, dtype=np.float32) for key, value in pose_dict.items()}
@@ -186,5 +182,3 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         self._process_camera_observations(robosuite_obs)
         self._compute_gripper_obs(robosuite_obs)
         return robosuite_obs
-
-__all__ = ["RobosuiteCubeEnv", "RobosuiteCubeEnvConfig"]

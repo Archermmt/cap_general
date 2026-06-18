@@ -12,9 +12,8 @@ import numpy as np
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
 from cap_general.core import utils as cap_utils
-
+from cap_general.core.env import BaseEnv, BaseEnvConfig
 
 _DEFAULT_CONTROLLER_CFG = str(Path(__file__).resolve().parent / "controllers" / "panda_joint_ctrl.json")
 
@@ -73,28 +72,16 @@ class RobosuiteBaseEnv(BaseEnv):
 
     def _step(self, action: Any) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
         self._step_count += 1
-        obs = self.get_observation()
+        obs = self._get_robot_obs()
         reward = self.compute_reward()
         return obs, reward, False, self._step_count >= self.max_steps, {}
 
-    def get_observation(self, folder: str | Path | None = None) -> dict[str, Any]:
-        raise NotImplementedError("Subclasses must implement get_observation")
+    def _get_robot_obs(self) -> dict[str, Any]:
+        raise NotImplementedError("Subclasses must implement _get_robot_obs")
 
     @property
     def step_cnt(self) -> int:
         return len(self._frame_buffer)
-
-    def record(self, folder: str | Path, start_frm: int = 0, end_frm: int | None = None) -> dict[str, Any]:
-        if not self._video_fmt:
-            return {"videos": {}, "main_video": None}
-        end = end_frm if end_frm is not None else len(self._frame_buffer)
-        frames = [frame.copy() for frame in self._frame_buffer[start_frm:end]]
-        if not frames:
-            return {"videos": {}, "main_video": None}
-        record_path = Path(folder)
-        record_path.mkdir(parents=True, exist_ok=True)
-        main_video = cap_utils.save_video(record_path / f"agentview.{self._video_fmt}", frames)
-        return {"videos": {"agentview": main_video}, "main_video": main_video}
 
     def _init_robot_links(self) -> None:
         self.gripper_metric_length = 0.04
@@ -142,9 +129,9 @@ class RobosuiteBaseEnv(BaseEnv):
 
     def _do_robosuite_step(self, action: np.ndarray) -> None:
         sliced = action[: self._ACTION_SLICE] if self._ACTION_SLICE != 0 else action
-        need_render = (
-            self._record_frames and self._sim_step_count % self._subsample_rate == 0
-        ) or hasattr(self, "viser_server")
+        need_render = (self._record_frames and self._sim_step_count % self._subsample_rate == 0) or hasattr(
+            self, "viser_server"
+        )
         if need_render:
             self.robosuite_env.step(sliced)
         else:
@@ -279,9 +266,7 @@ class RobosuiteBaseEnv(BaseEnv):
         )
         eef_pos = robosuite_obs.get("robot0_eef_pos", np.zeros(3))
         eef_quat = robosuite_obs.get("robot0_eef_quat", np.array([1.0, 0.0, 0.0, 0.0]))
-        robosuite_obs["robot_cartesian_pos"] = np.concatenate(
-            [eef_pos, eef_quat, [gripper[0] / gripper_metric_length]]
-        )
+        robosuite_obs["robot_cartesian_pos"] = np.concatenate([eef_pos, eef_quat, [gripper[0] / gripper_metric_length]])
 
     def _record_frame_if_needed(self) -> None:
         if self._record_frames and self._sim_step_count % self._subsample_rate == 0:
@@ -306,6 +291,3 @@ class RobosuiteBaseEnv(BaseEnv):
 
     def compute_reward(self) -> float:
         return 0.0
-
-    def task_completed(self) -> bool:
-        return False

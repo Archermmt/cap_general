@@ -126,7 +126,7 @@ class RobosuiteAgent(BaseAgent):
         import open3d as o3d
         import viser.transforms as vtf
 
-        obs = self._env.get_observation(self._record_dir / self.step_dir)
+        obs = self._env._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
             self._save_rgbd(rgb, depth, caller="get_object_pose")
@@ -181,7 +181,7 @@ class RobosuiteAgent(BaseAgent):
         """
         import viser.transforms as vtf
 
-        obs = self._env.get_observation(self._record_dir / self.step_dir)
+        obs = self._env._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
             self._save_rgbd(rgb, depth, caller="sample_grasp_pose")
