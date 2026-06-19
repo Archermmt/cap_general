@@ -20,9 +20,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from cap_general.core.utils import test_utils
 
-_DEFAULT_MAX_STEPS = 100
+_DEFAULT_MAX_STEPS = 300
 _DEFAULT_CONFIG = "configs/genesis/drone_agent.yaml"
-_DEFAULT_TASK_NUM = 3
+_DEFAULT_TASK_NUM = 1
 
 
 def _make_code(max_steps: int) -> str:

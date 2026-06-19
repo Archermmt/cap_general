@@ -12,13 +12,32 @@ env:
   reset_time: 0
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone
   log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
-  backend: cpu
+  backend:
   show_viewer: true
   num_envs: 1
   visualize_target: true
   visualize_camera: false
+  camera_enabled: true
+  camera_res:
+    - 320
+    - 240
+  camera_fov: 90.0
+  camera_pos:
+    - 0.12
+    - 0.0
+    - -0.03
+  camera_lookat:
+    - 1.0
+    - 0.0
+    - -0.03
+  camera_up:
+    - 0.0
+    - 0.0
+    - 1.0
+  camera_near: 0.02
+  camera_far: 20.0
   max_visualize_fps: 60
-  max_episode_steps: 1000000
+  max_episode_steps:
 policies:
   runner:
     type: rsl_rl

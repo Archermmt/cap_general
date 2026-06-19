@@ -20,11 +20,19 @@ class DroneHoverEnvConfig(BaseEnvConfig):
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/drone"
     log_dir: str | Path = "logs/drone-hovering"
-    backend: str = "cpu"
+    backend: str | None = None
     show_viewer: bool = False
     num_envs: int = 1
     visualize_target: bool = True
     visualize_camera: bool = False
+    camera_enabled: bool = True
+    camera_res: tuple[int, int] = (320, 240)
+    camera_fov: float = 90.0
+    camera_pos: tuple[float, float, float] = (0.12, 0.0, -0.03)
+    camera_lookat: tuple[float, float, float] = (1.0, 0.0, -0.03)
+    camera_up: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    camera_near: float = 0.02
+    camera_far: float = 20.0
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
 
@@ -37,7 +45,7 @@ class DroneHoverEnv(BaseEnv):
     config_cls = DroneHoverEnvConfig
 
     def __init__(self, config: DroneHoverEnvConfig, logger: logging.Logger | None = None):
-        if config.visualize_camera and "camera_image" not in config.image_keys:
+        if config.camera_enabled and "camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)
         self._config = config
@@ -46,6 +54,7 @@ class DroneHoverEnv(BaseEnv):
         self._last_reward = 0.0
         self._last_done = False
         self._mock_reason: str | None = None
+        self._body_camera = None
         self._camera_failed = False
 
     @classmethod
@@ -113,9 +122,11 @@ class DroneHoverEnv(BaseEnv):
             return
 
         try:
-            backend = getattr(gs, self._config.backend)
             try:
-                gs.init(backend=backend)
+                if self._config.backend:
+                    gs.init(backend=getattr(gs, self._config.backend))
+                else:
+                    gs.init()
             except Exception as exc:
                 message = str(exc)
                 if "already" not in message.lower() and "initialized" not in message.lower():
@@ -125,13 +136,14 @@ class DroneHoverEnv(BaseEnv):
             env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             env_cfg["visualize_target"] = self._config.visualize_target
-            env_cfg["visualize_camera"] = self._config.visualize_camera
+            env_cfg["visualize_camera"] = self._config.visualize_camera and not self._config.camera_enabled
             env_cfg["max_visualize_FPS"] = int(self._config.max_visualize_fps)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
-            self._example_env = module.HoverEnv(
+            self._example_env = self._build_example_env_with_camera(
+                module=module,
                 num_envs=self._config.num_envs,
                 env_cfg=env_cfg,
                 obs_cfg=obs_cfg,
@@ -139,10 +151,65 @@ class DroneHoverEnv(BaseEnv):
                 command_cfg=command_cfg,
                 show_viewer=self._config.show_viewer,
             )
-            self._last_policy_obs = self._example_env.reset()
+            self._last_policy_obs = self._example_env.get_observations()
         except Exception as exc:  # pragma: no cover - depends on Genesis runtime
             self._mock_reason = str(exc)
             self.logger.warning("Genesis drone env running in mock mode: %s", exc)
+
+    def _build_example_env_with_camera(self, module: Any, **kwargs: Any) -> Any:
+        if not self._config.camera_enabled:
+            return module.HoverEnv(**kwargs)
+
+        original_scene_cls = module.gs.Scene
+        camera_holder: dict[str, Any] = {}
+
+        def scene_factory(*scene_args: Any, **scene_kwargs: Any) -> Any:
+            scene = original_scene_cls(*scene_args, **scene_kwargs)
+            original_build = scene.build
+
+            def build_with_body_camera(*build_args: Any, **build_kwargs: Any) -> Any:
+                self._add_body_camera(scene, camera_holder)
+                return original_build(*build_args, **build_kwargs)
+
+            scene.build = build_with_body_camera
+            return scene
+
+        module.gs.Scene = scene_factory
+        try:
+            example_env = module.HoverEnv(**kwargs)
+        finally:
+            module.gs.Scene = original_scene_cls
+        self._body_camera = camera_holder.get("camera")
+        return example_env
+
+    def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
+        if camera_holder.get("camera") is not None:
+            return
+        try:
+            from genesis.utils import geom as gu
+
+            drone = scene.entities[-1]
+            camera = scene.add_camera(
+                res=tuple(self._config.camera_res),
+                pos=tuple(self._config.camera_pos),
+                lookat=tuple(self._config.camera_lookat),
+                up=tuple(self._config.camera_up),
+                fov=float(self._config.camera_fov),
+                near=float(self._config.camera_near),
+                far=float(self._config.camera_far),
+                GUI=False,
+                debug=True,
+            )
+            base_link = getattr(drone, "base_link", None) or drone.links[0]
+            offset_T = gu.pos_lookat_up_to_T(
+                np.asarray(self._config.camera_pos, dtype=np.float32),
+                np.asarray(self._config.camera_lookat, dtype=np.float32),
+                np.asarray(self._config.camera_up, dtype=np.float32),
+            )
+            camera.attach(base_link, offset_T)
+            camera_holder["camera"] = camera
+        except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
+            self.logger.warning("Failed to add Genesis drone body camera: %s", exc)
 
     def _load_cfgs(self):
         with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
@@ -190,13 +257,11 @@ class DroneHoverEnv(BaseEnv):
         }
 
     def _read_camera_image(self) -> Any | None:
-        if self._camera_failed or self._example_env is None:
-            return None
-        camera = getattr(self._example_env, "cam", None)
-        if camera is None:
+        if self._body_camera is None or self._camera_failed:
             return None
         try:
-            rgb = camera.render(rgb=True, force_render=True)[0]
+            self._body_camera.move_to_attach()
+            rgb = self._body_camera.render(rgb=True, force_render=True)[0]
             if getattr(rgb, "ndim", 0) > 3:
                 rgb = rgb[0]
             return self._to_image_array(rgb)
