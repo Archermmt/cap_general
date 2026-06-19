@@ -1,7 +1,6 @@
 """Robosuite-specific CAP components."""
 
 from cap_general.frameworks.robosuite.agent import (
-    ORACLE_CODE,
     PROMPT,
     RobosuiteAgent,
     RobosuiteAgentConfig,
@@ -21,5 +20,4 @@ __all__ = [
     "RobosuiteAgent",
     "RobosuiteAgentConfig",
     "PROMPT",
-    "ORACLE_CODE",
 ]

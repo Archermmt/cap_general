@@ -14,11 +14,13 @@ env:
   reset_time: 0
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
   log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+  backend: cpu
   stage: rl
   show_viewer: true
-  num_envs: 10
+  num_envs: 1
   box_fixed: false
-  visualize_camera: true
+  visualize_camera: false
+  max_episode_steps: 1000000
 policies:
   runner:
     type: rsl_rl

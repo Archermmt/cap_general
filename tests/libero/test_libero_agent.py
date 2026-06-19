@@ -48,7 +48,6 @@ def _make_code(task: str, max_steps: int) -> str:
     """Build oracle code with values baked in; no exec-globals variables needed."""
     return f"""\
 success = libero_vla_episode(task={task!r}, max_steps={max_steps})
-print(f"Episode result: {{'SUCCESS' if success else 'FAIL'}}")
 RESULT = {{"success": success, "task": {task!r}}}
 """
 

@@ -20,12 +20,14 @@ class GraspEnvConfig(BaseEnvConfig):
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation"
     log_dir: str | Path = "logs/grasp_rl"
+    backend: str = "cpu"
     stage: str = "rl"
     show_viewer: bool = False
-    num_envs: int = 10
+    num_envs: int = 1
     box_fixed: bool = False
-    visualize_camera: bool = True
+    visualize_camera: bool = False
     record_video: dict[str, str] | None = None
+    max_episode_steps: int | None = 1_000_000
 
 
 @BaseEnv.register()
@@ -116,7 +118,13 @@ class GraspEnv(BaseEnv):
             return
 
         try:
-            gs.init()
+            backend = getattr(gs, self._config.backend)
+            try:
+                gs.init(backend=backend)
+            except Exception as exc:
+                message = str(exc)
+                if "already" not in message.lower() and "initialized" not in message.lower():
+                    raise
             example_root = Path(self._config.example_root).expanduser()
             module = load_module_from_file("cap_general_genesis_grasp_env", example_root / "grasp_env.py")
             env_cfg, reward_cfg, robot_cfg, _rl_train_cfg, _bc_train_cfg = self._load_cfgs()
@@ -124,6 +132,8 @@ class GraspEnv(BaseEnv):
             env_cfg["num_envs"] = self._config.num_envs
             env_cfg["box_fixed"] = self._config.box_fixed
             env_cfg["visualize_camera"] = self._config.visualize_camera
+            if self._config.max_episode_steps is not None:
+                env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * float(env_cfg["ctrl_dt"])
             if self._config.record_video:
                 env_cfg["record_video"] = self._config.record_video
             self._example_env = module.GraspEnv(

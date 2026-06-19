@@ -39,8 +39,6 @@ def _make_code(max_steps: int, turn_angle: float = 0.0) -> str:
     return f"""\
 walk_result = walk_forward(max_steps={max_steps}, turn_angle={turn_angle!r})
 stand_result = stand_still(time_s=3.0)
-print(f"GO2 walk steps={{walk_result.get('steps')}} turn_angle={{walk_result.get('turn_angle')}} mock={{walk_result.get('mock', False)}}")
-print(f"GO2 stand duration={{stand_result.get('duration')}} steps={{stand_result.get('steps')}} mock={{stand_result.get('mock', False)}}")
 RESULT = {{
     "success": True,
     "steps": walk_result.get("steps"),

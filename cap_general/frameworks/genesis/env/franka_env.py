@@ -53,6 +53,7 @@ class FrankaEnvConfig(BaseEnvConfig):
     """Configuration for FrankaEnv."""
 
     robot: Any | None = None
+    backend: str = "cpu"
     use_gui: bool = False
     sim_step: float = 0.01
     objects: list[ObjConfig | dict[str, Any]] = field(default_factory=_default_objects)
@@ -72,6 +73,7 @@ class FrankaEnv(BaseEnv):
     ):
         super().__init__(config=config, logger=logger)
         self._robot = config.robot
+        self._backend = str(config.backend)
         self._use_gui = bool(config.use_gui)
         self._sim_step = float(config.sim_step)
         self._object_configs = [self._coerce_obj_config(obj) for obj in config.objects]
@@ -156,18 +158,21 @@ class FrankaEnv(BaseEnv):
             return False
 
     def get_ee_pose(self) -> list[float]:
-        """Get the end-effector pose as [x, y, z, qx, qy, qz, qw]."""
+        """Get the end-effector pose as [x, y, z, qw, qx, qy, qz]."""
         if self._robot is None:
             self.logger.info("[Mock] get_ee_pose()")
-            return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+            return [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 
         try:
             if hasattr(self._robot, "get_ee_pose"):
                 return list(self._robot.get_ee_pose())
-            raise AttributeError("Robot does not support get_ee_pose")
+            if hasattr(self._robot, "get_link"):
+                ee_link = self._robot.get_link("hand")
+                return self._tensor_to_flat_list(ee_link.get_pos()) + self._tensor_to_flat_list(ee_link.get_quat())
+            raise AttributeError("Robot does not support get_ee_pose or get_link('hand')")
         except Exception as exc:
             self.logger.warning("Error getting EE pose: %s", exc)
-            return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+            return [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 
     def move_to_pose(self, x: float, y: float, z: float, duration: float = 1.0) -> bool:
         """Move the end-effector to a Cartesian position."""
@@ -250,6 +255,14 @@ class FrankaEnv(BaseEnv):
                 self.logger.warning("Genesis is not importable; FrankaEnv is running in mock mode")
                 self._genesis_unavailable_logged = True
             return
+
+        try:
+            backend = getattr(gs, self._backend)
+            gs.init(backend=backend)
+        except Exception as exc:
+            message = str(exc)
+            if "already" not in message.lower() and "initialized" not in message.lower():
+                raise
 
         self._scene = gs.Scene(
             viewer_options=gs.options.ViewerOptions(
@@ -450,6 +463,12 @@ class FrankaEnv(BaseEnv):
         if entity is None or not hasattr(entity, "get_pos"):
             return list(map(float, fallback))
         return np.asarray(entity.get_pos(), dtype=float).reshape(-1).tolist()
+
+    @staticmethod
+    def _tensor_to_flat_list(value: Any) -> list[float]:
+        if hasattr(value, "detach"):
+            value = value.detach().cpu().numpy()
+        return np.asarray(value, dtype=float).reshape(-1).tolist()
 
     @staticmethod
     def _entity_vel(entity: Any | None) -> list[float]:

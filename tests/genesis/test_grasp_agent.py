@@ -20,8 +20,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from cap_general.core.utils import test_utils
 
-_DEFAULT_MAX_STEPS = 2
-_DEFAULT_TRIAL_NUM = 1
+_DEFAULT_MAX_STEPS = 100
+_DEFAULT_TASK_NUM = 4
 _DEFAULT_CONFIG = "configs/genesis/grasp_agent.yaml"
 
 
@@ -29,7 +29,6 @@ def _make_code(max_steps: int) -> str:
     """Build GraspAgent execution code with values baked in."""
     return f"""\
 result = grasp_episode(stage="rl", max_steps={max_steps})
-print(f"Grasp episode stage={{result.get('stage')}} steps={{result.get('steps')}} mock={{result.get('mock', False)}}")
 RESULT = {{
     "success": True,
     "stage": result.get("stage"),
@@ -40,20 +39,20 @@ RESULT = {{
 
 
 def _make_local_agent(config: str):
-    from cap_general.core.agent import BaseAgent
     import cap_general.frameworks.genesis  # noqa: F401
+    from cap_general.core.agent import BaseAgent
 
     return BaseAgent.from_yaml(config)
 
 
-def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
+def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     """Run GraspAgent episodes in-process."""
     agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
-    for trial_idx in range(trial_num):
-        print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
-        if trial_idx == 0:
+    for task_idx in range(task_num):
+        print(f"\n[test] --- Task {task_idx + 1}/{task_num} ---")
+        if task_idx == 0:
             result = agent.execute(_make_code(max_steps))
         else:
             result = agent.retry()
@@ -63,7 +62,7 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     return record
 
 
-async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
+async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
     """Run GraspAgent episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -79,9 +78,9 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await test_utils.call_tool(session, "reset", {"options": {}})
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
-            for trial_idx in range(trial_num):
-                print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
-                if trial_idx == 0:
+            for task_idx in range(task_num):
+                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num} ---")
+                if task_idx == 0:
                     result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
                 else:
                     result = await test_utils.call_tool(session, "retry")
@@ -94,15 +93,15 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
 def run_grasp_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
-    trial_num: int = _DEFAULT_TRIAL_NUM,
+    task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
 ) -> dict:
     """Run GraspAgent episodes in-process or through MCP."""
     if remote:
         if not config:
             raise ValueError("Remote GraspAgent test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, trial_num))
-    return _run_local(config or _DEFAULT_CONFIG, max_steps, trial_num)
+        return asyncio.run(_run_remote(config, max_steps, task_num))
+    return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
 
 
 def test_local_grasp_agent() -> None:
@@ -117,14 +116,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Genesis GraspAgent evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
-    parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
+    parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
+    parser.add_argument("--trial-num", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
+    task_num = args.trial_num if args.trial_num is not None else args.task_num
 
     result = run_grasp_test(
         config=args.config,
         max_steps=args.max_steps,
-        trial_num=args.trial_num,
+        task_num=task_num,
         remote=args.remote,
     )
     print("\n[PASS]")

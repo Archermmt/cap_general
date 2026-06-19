@@ -64,7 +64,7 @@ class GraspAgent(BaseAgent):
             }
 
         obs = self._env.policy_obs
-        for step_idx in range(steps):
+        for _ in range(steps):
             if current_stage == "rl":
                 action = self._run_policy(self._rl_policy_name, env=env, obs=obs)
             elif current_stage == "bc":
@@ -79,12 +79,7 @@ class GraspAgent(BaseAgent):
             obs = self._env.policy_obs
 
         demo_ran = self.grasp_and_lift_demo() if self._run_demo_after_episode else False
-        return {
-            "steps": step_idx + 1 if steps > 0 else 0,
-            "stage": current_stage,
-            "demo_ran": demo_ran,
-            "obs": self._env.get_observation(self._record_dir / self.step_dir),
-        }
+        return {"stage": current_stage, "demo_ran": demo_ran}
 
     def grasp_and_lift_demo(self) -> bool:
         """Run the scripted grasp-and-lift demo from the underlying env."""
