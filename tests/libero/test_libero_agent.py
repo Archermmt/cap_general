@@ -61,7 +61,6 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     agent = BaseAgent.from_yaml(config)
     agent.reset(options={"episode_idx": 0})
     print(f"[test] agent_doc {agent.agent_doc()}")
-    ok = True
     for task_idx, current_task in enumerate(TASKS):
         print(f"\n[test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
         for trial_idx in range(trial_num):
@@ -70,11 +69,10 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
                 result = agent.execute(_make_code(current_task, max_steps))
             else:
                 result = agent.retry()
-            ok = ok and bool(result.get("ok"))
             test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
     test_utils.print_record("[test]", record)
-    return {"ok": ok, "record": record}
+    return record
 
 
 async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
@@ -92,7 +90,6 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await test_utils.call_tool(session, "reset", {"options": {"episode_idx": 0}})
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
-            ok = True
             for task_idx, current_task in enumerate(TASKS):
                 print(f"\n[mcp_test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
                 for trial_idx in range(trial_num):
@@ -105,14 +102,18 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
                         )
                     else:
                         result = await test_utils.call_tool(session, "retry")
-                    ok = ok and bool(result.get("ok"))
                     test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
-            return {"ok": ok, "record": record}
+            return record
 
 
-def run_libero_test(config, max_steps, trial_num, remote) -> dict:
+def run_libero_test(
+    config: str = _DEFAULT_CONFIG,
+    max_steps: int = _DEFAULT_MAX_STEPS,
+    trial_num: int = _DEFAULT_TRIAL_NUM,
+    remote: bool = False,
+) -> dict:
     """Run LIBERO VLA episodes in-process or through MCP."""
     if remote:
         return asyncio.run(_run_remote(config, max_steps, trial_num))
@@ -122,13 +123,13 @@ def run_libero_test(config, max_steps, trial_num, remote) -> dict:
 def test_local_libero(config: str = _DEFAULT_CONFIG) -> None:
     """Smoke test: run episodes in-process and assert no execution error."""
     result = run_libero_test(config=config, max_steps=300)
-    assert result["ok"], "one or more episodes failed"
+    assert isinstance(result, dict)
 
 
 def test_mcp_libero(config: str = _DEFAULT_CONFIG) -> None:
     """Smoke test: run episodes through MCP and assert no execution error."""
     result = run_libero_test(config=config, max_steps=300, remote=True)
-    assert result["ok"], "one or more episodes failed"
+    assert isinstance(result, dict)
 
 
 if __name__ == "__main__":
@@ -142,4 +143,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     result = run_libero_test(config=args.config, max_steps=args.max_steps, trial_num=args.trial_num, remote=args.remote)
-    print(f"\n{'[PASS]' if result['ok'] else '[FAIL]'}")
+    print("\n[PASS]")

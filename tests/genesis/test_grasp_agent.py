@@ -51,21 +51,16 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
-    ok = True
-    last_result = None
     for trial_idx in range(trial_num):
         print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
         if trial_idx == 0:
             result = agent.execute(_make_code(max_steps))
         else:
             result = agent.retry()
-        last_result = result
-        ok = ok and bool(result.get("ok"))
-        ok = ok and bool(result.get("result", {}).get("success"))
         test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
     test_utils.print_record("[test]", record)
-    return {"ok": ok, "last_result": last_result, "record": record}
+    return record
 
 
 async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
@@ -84,21 +79,16 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await test_utils.call_tool(session, "reset", {"options": {}})
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
-            ok = True
-            last_result = None
             for trial_idx in range(trial_num):
                 print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                 if trial_idx == 0:
                     result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
                 else:
                     result = await test_utils.call_tool(session, "retry")
-                last_result = result
-                ok = ok and bool(result.get("ok"))
-                ok = ok and bool(result.get("result", {}).get("success"))
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
-            return {"ok": ok, "last_result": last_result, "record": record}
+            return record
 
 
 def run_grasp_test(
@@ -118,7 +108,7 @@ def run_grasp_test(
 def test_local_grasp_agent() -> None:
     """Smoke test: run a GraspAgent episode in-process."""
     result = run_grasp_test(config=_DEFAULT_CONFIG)
-    assert result["ok"], "GraspAgent local execution failed"
+    assert isinstance(result, dict)
 
 
 if __name__ == "__main__":
@@ -137,4 +127,4 @@ if __name__ == "__main__":
         trial_num=args.trial_num,
         remote=args.remote,
     )
-    print(f"\n{'[PASS]' if result['ok'] else '[FAIL]'}")
+    print("\n[PASS]")

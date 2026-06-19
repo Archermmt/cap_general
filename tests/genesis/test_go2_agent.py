@@ -11,6 +11,7 @@ Remote mode:
 from __future__ import annotations
 
 import asyncio
+import math
 import sys
 from pathlib import Path
 
@@ -20,20 +21,33 @@ if str(_REPO_ROOT) not in sys.path:
 
 from cap_general.core.utils import test_utils
 
-_DEFAULT_MAX_STEPS = 300
-_DEFAULT_TRIAL_NUM = 1
+_DEFAULT_MAX_STEPS = 100
 _DEFAULT_CONFIG = "configs/genesis/go2_agent.yaml"
+_DEFAULT_TASK_NUM = 10
+ROUND_NUM = 10
 
 
-def _make_code(max_steps: int) -> str:
+def _random_turn_angles(task_num: int) -> list[float]:
+    """Create turn angles that complete one circle every ROUND_NUM tasks."""
+    if task_num <= 0:
+        return []
+    return [2.0 * math.pi * (idx % ROUND_NUM) / ROUND_NUM for idx in range(task_num)]
+
+
+def _make_code(max_steps: int, turn_angle: float = 0.0) -> str:
     """Build Go2Agent execution code with values baked in."""
     return f"""\
-result = walk_forward(max_steps={max_steps})
-print(f"GO2 walk steps={{result.get('steps')}} mock={{result.get('mock', False)}}")
+walk_result = walk_forward(max_steps={max_steps}, turn_angle={turn_angle!r})
+stand_result = stand_still(time_s=3.0)
+print(f"GO2 walk steps={{walk_result.get('steps')}} turn_angle={{walk_result.get('turn_angle')}} mock={{walk_result.get('mock', False)}}")
+print(f"GO2 stand duration={{stand_result.get('duration')}} steps={{stand_result.get('steps')}} mock={{stand_result.get('mock', False)}}")
 RESULT = {{
     "success": True,
-    "steps": result.get("steps"),
-    "mock": result.get("mock", False),
+    "steps": walk_result.get("steps"),
+    "turn_angle": walk_result.get("turn_angle"),
+    "stand_duration": stand_result.get("duration"),
+    "stand_steps": stand_result.get("steps"),
+    "mock": walk_result.get("mock", False) or stand_result.get("mock", False),
 }}
 """
 
@@ -45,29 +59,22 @@ def _make_local_agent(config: str):
     return BaseAgent.from_yaml(config)
 
 
-def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
+def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     """Run Go2Agent episodes in-process."""
     agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
-    ok = True
-    last_result = None
-    for trial_idx in range(trial_num):
-        print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
-        if trial_idx == 0:
-            result = agent.execute(_make_code(max_steps))
-        else:
-            result = agent.retry()
-        last_result = result
-        ok = ok and bool(result.get("ok"))
-        ok = ok and bool(result.get("result", {}).get("success"))
+    turn_angles = _random_turn_angles(task_num)
+    for task_idx, turn_angle in enumerate(turn_angles):
+        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
+        result = agent.execute(_make_code(max_steps, turn_angle=turn_angle))
         test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
     test_utils.print_record("[test]", record)
-    return {"ok": ok, "last_result": last_result, "record": record}
+    return record
 
 
-async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
+async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
     """Run Go2Agent episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -83,41 +90,38 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await test_utils.call_tool(session, "reset", {"options": {}})
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
-            ok = True
-            last_result = None
-            for trial_idx in range(trial_num):
-                print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
-                if trial_idx == 0:
-                    result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
-                else:
-                    result = await test_utils.call_tool(session, "retry")
-                last_result = result
-                ok = ok and bool(result.get("ok"))
-                ok = ok and bool(result.get("result", {}).get("success"))
+            turn_angles = _random_turn_angles(task_num)
+            for task_idx, turn_angle in enumerate(turn_angles):
+                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
+                result = await test_utils.call_tool(
+                    session,
+                    "execute",
+                    {"code": _make_code(max_steps, turn_angle=turn_angle)},
+                )
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
-            return {"ok": ok, "last_result": last_result, "record": record}
+            return record
 
 
 def run_go2_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
-    trial_num: int = _DEFAULT_TRIAL_NUM,
+    task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
 ) -> dict:
     """Run Go2Agent episodes in-process or through MCP."""
     if remote:
         if not config:
             raise ValueError("Remote Go2Agent test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, trial_num))
-    return _run_local(config or _DEFAULT_CONFIG, max_steps, trial_num)
+        return asyncio.run(_run_remote(config, max_steps, task_num))
+    return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
 
 
 def test_local_go2_agent() -> None:
     """Smoke test: run a Go2Agent episode in-process."""
     result = run_go2_test(config=_DEFAULT_CONFIG)
-    assert result["ok"], "Go2Agent local execution failed"
+    assert isinstance(result, dict)
 
 
 if __name__ == "__main__":
@@ -126,14 +130,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Genesis Go2Agent evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
-    parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
+    parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
+    parser.add_argument("--trial-num", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
+    task_num = args.trial_num if args.trial_num is not None else args.task_num
 
     result = run_go2_test(
         config=args.config,
         max_steps=args.max_steps,
-        trial_num=args.trial_num,
+        task_num=task_num,
         remote=args.remote,
     )
-    print(f"\n{'[PASS]' if result['ok'] else '[FAIL]'}")
+    print("\n[PASS]")

@@ -37,30 +37,68 @@ class Go2Agent(BaseAgent):
     def _execute_rules(self) -> str:
         return (
             "The Genesis GO2 agent evaluates locomotion policies in an env-controlled scene. "
-            "Use walk_forward(max_steps=...) to make GO2 walk forward. Do not create "
+            "Use walk_forward(max_steps=..., turn_angle=0.0) to make GO2 walk forward "
+            "and optionally turn by a yaw angle in radians. Use stand_still(time_s=...) "
+            "to keep GO2 standing still for a duration in seconds. Do not create "
             "Genesis scenes or robots in generated code."
         )
 
     def functions(self) -> dict[str, Callable[..., Any]]:
-        return {"walk_forward": self.walk_forward}
+        return {"walk_forward": self.walk_forward, "stand_still": self.stand_still}
 
-    def walk_forward(self, max_steps: int | None = None) -> dict[str, Any]:
-        """Make GO2 walk forward for up to max_steps policy steps."""
+    def walk_forward(self, max_steps: int | None = None, turn_angle: float = 0.0) -> dict[str, Any]:
+        """Make GO2 walk forward and smoothly turn by biasing policy actions."""
         steps = int(max_steps or self.horizon)
         env = self._env.example_env
         if env is None:
-            return {"steps": 0, "obs": self._env.get_observation(self._record_dir / self.step_dir), "mock": True}
+            return {
+                "steps": 0,
+                "turn_angle": float(turn_angle),
+                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "mock": True,
+            }
 
+        self._env.set_walk_command(turn_angle=0.0, steps=steps)
+        self._run_policy_steps(
+            env=env,
+            steps=steps,
+            after_step=lambda: self._env.set_walk_command(turn_angle=0.0, steps=steps),
+            turn_angle=float(turn_angle),
+        )
+        return {"steps": steps, "turn_angle": float(turn_angle)}
+
+    def stand_still(self, time_s: float) -> dict[str, Any]:
+        """Keep GO2 standing still for time_s seconds."""
+        duration = max(float(time_s), 0.0)
+        env = self._env.example_env
+        if env is None:
+            return {
+                "duration": duration,
+                "steps": 0,
+                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "mock": True,
+            }
+
+        steps = int(round(duration / max(float(self._env.dt), 1e-6)))
+        self._env.stop_command()
+        self._run_policy_steps(env=env, steps=steps, after_step=self._env.stop_command)
+        return {"duration": duration}
+
+    def _run_policy_steps(
+        self,
+        *,
+        env: Any,
+        steps: int,
+        after_step: Callable[[], Any],
+        turn_angle: float = 0.0,
+    ) -> int:
         obs = self._env.policy_obs
-        print("[TMINFO] reset obs " + str(obs), flush=True)
-        for step_idx in range(steps):
+        for _ in range(max(int(steps), 0)):
             action = self._run_policy(self._policy_name, env=env, obs=obs)
-            print(f"[TMINFO] {step_idx}/{steps} th action {action}", flush=True)
+            action = self._env.apply_turn_to_action(action, turn_angle)
             obs, _reward, terminated, truncated, _info = self._env.step(action)
+            after_step()
             if terminated or truncated:
                 break
             obs = self._env.policy_obs
-        return {
-            "steps": step_idx + 1 if steps > 0 else 0,
-            "obs": self._env.get_observation(self._record_dir / self.step_dir),
-        }
+        return None

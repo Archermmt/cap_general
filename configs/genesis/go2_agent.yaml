@@ -7,6 +7,7 @@ policy: runner
 horizon: 1000
 env:
   type: genesis_go2
+  video_fmt: mp4
   seed: 7
   reset_time: 0
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
@@ -14,6 +15,25 @@ env:
   backend: cpu
   show_viewer: true
   num_envs: 1
+  image_keys:
+    - body_camera_image
+  camera_enabled: true
+  camera_res:
+    - 320
+    - 240
+  camera_fov: 70.0
+  camera_pos:
+    - -0.35
+    - 0.0
+    - 0.30
+  camera_lookat:
+    - 0.45
+    - 0.0
+    - 0.16
+  camera_near: 0.05
+  camera_far: 20.0
+  turn_action_scale: 0.35
+  max_episode_steps: 1000000
 policies:
   runner:
     type: rsl_rl

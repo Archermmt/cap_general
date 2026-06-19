@@ -177,7 +177,7 @@ class BaseAgent(RegisteredBase):
             self._step_infos, self._step_codes = [], []
             self._plan, self._plan_start = {}, time.time()
             self._clear_record_dir_contents()
-        return {"ok": True, "obs": self.get_obs()}
+        return {"ok": True}
 
     def agent_doc(self) -> dict:
         """Return agent instructions and available tool references.

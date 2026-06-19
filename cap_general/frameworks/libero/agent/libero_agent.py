@@ -60,12 +60,7 @@ class LiberoAgent(BaseAgent):
         """Return LIBERO functions exposed to generated code."""
         return {"libero_vla_episode": self.libero_vla_episode}
 
-    def libero_vla_episode(
-        self,
-        task: str,
-        max_steps: int = 300,
-        policy_name: str = "starvla",
-    ) -> bool:
+    def libero_vla_episode(self, task: str, max_steps: int = 300, policy_name: str = "starvla") -> bool:
         """Run a full LIBERO episode using the configured VLA policy.
 
         Args:
