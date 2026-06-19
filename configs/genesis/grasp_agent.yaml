@@ -10,6 +10,7 @@ bc_policy: bc
 run_demo_after_episode: true
 env:
   type: genesis_grasp
+  video_fmt: mp4
   seed: 7
   reset_time: 0
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
@@ -19,7 +20,7 @@ env:
   show_viewer: true
   num_envs: 1
   box_fixed: false
-  visualize_camera: false
+  visualize_camera: true
   max_episode_steps: 1000000
 policies:
   runner:

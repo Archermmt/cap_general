@@ -1,0 +1,33 @@
+type: drone_agent
+record_dir: ./outputs/genesis/drone
+max_retry: 5
+reset_mode: never
+record_execute: true
+policy: runner
+horizon: 1000
+env:
+  type: genesis_drone_hover
+  video_fmt: mp4
+  seed: 7
+  reset_time: 0
+  example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone
+  log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+  backend: cpu
+  show_viewer: true
+  num_envs: 1
+  visualize_target: true
+  visualize_camera: false
+  max_visualize_fps: 60
+  max_episode_steps: 1000000
+policies:
+  runner:
+    type: rsl_rl
+    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+    ckpt: 100
+    train_cfg_index: 4
+server:
+  agent_name: 七仔
+  agent_id: cap
+  host: 127.0.0.1
+  port: 8908
+  skill_folder: skills

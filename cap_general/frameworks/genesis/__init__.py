@@ -1,6 +1,8 @@
 """Genesis-specific CAP components."""
 
 from cap_general.frameworks.genesis.agent import (
+    DroneAgent,
+    DroneAgentConfig,
     FrankaAgent,
     FrankaAgentConfig,
     Go2Agent,
@@ -9,6 +11,8 @@ from cap_general.frameworks.genesis.agent import (
     GraspAgentConfig,
 )
 from cap_general.frameworks.genesis.env import (
+    DroneHoverEnv,
+    DroneHoverEnvConfig,
     FrankaEnv,
     FrankaEnvConfig,
     Go2Env,
@@ -20,6 +24,8 @@ from cap_general.frameworks.genesis.env import (
 from cap_general.frameworks.genesis.policy import BehaviorCloningPolicy, BehaviorCloningPolicyConfig
 
 __all__ = [
+    "DroneHoverEnv",
+    "DroneHoverEnvConfig",
     "FrankaEnv",
     "FrankaEnvConfig",
     "ObjConfig",
@@ -27,6 +33,8 @@ __all__ = [
     "Go2EnvConfig",
     "GraspEnv",
     "GraspEnvConfig",
+    "DroneAgent",
+    "DroneAgentConfig",
     "FrankaAgent",
     "FrankaAgentConfig",
     "Go2Agent",

@@ -1,11 +1,11 @@
-"""Test GraspAgent locally or remotely through MCP.
+"""Test DroneAgent locally or remotely through MCP.
 
 Local mode:
-    python tests/genesis/test_grasp_agent.py
+    python tests/genesis/test_drone_agent.py
 
 Remote mode:
-    capcmd server --config configs/genesis/grasp_agent.yaml
-    python tests/genesis/test_grasp_agent.py --remote --config configs/genesis/grasp_agent.yaml
+    capcmd server --config configs/genesis/drone_agent.yaml
+    python tests/genesis/test_drone_agent.py --remote --config configs/genesis/drone_agent.yaml
 """
 
 from __future__ import annotations
@@ -21,19 +21,18 @@ if str(_REPO_ROOT) not in sys.path:
 from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
-_DEFAULT_TASK_NUM = 4
-_DEFAULT_CONFIG = "configs/genesis/grasp_agent.yaml"
+_DEFAULT_CONFIG = "configs/genesis/drone_agent.yaml"
+_DEFAULT_TASK_NUM = 3
 
 
 def _make_code(max_steps: int) -> str:
-    """Build GraspAgent execution code with values baked in."""
+    """Build DroneAgent execution code with values baked in."""
     return f"""\
-result = grasp_episode(stage="rl", max_steps={max_steps})
+hover_result = hover(max_steps={max_steps})
 RESULT = {{
     "success": True,
-    "stage": result.get("stage"),
-    "steps": result.get("steps"),
-    "mock": result.get("mock", False),
+    "steps": hover_result.get("steps"),
+    "mock": hover_result.get("mock", False),
 }}
 """
 
@@ -46,7 +45,7 @@ def _make_local_agent(config: str):
 
 
 def _run_local(config: str, max_steps: int, task_num: int) -> dict:
-    """Run GraspAgent episodes in-process."""
+    """Run DroneAgent hover tasks in-process."""
     agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
@@ -60,7 +59,7 @@ def _run_local(config: str, max_steps: int, task_num: int) -> dict:
 
 
 async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
-    """Run GraspAgent episodes through MCP."""
+    """Run DroneAgent hover tasks through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -84,42 +83,40 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
             return record
 
 
-def run_grasp_test(
+def run_drone_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
 ) -> dict:
-    """Run GraspAgent episodes in-process or through MCP."""
+    """Run DroneAgent hover tasks in-process or through MCP."""
     if remote:
         if not config:
-            raise ValueError("Remote GraspAgent test requires --config")
+            raise ValueError("Remote DroneAgent test requires --config")
         return asyncio.run(_run_remote(config, max_steps, task_num))
     return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
 
 
-def test_local_grasp_agent() -> None:
-    """Smoke test: run a GraspAgent episode in-process."""
-    result = run_grasp_test(config=_DEFAULT_CONFIG)
+def test_local_drone_agent() -> None:
+    """Smoke test: run a DroneAgent hover task in-process."""
+    result = run_drone_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Genesis GraspAgent evaluation - local or MCP")
+    parser = argparse.ArgumentParser(description="Genesis DroneAgent evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
-    parser.add_argument("--trial-num", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
-    task_num = args.trial_num if args.trial_num is not None else args.task_num
 
-    result = run_grasp_test(
+    result = run_drone_test(
         config=args.config,
         max_steps=args.max_steps,
-        task_num=task_num,
+        task_num=args.task_num,
         remote=args.remote,
     )
     print("\n[PASS]")
