@@ -219,14 +219,11 @@ class RobosuiteBaseEnv(BaseEnv):
         return frame[::-1]
 
     def _process_camera_observations(
-        self,
-        robosuite_obs: dict[str, Any],
-        *,
-        base_wxyz_xyz: np.ndarray | None = None,
+        self, robosuite_obs: dict[str, Any], *, base_wxyz_xyz: np.ndarray | None = None
     ) -> None:
         try:
-            from robosuite.utils.camera_utils import get_real_depth_map
             import viser.transforms as vtf
+            from robosuite.utils.camera_utils import get_real_depth_map
         except ImportError:
             return
 

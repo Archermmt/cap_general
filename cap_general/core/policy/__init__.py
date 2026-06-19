@@ -7,6 +7,7 @@ from cap_general.core.policy.huggingface_policy import (
     HuggingFacePolicyConfig,
 )
 from cap_general.core.policy.pyroki_policy import PyrokiPolicy, PyrokiPolicyConfig
+from cap_general.core.policy.rsl_rl_policy import RslRlPolicy, RslRlPolicyConfig
 from cap_general.core.policy.sam3_policy import SAM3Policy, SAM3PolicyConfig
 from cap_general.core.policy.starvla_policy import StarVLAPolicy, StarVLAPolicyConfig
 
@@ -16,6 +17,8 @@ __all__ = [
     "BasePolicyConfig",
     "HuggingFacePolicy",
     "HuggingFacePolicyConfig",
+    "RslRlPolicy",
+    "RslRlPolicyConfig",
     "SAM3Policy",
     "SAM3PolicyConfig",
     "StarVLAPolicy",

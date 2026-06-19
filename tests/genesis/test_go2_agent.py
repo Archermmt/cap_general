@@ -1,11 +1,11 @@
-"""Test FrankaAgent locally or remotely through MCP.
+"""Test Go2Agent locally or remotely through MCP.
 
 Local mode:
-    python tests/genesis/test_franka_api.py
+    python tests/genesis/test_go2_agent.py
 
 Remote mode:
-    capcmd server --config configs/franka_agent.yaml
-    python tests/genesis/test_franka_api.py --remote --config configs/franka_agent.yaml
+    capcmd server --config configs/genesis/go2_agent.yaml
+    python tests/genesis/test_go2_agent.py --remote --config configs/genesis/go2_agent.yaml
 """
 
 from __future__ import annotations
@@ -18,36 +18,36 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from cap_general.core.utils.test_utils import call_tool, print_execution_summary, print_record
+from cap_general.core.utils import test_utils
 
-_DEFAULT_MAX_STEPS = 2
+_DEFAULT_MAX_STEPS = 300
 _DEFAULT_TRIAL_NUM = 1
+_DEFAULT_CONFIG = "configs/genesis/go2_agent.yaml"
 
 
 def _make_code(max_steps: int) -> str:
-    """Build FrankaAgent execution code with values baked in."""
+    """Build Go2Agent execution code with values baked in."""
     return f"""\
-result = franka_episode(max_steps={max_steps})
-objects = result.get("obs", {{}}).get("objects", [])
-print(f"Franka episode steps={{result.get('steps')}} objects={{len(objects)}}")
+result = walk_forward(max_steps={max_steps})
+print(f"GO2 walk steps={{result.get('steps')}} mock={{result.get('mock', False)}}")
 RESULT = {{
     "success": True,
     "steps": result.get("steps"),
-    "object_count": len(objects),
-    "object_types": [obj.get("type") for obj in objects],
+    "mock": result.get("mock", False),
 }}
 """
 
 
-def _make_local_agent():
-    from cap_general.frameworks.genesis.agent import FrankaAgent, FrankaAgentConfig
+def _make_local_agent(config: str):
+    import cap_general.frameworks.genesis  # noqa: F401
+    from cap_general.core.agent import BaseAgent
 
-    return FrankaAgent(FrankaAgentConfig(record_dir="outputs/genesis_test"))
+    return BaseAgent.from_yaml(config)
 
 
-def _run_local(max_steps: int, trial_num: int) -> dict:
-    """Run FrankaAgent episodes in-process."""
-    agent = _make_local_agent()
+def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
+    """Run Go2Agent episodes in-process."""
+    agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
     ok = True
@@ -60,15 +60,15 @@ def _run_local(max_steps: int, trial_num: int) -> dict:
             result = agent.retry()
         last_result = result
         ok = ok and bool(result.get("ok"))
-        ok = ok and result.get("result", {}).get("object_count") == 5
-        print_execution_summary("[test]", result)
+        ok = ok and bool(result.get("result", {}).get("success"))
+        test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
-    print_record("[test]", record)
+    test_utils.print_record("[test]", record)
     return {"ok": ok, "last_result": last_result, "record": record}
 
 
 async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
-    """Run FrankaAgent episodes through MCP."""
+    """Run Go2Agent episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -80,57 +80,57 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await call_tool(session, "reset", {"options": {}})
-            agent_doc = await call_tool(session, "agent_doc")
+            await test_utils.call_tool(session, "reset", {"options": {}})
+            agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
             ok = True
             last_result = None
             for trial_idx in range(trial_num):
                 print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                 if trial_idx == 0:
-                    result = await call_tool(session, "execute", {"code": _make_code(max_steps)})
+                    result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
                 else:
-                    result = await call_tool(session, "retry")
+                    result = await test_utils.call_tool(session, "retry")
                 last_result = result
                 ok = ok and bool(result.get("ok"))
-                ok = ok and result.get("result", {}).get("object_count") == 5
-                print_execution_summary("[mcp_test]", result)
-            record = await call_tool(session, "record", {"step_idx": -1})
-            print_record("[mcp_test]", record)
+                ok = ok and bool(result.get("result", {}).get("success"))
+                test_utils.print_execution_summary("[mcp_test]", result)
+            record = await test_utils.call_tool(session, "record", {"step_idx": -1})
+            test_utils.print_record("[mcp_test]", record)
             return {"ok": ok, "last_result": last_result, "record": record}
 
 
-def run_franka_test(
+def run_go2_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
     trial_num: int = _DEFAULT_TRIAL_NUM,
     remote: bool = False,
 ) -> dict:
-    """Run FrankaAgent episodes in-process or through MCP."""
+    """Run Go2Agent episodes in-process or through MCP."""
     if remote:
         if not config:
-            raise ValueError("Remote FrankaAgent test requires --config")
+            raise ValueError("Remote Go2Agent test requires --config")
         return asyncio.run(_run_remote(config, max_steps, trial_num))
-    return _run_local(max_steps, trial_num)
+    return _run_local(config or _DEFAULT_CONFIG, max_steps, trial_num)
 
 
-def test_local_franka_agent() -> None:
-    """Smoke test: run a FrankaAgent episode in-process."""
-    result = run_franka_test()
-    assert result["ok"], "FrankaAgent local execution failed"
+def test_local_go2_agent() -> None:
+    """Smoke test: run a Go2Agent episode in-process."""
+    result = run_go2_test(config=_DEFAULT_CONFIG)
+    assert result["ok"], "Go2Agent local execution failed"
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Genesis FrankaAgent evaluation - local or MCP")
-    parser.add_argument("--config", default=None)
+    parser = argparse.ArgumentParser(description="Genesis Go2Agent evaluation - local or MCP")
+    parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
 
-    result = run_franka_test(
+    result = run_go2_test(
         config=args.config,
         max_steps=args.max_steps,
         trial_num=args.trial_num,

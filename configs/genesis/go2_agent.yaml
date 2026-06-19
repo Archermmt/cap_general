@@ -1,0 +1,28 @@
+type: go2_agent
+record_dir: ./outputs/genesis/go2
+max_retry: 5
+reset_mode: never
+record_execute: true
+policy: runner
+horizon: 1000
+env:
+  type: genesis_go2
+  seed: 7
+  reset_time: 0
+  example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
+  log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+  backend: cpu
+  show_viewer: true
+  num_envs: 1
+policies:
+  runner:
+    type: rsl_rl
+    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+    ckpt: 100
+    train_cfg_index: 4
+server:
+  agent_name: 七仔
+  agent_id: cap
+  host: 127.0.0.1
+  port: 8906
+  skill_folder: skills

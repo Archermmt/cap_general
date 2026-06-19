@@ -1,24 +1,16 @@
-"""Test RobosuiteAgent locally or remotely through MCP.
+"""Test FrankaAgent locally or remotely through MCP.
 
 Local mode:
-    python tests/robosuite/test_robosuite_agent.py
+    python tests/genesis/test_franka_agent.py
 
 Remote mode:
-    capcmd server --config configs/robosuite/robosuite_agent.yaml
-    python tests/robosuite/test_robosuite_agent.py --remote
-
-Full usage:
-    python tests/robosuite/test_robosuite_agent.py [--remote] [--config PATH] [--privileged]
-
-Nanobot test:
-    让七仔把红色方块放到绿色方块上面。
+    capcmd server --config configs/genesis/franka_agent.yaml
+    python tests/genesis/test_franka_agent.py --remote --config configs/genesis/franka_agent.yaml
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import platform
 import sys
 from pathlib import Path
 
@@ -27,46 +19,58 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from cap_general.core.utils import test_utils
-from cap_general.frameworks.robosuite import ORACLE_CODE
 
-if platform.system() == "Darwin":
-    if os.environ.get("MUJOCO_GL") == "egl":
-        os.environ["MUJOCO_GL"] = "cgl"
-    else:
-        os.environ.setdefault("MUJOCO_GL", "cgl")
-else:
-    os.environ.setdefault("MUJOCO_GL", "egl")
-    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
-_DEFAULT_CONFIG = "configs/robosuite/robosuite_agent.yaml"
-_DEFAULT_MAX_STEPS = 1500
+_DEFAULT_MAX_STEPS = 2
 _DEFAULT_TRIAL_NUM = 1
+_DEFAULT_CONFIG = "configs/genesis/franka_agent.yaml"
+
+
+def _make_code(max_steps: int) -> str:
+    """Build FrankaAgent execution code with values baked in."""
+    return f"""\
+result = franka_episode(max_steps={max_steps})
+objects = result.get("obs", {{}}).get("objects", [])
+print(f"Franka episode steps={{result.get('steps')}} objects={{len(objects)}}")
+RESULT = {{
+    "success": True,
+    "steps": result.get("steps"),
+    "object_count": len(objects),
+    "object_types": [obj.get("type") for obj in objects],
+}}
+"""
+
+
+def _make_local_agent(config: str):
+    from cap_general.core.agent import BaseAgent
+    import cap_general.frameworks.genesis  # noqa: F401
+
+    return BaseAgent.from_yaml(config)
 
 
 def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
-    from cap_general.core.agent import BaseAgent
-    from cap_general.frameworks.robosuite import RobosuiteAgent  # noqa: F401
-
-    print(f"[test] Loading RobosuiteAgent from: {config}")
-    agent = BaseAgent.from_yaml(config)
+    """Run FrankaAgent episodes in-process."""
+    agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
     ok = True
+    last_result = None
     for trial_idx in range(trial_num):
         print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
         if trial_idx == 0:
-            result = agent.execute(ORACLE_CODE)
+            result = agent.execute(_make_code(max_steps))
         else:
             result = agent.retry()
+        last_result = result
         ok = ok and bool(result.get("ok"))
+        ok = ok and result.get("result", {}).get("object_count") == 5
         test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
     test_utils.print_record("[test]", record)
-    return {"ok": ok, "record": record}
+    return {"ok": ok, "last_result": last_result, "record": record}
 
 
 async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
+    """Run FrankaAgent episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -82,58 +86,53 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
             ok = True
+            last_result = None
             for trial_idx in range(trial_num):
                 print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                 if trial_idx == 0:
-                    result = await test_utils.call_tool(session, "execute", {"code": ORACLE_CODE})
+                    result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
                 else:
                     result = await test_utils.call_tool(session, "retry")
+                last_result = result
                 ok = ok and bool(result.get("ok"))
+                ok = ok and result.get("result", {}).get("object_count") == 5
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
-            return {"ok": ok, "record": record}
+            return {"ok": ok, "last_result": last_result, "record": record}
 
 
-def run_robosuite_test(config: str, max_steps: int, trial_num: int, remote: bool = False) -> dict:
-    """Run Robosuite pick-and-place episodes in-process or through MCP."""
+def run_franka_test(
+    config: str | None = None,
+    max_steps: int = _DEFAULT_MAX_STEPS,
+    trial_num: int = _DEFAULT_TRIAL_NUM,
+    remote: bool = False,
+) -> dict:
+    """Run FrankaAgent episodes in-process or through MCP."""
     if remote:
+        if not config:
+            raise ValueError("Remote FrankaAgent test requires --config")
         return asyncio.run(_run_remote(config, max_steps, trial_num))
-    return _run_local(config, max_steps, trial_num)
+    return _run_local(config or _DEFAULT_CONFIG, max_steps, trial_num)
 
 
-def test_local_robosuite(config: str = _DEFAULT_CONFIG) -> None:
-    """Smoke test: run oracle pick-and-place in-process and assert no execution error."""
-    result = run_robosuite_test(
-        config=config,
-        max_steps=_DEFAULT_MAX_STEPS,
-        trial_num=_DEFAULT_TRIAL_NUM,
-    )
-    assert result["ok"], "one or more episodes failed"
-
-
-def test_mcp_robosuite(config: str = _DEFAULT_CONFIG) -> None:
-    """Smoke test: run oracle pick-and-place through MCP and assert no execution error."""
-    result = run_robosuite_test(
-        config=config,
-        max_steps=_DEFAULT_MAX_STEPS,
-        trial_num=_DEFAULT_TRIAL_NUM,
-        remote=True,
-    )
-    assert result["ok"], "one or more episodes failed"
+def test_local_franka_agent() -> None:
+    """Smoke test: run a FrankaAgent episode in-process."""
+    result = run_franka_test(config=_DEFAULT_CONFIG)
+    assert result["ok"], "FrankaAgent local execution failed"
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Robosuite pick-and-place evaluation - local or MCP")
+    parser = argparse.ArgumentParser(description="Genesis FrankaAgent evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
 
-    result = run_robosuite_test(
+    result = run_franka_test(
         config=args.config,
         max_steps=args.max_steps,
         trial_num=args.trial_num,

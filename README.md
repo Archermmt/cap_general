@@ -52,7 +52,7 @@ cap_general/
 │   └── genesis/
 │       ├── test_core.py      # Core primitives tests
 │       ├── test_env.py       # CapEnv tests
-│       └── test_franka_api.py # Franka API tests
+│       └── test_franka_agent.py # Franka agent tests
 └── examples/                 # Example scripts
     └── genesis/
         └── franka_cube_task.py # Example usage

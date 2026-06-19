@@ -223,12 +223,7 @@ class RobosuiteAgent(BaseAgent):
 
         return grasp_sample_tf_world.wxyz_xyz[-3:], grasp_sample_tf_world.wxyz_xyz[:4]
 
-    def goto_pose(
-        self,
-        position: np.ndarray,
-        quaternion_wxyz: np.ndarray,
-        z_approach: float = 0.0,
-    ) -> None:
+    def goto_pose(self, position: np.ndarray, quaternion_wxyz: np.ndarray, z_approach: float = 0.0) -> None:
         """Move to a Cartesian pose using the configured PyRoKi policy.
 
         Args:

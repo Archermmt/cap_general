@@ -4,7 +4,7 @@ Local mode:
     python tests/libero/test_libero_agent.py
 
 Remote mode:
-    capcmd server --config configs/libero_agent.yaml
+    capcmd server --config configs/libero/libero_agent.yaml
     python tests/libero/test_libero_agent.py --remote
 
 Full usage:
@@ -20,7 +20,7 @@ import asyncio
 import os
 import platform
 
-from cap_general.core.utils.test_utils import call_tool, print_execution_summary, print_record
+from cap_general.core.utils import test_utils
 
 if platform.system() == "Darwin":
     if os.environ.get("MUJOCO_GL") == "egl":
@@ -32,7 +32,7 @@ else:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-_DEFAULT_CONFIG = "configs/libero_agent.yaml"
+_DEFAULT_CONFIG = "configs/libero/libero_agent.yaml"
 _DEFAULT_MAX_STEPS = 300
 _DEFAULT_TRIAL_NUM = 1
 
@@ -71,9 +71,9 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
             else:
                 result = agent.retry()
             ok = ok and bool(result.get("ok"))
-            print_execution_summary("[test]", result)
+            test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
-    print_record("[test]", record)
+    test_utils.print_record("[test]", record)
     return {"ok": ok, "record": record}
 
 
@@ -89,8 +89,8 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await call_tool(session, "reset", {"options": {"episode_idx": 0}})
-            agent_doc = await call_tool(session, "agent_doc")
+            await test_utils.call_tool(session, "reset", {"options": {"episode_idx": 0}})
+            agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
             ok = True
             for task_idx, current_task in enumerate(TASKS):
@@ -98,13 +98,17 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
                 for trial_idx in range(trial_num):
                     print(f"[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                     if trial_idx == 0:
-                        result = await call_tool(session, "execute", {"code": _make_code(current_task, max_steps)})
+                        result = await test_utils.call_tool(
+                            session,
+                            "execute",
+                            {"code": _make_code(current_task, max_steps)},
+                        )
                     else:
-                        result = await call_tool(session, "retry")
+                        result = await test_utils.call_tool(session, "retry")
                     ok = ok and bool(result.get("ok"))
-                    print_execution_summary("[mcp_test]", result)
-            record = await call_tool(session, "record", {"step_idx": -1})
-            print_record("[mcp_test]", record)
+                    test_utils.print_execution_summary("[mcp_test]", result)
+            record = await test_utils.call_tool(session, "record", {"step_idx": -1})
+            test_utils.print_record("[mcp_test]", record)
             return {"ok": ok, "record": record}
 
 

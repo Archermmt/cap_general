@@ -1,0 +1,19 @@
+type: franka_agent
+record_dir: ./outputs/genesis/franka
+max_retry: 5
+reset_mode: never
+record_execute: true
+horizon: 100
+env:
+  type: genesis_franka
+  seed: 7
+  reset_time: 0
+  video_fmt: mp4
+  use_gui: false
+policies: {}
+server:
+  agent_name: 七仔
+  agent_id: cap
+  host: 127.0.0.1
+  port: 8905
+  skill_folder: skills

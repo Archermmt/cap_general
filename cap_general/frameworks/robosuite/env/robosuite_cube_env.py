@@ -97,10 +97,7 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         self._init_viser_debug(self.viser_debug)
 
     def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: dict[str, Any] | None = None,
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if seed is not None:
             self._rng = np.random.default_rng(seed)
