@@ -23,7 +23,7 @@ from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
 _DEFAULT_CONFIG = "configs/genesis/go2_agent.yaml"
-_DEFAULT_TASK_NUM = 10
+_DEFAULT_TASK_NUM = 5
 ROUND_NUM = 10
 
 

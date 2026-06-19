@@ -11,7 +11,22 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
-from cap_general.frameworks.genesis.utils import load_module_from_file
+
+
+def _load_genesis_deps():
+    global copy, gs, inv_quat, math, quat_to_xyz, torch, TensorDict
+
+    import copy
+    import math
+
+    import genesis as gs
+    import torch
+    from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
+    from tensordict import TensorDict
+
+    globals()["transform_by_quat"] = transform_by_quat
+    globals()["transform_quat_by_quat"] = transform_quat_by_quat
+    return gs
 
 
 @dataclass
@@ -35,6 +50,7 @@ class DroneHoverEnvConfig(BaseEnvConfig):
     camera_far: float = 20.0
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
+    auto_reset: bool = False
 
 
 @BaseEnv.register()
@@ -72,11 +88,72 @@ class DroneHoverEnv(BaseEnv):
         """Return the latest policy observation."""
         return self._last_policy_obs
 
+    @property
+    def dt(self) -> float:
+        """Return the drone policy control period in seconds."""
+        env = self._example_env
+        return float(getattr(env, "dt", 1.0)) if env is not None else 1.0
+
+    def unlock_target(self) -> bool:
+        """Allow the underlying hover env to resample target commands."""
+        self._ensure_example_env()
+        if self._example_env is None:
+            return False
+        self._example_env.lock_commands = False
+        return True
+
+    def target_locked(self) -> bool:
+        """Return whether the drone currently has a fixed target command."""
+        self._ensure_example_env()
+        return bool(self._example_env is not None and getattr(self._example_env, "lock_commands", False))
+
+    def hold_current_position(self) -> bool:
+        """Set the current drone position as the hover target command."""
+        self._ensure_example_env()
+        env = self._example_env
+        if env is None:
+            return False
+        return self.set_target_position(env.base_pos)
+
+    def set_target_position(self, target_pos: Any) -> bool:
+        """Set a fixed target position command for the drone."""
+        self._ensure_example_env()
+        env = self._example_env
+        if env is None:
+            return False
+        target = self._target_tensor(target_pos)
+        env.lock_commands = True
+        env.commands.copy_(target)
+        env.rel_pos = env.commands - env.base_pos
+        env.last_rel_pos = env.commands - env.last_base_pos
+        if getattr(env, "target", None) is not None:
+            env.target.set_pos(env.commands, zero_velocity=True)
+        if hasattr(env, "_update_observation"):
+            env._update_observation()
+        if hasattr(env, "get_observations"):
+            self._last_policy_obs = env.get_observations()
+        return True
+
+    def _target_tensor(self, target_pos: Any) -> Any:
+        try:
+            import torch
+        except ImportError as exc:
+            raise ImportError("Setting drone targets requires torch") from exc
+
+        env = self._example_env
+        target = torch.as_tensor(target_pos, dtype=env.commands.dtype, device=env.commands.device)
+        if target.shape == (3,):
+            target = target.reshape(1, 3).expand_as(env.commands)
+        if target.shape != env.commands.shape:
+            raise ValueError(f"target_pos must have shape (3,) or {tuple(env.commands.shape)}, got {tuple(target.shape)}")
+        return target
+
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         self._ensure_example_env()
         if self._example_env is None:
             obs = self._mock_observation()
             return obs, {"mock": True, "reason": self._mock_reason}
+        self._example_env.lock_commands = False
         self._last_policy_obs = self._example_env.reset()
         self._last_reward = 0.0
         self._last_done = False
@@ -115,7 +192,7 @@ class DroneHoverEnv(BaseEnv):
         if self._example_env is not None or self._mock_reason is not None:
             return
         try:
-            import genesis as gs
+            gs = _load_genesis_deps()
         except ImportError as exc:
             self._mock_reason = f"genesis import failed: {exc}"
             self.logger.warning("Genesis drone env running in mock mode: %s", self._mock_reason)
@@ -131,19 +208,17 @@ class DroneHoverEnv(BaseEnv):
                 message = str(exc)
                 if "already" not in message.lower() and "initialized" not in message.lower():
                     raise
-            example_root = Path(self._config.example_root).expanduser()
-            module = load_module_from_file("cap_general_genesis_drone_hover_env", example_root / "hover_env.py")
             env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             env_cfg["visualize_target"] = self._config.visualize_target
             env_cfg["visualize_camera"] = self._config.visualize_camera and not self._config.camera_enabled
             env_cfg["max_visualize_FPS"] = int(self._config.max_visualize_fps)
+            env_cfg["auto_reset"] = bool(self._config.auto_reset)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
-                module=module,
                 num_envs=self._config.num_envs,
                 env_cfg=env_cfg,
                 obs_cfg=obs_cfg,
@@ -156,11 +231,11 @@ class DroneHoverEnv(BaseEnv):
             self._mock_reason = str(exc)
             self.logger.warning("Genesis drone env running in mock mode: %s", exc)
 
-    def _build_example_env_with_camera(self, module: Any, **kwargs: Any) -> Any:
+    def _build_example_env_with_camera(self, **kwargs: Any) -> Any:
         if not self._config.camera_enabled:
-            return module.HoverEnv(**kwargs)
+            return _GenesisDroneHoverCoreEnv(**kwargs)
 
-        original_scene_cls = module.gs.Scene
+        original_scene_cls = gs.Scene
         camera_holder: dict[str, Any] = {}
 
         def scene_factory(*scene_args: Any, **scene_kwargs: Any) -> Any:
@@ -174,11 +249,11 @@ class DroneHoverEnv(BaseEnv):
             scene.build = build_with_body_camera
             return scene
 
-        module.gs.Scene = scene_factory
+        gs.Scene = scene_factory
         try:
-            example_env = module.HoverEnv(**kwargs)
+            example_env = _GenesisDroneHoverCoreEnv(**kwargs)
         finally:
-            module.gs.Scene = original_scene_cls
+            gs.Scene = original_scene_cls
         self._body_camera = camera_holder.get("camera")
         return example_env
 
@@ -290,3 +365,265 @@ class DroneHoverEnv(BaseEnv):
                 array = array * 255.0
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
+# Embedded genesis-world drone env implementation.
+def gs_rand_float(lower, upper, shape, device):
+    return (upper - lower) * torch.rand(size=shape, device=device) + lower
+
+
+class _GenesisDroneHoverCoreEnv:
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+        self.num_envs = num_envs
+        self.rendered_env_num = min(10, self.num_envs)
+        self.num_actions = env_cfg["num_actions"]
+        self.cfg = env_cfg
+        self.num_commands = command_cfg["num_commands"]
+        self.device = gs.device
+
+        self.simulate_action_latency = env_cfg["simulate_action_latency"]
+        self.dt = 0.01  # run in 100hz
+        self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
+
+        self.env_cfg = env_cfg
+        self.obs_cfg = obs_cfg
+        self.reward_cfg = reward_cfg
+        self.command_cfg = command_cfg
+
+        self.obs_scales = obs_cfg["obs_scales"]
+        self.reward_scales = copy.deepcopy(reward_cfg["reward_scales"])
+
+        # create scene
+        self.scene = gs.Scene(
+            sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
+            viewer_options=gs.options.ViewerOptions(
+                max_FPS=env_cfg["max_visualize_FPS"],
+                camera_pos=(3.0, 0.0, 3.0),
+                camera_lookat=(0.0, 0.0, 1.0),
+                camera_fov=40,
+            ),
+            vis_options=gs.options.VisOptions(rendered_envs_idx=list(range(self.rendered_env_num))),
+            rigid_options=gs.options.RigidOptions(
+                dt=self.dt,
+                constraint_solver=gs.constraint_solver.Newton,
+                enable_collision=True,
+                enable_joint_limit=True,
+            ),
+            show_viewer=show_viewer,
+        )
+
+        # add plane
+        self.scene.add_entity(gs.morphs.Plane())
+
+        # add target
+        if self.env_cfg["visualize_target"]:
+            self.target = self.scene.add_entity(
+                morph=gs.morphs.Mesh(
+                    file="meshes/sphere.obj",
+                    scale=0.05,
+                    fixed=False,
+                    collision=False,
+                ),
+                surface=gs.surfaces.Rough(
+                    diffuse_texture=gs.textures.ColorTexture(
+                        color=(1.0, 0.5, 0.5),
+                    ),
+                ),
+            )
+        else:
+            self.target = None
+
+        # add camera
+        if self.env_cfg["visualize_camera"]:
+            self.cam = self.scene.add_camera(
+                res=(640, 480),
+                pos=(3.5, 0.0, 2.5),
+                lookat=(0, 0, 0.5),
+                fov=30,
+                GUI=True,
+            )
+
+        # add drone
+        self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=gs.device)
+        self.base_init_quat = torch.tensor(self.env_cfg["base_init_quat"], device=gs.device)
+        self.inv_base_init_quat = inv_quat(self.base_init_quat)
+        self.drone = self.scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
+
+        # build scene
+        self.scene.build(n_envs=num_envs)
+
+        # prepare reward functions and multiply reward scales by dt
+        self.reward_functions, self.episode_sums = dict(), dict()
+        for name in self.reward_scales.keys():
+            self.reward_scales[name] *= self.dt
+            self.reward_functions[name] = getattr(self, "_reward_" + name)
+            self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+
+        # initialize buffers
+        self.rew_buf = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        self.reset_buf = torch.ones((self.num_envs,), device=gs.device, dtype=gs.tc_int)
+        self.episode_length_buf = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_int)
+        self.commands = torch.zeros((self.num_envs, self.num_commands), device=gs.device, dtype=gs.tc_float)
+
+        self.actions = torch.zeros((self.num_envs, self.num_actions), device=gs.device, dtype=gs.tc_float)
+        self.last_actions = torch.zeros_like(self.actions)
+
+        self.base_pos = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
+        self.base_quat = torch.zeros((self.num_envs, 4), device=gs.device, dtype=gs.tc_float)
+        self.base_lin_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
+        self.base_ang_vel = torch.zeros((self.num_envs, 3), device=gs.device, dtype=gs.tc_float)
+        self.last_base_pos = torch.zeros_like(self.base_pos)
+        self.lock_commands = False
+
+        self.extras = dict()  # extra information for logging
+
+        self.reset()
+
+    def _resample_commands(self, envs_idx):
+        self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["pos_x_range"], (len(envs_idx),), gs.device)
+        self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["pos_y_range"], (len(envs_idx),), gs.device)
+        self.commands[envs_idx, 2] = gs_rand_float(*self.command_cfg["pos_z_range"], (len(envs_idx),), gs.device)
+
+    def _at_target(self):
+        return (
+            (torch.norm(self.rel_pos, dim=1) < self.env_cfg["at_target_threshold"])
+            .nonzero(as_tuple=False)
+            .reshape((-1,))
+        )
+
+    def step(self, actions):
+        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+        exec_actions = self.actions
+
+        # 14468 is hover rpm
+        self.drone.set_propellers_rpm((1 + exec_actions * 0.8) * 14468.429183500699)
+        # update target pos
+        if self.target is not None:
+            self.target.set_pos(self.commands, zero_velocity=True)
+        self.scene.step()
+
+        # update buffers
+        self.episode_length_buf += 1
+        self.last_base_pos[:] = self.base_pos[:]
+        self.base_pos[:] = self.drone.get_pos()
+        self.rel_pos = self.commands - self.base_pos
+        self.last_rel_pos = self.commands - self.last_base_pos
+        self.base_quat[:] = self.drone.get_quat()
+        self.base_euler = quat_to_xyz(
+            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
+        )
+        inv_base_quat = inv_quat(self.base_quat)
+        self.base_lin_vel[:] = transform_by_quat(self.drone.get_vel(), inv_base_quat)
+        self.base_ang_vel[:] = transform_by_quat(self.drone.get_ang(), inv_base_quat)
+
+        # resample commands
+        envs_idx = self._at_target()
+        if not self.lock_commands:
+            self._resample_commands(envs_idx)
+
+        # check termination
+        self.crash_condition = (
+            (torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"])
+            | (torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"])
+            | (torch.abs(self.rel_pos[:, 0]) > self.env_cfg["termination_if_x_greater_than"])
+            | (torch.abs(self.rel_pos[:, 1]) > self.env_cfg["termination_if_y_greater_than"])
+            | (torch.abs(self.rel_pos[:, 2]) > self.env_cfg["termination_if_z_greater_than"])
+            | (self.base_pos[:, 2] < self.env_cfg["termination_if_close_to_ground"])
+        )
+        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
+
+        time_out_idx = (self.episode_length_buf > self.max_episode_length).nonzero(as_tuple=False).reshape((-1,))
+        self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=gs.device, dtype=gs.tc_float)
+        self.extras["time_outs"][time_out_idx] = 1.0
+
+        if self.env_cfg.get("auto_reset", True):
+            self.reset_idx(self.reset_buf.nonzero(as_tuple=False).reshape((-1,)))
+
+        # compute reward
+        self.rew_buf[:] = 0.0
+        for name, reward_func in self.reward_functions.items():
+            rew = reward_func() * self.reward_scales[name]
+            self.rew_buf += rew
+            self.episode_sums[name] += rew
+
+        # compute observations
+        self._update_observation()
+
+        self.last_actions[:] = self.actions[:]
+
+        return self.get_observations(), self.rew_buf, self.reset_buf, self.extras
+
+    def _update_observation(self):
+        self.obs_buf = torch.cat(
+            [
+                torch.clip(self.rel_pos * self.obs_scales["rel_pos"], -1, 1),
+                self.base_quat,
+                torch.clip(self.base_lin_vel * self.obs_scales["lin_vel"], -1, 1),
+                torch.clip(self.base_ang_vel * self.obs_scales["ang_vel"], -1, 1),
+                self.last_actions,
+            ],
+            axis=-1,
+        )
+
+    def get_observations(self):
+        return TensorDict({"policy": self.obs_buf}, batch_size=[self.num_envs])
+
+    def reset_idx(self, envs_idx):
+        if len(envs_idx) == 0:
+            return
+
+        # reset base
+        self.base_pos[envs_idx] = self.base_init_pos
+        self.last_base_pos[envs_idx] = self.base_init_pos
+        self.base_quat[envs_idx] = self.base_init_quat.reshape(1, -1)
+        self.drone.set_pos(self.base_pos[envs_idx], zero_velocity=True, envs_idx=envs_idx)
+        self.drone.set_quat(self.base_quat[envs_idx], zero_velocity=True, envs_idx=envs_idx)
+        self.base_lin_vel[envs_idx] = 0
+        self.base_ang_vel[envs_idx] = 0
+        self.drone.zero_all_dofs_velocity(envs_idx)
+
+        # reset buffers
+        self.last_actions[envs_idx] = 0.0
+        self.episode_length_buf[envs_idx] = 0
+        self.reset_buf[envs_idx] = True
+
+        # fill extras
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            self.extras["episode"]["rew_" + key] = (
+                torch.mean(self.episode_sums[key][envs_idx]).item() / self.env_cfg["episode_length_s"]
+            )
+            self.episode_sums[key][envs_idx] = 0.0
+
+        self._resample_commands(envs_idx)
+        self.rel_pos = self.commands - self.base_pos
+        self.last_rel_pos = self.commands - self.last_base_pos
+
+    def reset(self):
+        self.reset_buf[:] = True
+        self.reset_idx(torch.arange(self.num_envs, device=gs.device))
+        self._update_observation()
+        return self.get_observations()
+
+    # ------------ reward functions----------------
+    def _reward_target(self):
+        target_rew = torch.sum(torch.square(self.last_rel_pos), dim=1) - torch.sum(torch.square(self.rel_pos), dim=1)
+        return target_rew
+
+    def _reward_smooth(self):
+        smooth_rew = torch.sum(torch.square(self.actions - self.last_actions), dim=1)
+        return smooth_rew
+
+    def _reward_yaw(self):
+        yaw = self.base_euler[:, 2]
+        yaw = torch.where(yaw > 180, yaw - 360, yaw) / 180 * 3.14159  # use rad for yaw_reward
+        yaw_rew = torch.exp(self.reward_cfg["yaw_lambda"] * torch.abs(yaw))
+        return yaw_rew
+
+    def _reward_angular(self):
+        angular_rew = torch.norm(self.base_ang_vel / 3.14159, dim=1)
+        return angular_rew
+
+    def _reward_crash(self):
+        crash_rew = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        crash_rew[self.crash_condition] = 1
+        return crash_rew

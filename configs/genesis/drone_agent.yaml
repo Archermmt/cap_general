@@ -38,6 +38,7 @@ env:
   camera_far: 20.0
   max_visualize_fps: 60
   max_episode_steps:
+  auto_reset: false
 policies:
   runner:
     type: rsl_rl

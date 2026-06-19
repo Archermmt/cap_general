@@ -20,19 +20,35 @@ if str(_REPO_ROOT) not in sys.path:
 
 from cap_general.core.utils import test_utils
 
-_DEFAULT_MAX_STEPS = 300
+_DEFAULT_MAX_STEPS = 100
 _DEFAULT_CONFIG = "configs/genesis/drone_agent.yaml"
-_DEFAULT_TASK_NUM = 1
+_DEFAULT_TASK_NUM = 5
 
 
-def _make_code(max_steps: int) -> str:
+def _target_positions(task_num: int) -> list[list[float]]:
+    """Create deterministic target positions for drone smoke tests."""
+    base_targets = [
+        [0.5, 0.0, 1.0],
+        [0.5, 0.3, 1.1],
+        [0.0, 0.3, 1.2],
+        [-0.4, 0.0, 1.1],
+        [0.0, -0.3, 1.0],
+    ]
+    return [base_targets[idx % len(base_targets)] for idx in range(task_num)]
+
+
+def _make_code(max_steps: int, target_pos: list[float]) -> str:
     """Build DroneAgent execution code with values baked in."""
     return f"""\
-hover_result = hover(max_steps={max_steps})
+follow_result = follow_target(target_pos={target_pos!r}, max_steps={max_steps})
+hover_result = hover(time_s=3.0)
 RESULT = {{
     "success": True,
-    "steps": hover_result.get("steps"),
-    "mock": hover_result.get("mock", False),
+    "target_pos": follow_result.get("target_pos"),
+    "follow_steps": follow_result.get("steps"),
+    "hover_duration": hover_result.get("duration"),
+    "hover_steps": hover_result.get("steps"),
+    "mock": follow_result.get("mock", False) or hover_result.get("mock", False),
 }}
 """
 
@@ -49,9 +65,9 @@ def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     agent = _make_local_agent(config)
     agent.reset(options={})
     print(f"[test] agent_doc {agent.agent_doc()}")
-    for task_idx in range(task_num):
-        print(f"\n[test] --- Task {task_idx + 1}/{task_num} ---")
-        result = agent.execute(_make_code(max_steps))
+    for task_idx, target_pos in enumerate(_target_positions(task_num)):
+        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
+        result = agent.execute(_make_code(max_steps, target_pos))
         test_utils.print_execution_summary("[test]", result)
     record = agent.record(step_idx=-1)
     test_utils.print_record("[test]", record)
@@ -74,9 +90,9 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
             await test_utils.call_tool(session, "reset", {"options": {}})
             agent_doc = await test_utils.call_tool(session, "agent_doc")
             print(f"[mcp_test] agent_doc {agent_doc}")
-            for task_idx in range(task_num):
-                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num} ---")
-                result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
+            for task_idx, target_pos in enumerate(_target_positions(task_num)):
+                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
+                result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps, target_pos)})
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
