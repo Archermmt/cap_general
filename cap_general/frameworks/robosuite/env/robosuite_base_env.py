@@ -6,7 +6,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, SupportsFloat
+from typing import Any
 
 import numpy as np
 
@@ -55,7 +55,6 @@ class RobosuiteBaseEnv(BaseEnv):
         self.segmentation_level = "instance"
         self._render_width = 512
         self._render_height = 512
-        self._step_count = 0
         self._sim_step_count = 0
         self._rng = np.random.default_rng(config.seed)
         self._record_frames = False
@@ -70,11 +69,9 @@ class RobosuiteBaseEnv(BaseEnv):
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         raise NotImplementedError("Subclasses must implement _reset")
 
-    def _step(self, action: Any) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
-        self._step_count += 1
+    def _step(self, action: Any) -> tuple[Any, bool, bool, dict[str, Any]]:
         obs = self._get_robot_obs()
-        reward = self.compute_reward()
-        return obs, reward, False, self._step_count >= self.max_steps, {}
+        return obs, False, self._step_cnt >= self.max_steps, {}
 
     def _get_robot_obs(self) -> dict[str, Any]:
         raise NotImplementedError("Subclasses must implement _get_robot_obs")
@@ -229,7 +226,7 @@ class RobosuiteBaseEnv(BaseEnv):
     ) -> None:
         try:
             from robosuite.utils.camera_utils import get_real_depth_map
-            from scipy.spatial.transform import Rotation
+            import viser.transforms as vtf
         except ImportError:
             return
 
@@ -241,14 +238,26 @@ class RobosuiteBaseEnv(BaseEnv):
             camera_entry["intrinsics"] = np.array(
                 [[f, 0, 0.5 * self._render_width], [0, f, 0.5 * self._render_height], [0, 0, 1]]
             )
-            camera_entry["pose"] = np.concatenate(
+            base_wxyz_xyz_local = base_wxyz_xyz if base_wxyz_xyz is not None else self.base_link_wxyz_xyz
+            cam_world_wxyz_xyz = np.concatenate(
                 [
+                    vtf.SO3.from_matrix(self.robosuite_env.sim.data.get_camera_xmat(camera_name)).wxyz,
                     self.robosuite_env.sim.data.get_camera_xpos(camera_name),
-                    Rotation.from_matrix(self.robosuite_env.sim.data.get_camera_xmat(camera_name)).as_quat()[
-                        [3, 0, 1, 2]
-                    ],
                 ]
             )
+            cam_robot_tf = (
+                (vtf.SE3(wxyz_xyz=base_wxyz_xyz_local).inverse() @ vtf.SE3(wxyz_xyz=cam_world_wxyz_xyz))
+                @ vtf.SE3.from_rotation_and_translation(
+                    rotation=vtf.SO3.from_rpy_radians(0.0, np.pi, 0.0),
+                    translation=np.array([0, 0, 0]),
+                )
+                @ vtf.SE3.from_rotation_and_translation(
+                    rotation=vtf.SO3.from_rpy_radians(0.0, 0.0, np.pi),
+                    translation=np.array([0, 0, 0]),
+                )
+            )
+            camera_entry["pose"] = np.concatenate([cam_robot_tf.translation(), cam_robot_tf.rotation().wxyz])
+            camera_entry["pose_mat"] = cam_robot_tf.as_matrix()
             camera_entry["images"] = {}
             if f"{camera_name}_image" in robosuite_obs:
                 camera_entry["images"]["rgb"] = robosuite_obs[f"{camera_name}_image"][::-1]

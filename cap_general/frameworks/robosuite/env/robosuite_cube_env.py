@@ -113,7 +113,6 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
             self.robosuite_env.placement_initializer.rng = self.robosuite_env.rng
         self.robosuite_env.reset()
         self.robosuite_env.sim.data.qpos[6] -= np.pi
-        self._step_count = 0
         self._sim_step_count = 0
         for _ in range(50):
             self.robosuite_env.sim.forward()

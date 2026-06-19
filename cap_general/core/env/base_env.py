@@ -77,7 +77,12 @@ class BaseEnv(RegisteredBase, Env):
             observation, reward, terminated, truncated, info.
         """
         self._step_cnt += 1
-        obs, reward, terminated, truncated, info = self._step(action)
+        step_result = self._step(action)
+        if len(step_result) == 4:
+            obs, terminated, truncated, info = step_result
+            reward = self.compute_reward()
+        else:
+            obs, reward, terminated, truncated, info = step_result
         self._last_obs = obs
         self._record_frame(obs)
         return obs, reward, terminated, truncated, info
@@ -139,13 +144,20 @@ class BaseEnv(RegisteredBase, Env):
         return self._logger
 
     @abstractmethod
-    def _step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+    def _step(
+        self, action: ActType
+    ) -> tuple[ObsType, bool, bool, dict[str, Any]] | tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         """Take one environment step.
 
         Returns:
-            observation, reward, terminated, truncated, info.
+            observation, terminated, truncated, info, or the legacy
+            observation, reward, terminated, truncated, info tuple.
         """
         raise NotImplementedError
+
+    def compute_reward(self) -> SupportsFloat:
+        """Compute reward after a low-level step."""
+        return 0.0
 
     @property
     def step_cnt(self) -> int:

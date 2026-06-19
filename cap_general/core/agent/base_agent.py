@@ -562,6 +562,13 @@ class BaseAgent(RegisteredBase):
         return "step_{}/trial_{}".format(self._exec_cnt, self._trial_cnt)
 
     @property
+    def debug_dir(self) -> Path:
+        """Path to the debug directory for the current step."""
+        debug_path = self._record_dir / self.step_dir / "debug"
+        debug_path.mkdir(parents=True, exist_ok=True)
+        return debug_path
+
+    @property
     def env(self):
         """Low-level environment instance for direct interaction in code execution."""
         return self._env

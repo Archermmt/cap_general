@@ -129,7 +129,7 @@ class RobosuiteAgent(BaseAgent):
         obs = self._env._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
-            self._save_rgbd(rgb, depth, caller="get_object_pose")
+            self._save_rgbd(rgb, depth)
 
         depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
         valid_depth = ~np.isnan(depth_2d)
@@ -137,6 +137,8 @@ class RobosuiteAgent(BaseAgent):
         results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
         if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
+        if self._config.debug:
+            self._save_sam3_results(rgb, object_name, results, function_name="get_object_pose")
         scores = [result.score for result in results]
         best_idx = int(np.argmax(scores))
         mask = np.asarray(results[best_idx].mask, dtype=bool) & valid_depth
@@ -184,13 +186,15 @@ class RobosuiteAgent(BaseAgent):
         obs = self._env._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
-            self._save_rgbd(rgb, depth, caller="sample_grasp_pose")
+            self._save_rgbd(rgb, depth)
 
         depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
 
         results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
         if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
+        if self._config.debug:
+            self._save_sam3_results(rgb, object_name, results, function_name="sample_grasp_pose")
         scores = [result.score for result in results]
         best_idx = int(np.argmax(scores))
         segmentation = np.asarray(results[best_idx].mask, dtype=np.int32)
@@ -297,10 +301,7 @@ class RobosuiteAgent(BaseAgent):
 
     @staticmethod
     def _pose_from_mask_obb(
-        depth_2d: np.ndarray,
-        intrinsics: np.ndarray,
-        mask: np.ndarray,
-        obs: dict,
+        depth_2d: np.ndarray, intrinsics: np.ndarray, mask: np.ndarray, obs: dict
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         import open3d as o3d
         from scipy.spatial.transform import Rotation
@@ -325,18 +326,92 @@ class RobosuiteAgent(BaseAgent):
         wxyz = np.array([xyzw[3], xyzw[0], xyzw[1], xyzw[2]], dtype=np.float64)
         return center_world, wxyz, np.asarray(obb.extent, dtype=np.float64)
 
-    def _save_rgbd(self, rgb: np.ndarray, depth: np.ndarray, caller: str = "") -> None:
-        """Save rgb_image.jpg and depth_image.jpg for debugging."""
+    def _save_rgbd(self, rgb: np.ndarray, depth: np.ndarray) -> None:
+        """Save RGBD debug images under the current step directory."""
         from PIL import Image as _Image
 
         from cap_general.core import utils as cap_utils
 
         d2d = depth[:, :, 0] if depth.ndim == 3 else depth
-        prefix = f"{caller}." if caller else ""
-        debug_dir = self._record_dir / self.step_dir
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        _Image.fromarray(cap_utils.depth_to_rgb(d2d)).save(debug_dir / f"{prefix}depth_image.jpg")
-        _Image.fromarray(rgb).save(debug_dir / f"{prefix}rgb_image.jpg")
+        debug_dir = self.debug_dir
+        step_cnt = self._env.step_cnt
+        _Image.fromarray(cap_utils.depth_to_rgb(d2d)).save(debug_dir / f"depth_image_{step_cnt}.jpg")
+        _Image.fromarray(rgb).save(debug_dir / f"rgb_image_{step_cnt}.jpg")
+
+    def _save_sam3_results(self, rgb: np.ndarray, object_name: str, results: list[Any], *, function_name: str) -> None:
+        """Save SAM3 masks and boxes for debugging."""
+        import matplotlib.patches as patches
+        import matplotlib.pyplot as plt
+        from PIL import Image as _Image
+
+        if not results:
+            return
+        debug_dir = self.debug_dir
+        step_cnt = self._env.step_cnt
+        safe_function = self._safe_debug_name(function_name)
+        safe_object = self._safe_debug_name(object_name)
+        signature = f"{safe_function}_{safe_object}_{step_cnt}"
+
+        image = _Image.fromarray(np.asarray(rgb, dtype=np.uint8)).convert("RGB")
+        image_np = np.array(image)
+        top_results = results[:3]
+
+        fig, axes = plt.subplots(1, len(top_results) + 1, figsize=(4 * (len(top_results) + 1), 4))
+        if not isinstance(axes, np.ndarray):
+            axes = np.array([axes])
+        axes = axes.reshape(-1)
+
+        ax_main = axes[0]
+        ax_main.imshow(image)
+        ax_main.set_title(f"Prompt: '{object_name}'")
+        ax_main.axis("off")
+
+        for res in top_results:
+            box = self._result_attr(res, "box")
+            score = float(self._result_attr(res, "score", 0.0))
+            x1, y1, x2, y2 = box
+            rect = patches.Rectangle(
+                (x1, y1),
+                x2 - x1,
+                y2 - y1,
+                linewidth=2,
+                edgecolor="r",
+                facecolor="none",
+            )
+            ax_main.add_patch(rect)
+            ax_main.text(x1, y1, f"{score:.2f}", color="white", fontsize=8, backgroundcolor="red")
+
+        for idx, res in enumerate(top_results, start=1):
+            ax = axes[idx]
+            mask = np.asarray(self._result_attr(res, "mask"), dtype=bool)
+            box = self._result_attr(res, "box")
+            score = float(self._result_attr(res, "score", 0.0))
+            overlay = image_np.copy()
+            color_mask = np.array([30, 144, 255], dtype=np.uint8)
+            if mask.shape[:2] == overlay.shape[:2]:
+                overlay[mask] = overlay[mask] * 0.5 + color_mask * 0.5
+            ax.imshow(overlay)
+            x1, y1, x2, y2 = box
+            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor="yellow", facecolor="none")
+            ax.add_patch(rect)
+            ax.set_title(f"Score: {score:.2f}")
+            ax.axis("off")
+            overlay_u8 = np.clip(overlay, 0, 255).astype(np.uint8, copy=False)
+            _Image.fromarray(overlay_u8, mode="RGB").save(debug_dir / f"mask_{signature}_{idx}_{score:.2f}.png")
+
+        fig.tight_layout()
+        fig.savefig(debug_dir / f"sam3_{signature}.png", format="png")
+        plt.close(fig)
+
+    @staticmethod
+    def _result_attr(result: Any, name: str, default: Any = None) -> Any:
+        if isinstance(result, dict):
+            return result.get(name, default)
+        return getattr(result, name, default)
+
+    @staticmethod
+    def _safe_debug_name(value: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value).strip("_") or "debug"
 
     def _apply_tcp_offset(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
         from scipy.spatial.transform import Rotation
