@@ -1,10 +1,22 @@
 """CLI entry point for CAP General."""
 
 import argparse
+import os
+import platform
 import sys
 
 from cap_general.core.agent import BaseAgent
 from cap_general.frameworks import import_frameworks
+
+
+def _normalize_graphics_env() -> None:
+    """Normalize graphics env vars before importing framework modules."""
+    if platform.system() == "Darwin":
+        if os.environ.get("MUJOCO_GL") == "egl":
+            os.environ["MUJOCO_GL"] = "cgl"
+        else:
+            os.environ.setdefault("MUJOCO_GL", "cgl")
+        os.environ.pop("PYOPENGL_PLATFORM", None)
 
 
 def main():
@@ -21,6 +33,7 @@ def main():
     )
 
     parsed = parser.parse_args(sys.argv[1:2])
+    _normalize_graphics_env()
     import_frameworks()
     # pylint: disable=import-outside-toplevel
     if parsed.subcommand in ("server"):
