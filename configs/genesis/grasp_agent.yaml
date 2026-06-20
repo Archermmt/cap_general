@@ -12,7 +12,7 @@ env:
   type: genesis_grasp
   monitor:
     enable: true
-    name: genesis_grasp_scene
+    name: genesis_scene
     config:
       type: genesis_scene
       backend: cpu
@@ -43,7 +43,7 @@ env:
             - -0.3
             - 0.1
           camera_fov: 55
-          max_FPS: 2
+          max_FPS: 50
         profiling_options:
           show_FPS: false
   video_fmt: mp4

@@ -9,7 +9,7 @@ env:
   type: genesis_drone_hover
   monitor:
     enable: true
-    name: genesis_drone_scene
+    name: genesis_scene
     config:
       type: genesis_scene
       scene:

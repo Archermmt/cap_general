@@ -113,7 +113,7 @@ class GraspEnv(BaseEnv):
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
-        return self._build_observation(), 0.0, self._last_done, False, info
+        return self._step_observation(), 0.0, self._last_done, False, info
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -257,6 +257,13 @@ class GraspEnv(BaseEnv):
         if hand_camera_image is not None:
             obs["hand_camera_image"] = hand_camera_image
         return obs
+
+    def _step_observation(self) -> dict[str, Any]:
+        return {
+            "reward": self._last_reward,
+            "done": self._last_done,
+            "mock": False,
+        }
 
     def _mock_observation(self) -> dict[str, Any]:
         return {

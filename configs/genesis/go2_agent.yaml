@@ -9,7 +9,7 @@ env:
   type: genesis_go2
   monitor:
     enable: true
-    name: genesis_go2_scene
+    name: genesis_scene
     config:
       type: genesis_scene
       backend: cpu

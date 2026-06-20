@@ -8,7 +8,7 @@ env:
   type: genesis_franka
   monitor:
     enable: true
-    name: genesis_franka_scene
+    name: genesis_scene
     config:
       type: genesis_scene
       backend: cpu
