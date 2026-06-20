@@ -33,7 +33,6 @@ record_dir: ./outputs/genesis
 agents:
 - name: grasp
   alias:
-  - cap
   - 七仔
   config:
     type: grasp_agent
@@ -48,6 +47,8 @@ agents:
     env:
       type: genesis_grasp
       video_fmt: mp4
+      image_keys:
+      - hand_camera_image
       seed: 7
       reset_time: 0
       example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation

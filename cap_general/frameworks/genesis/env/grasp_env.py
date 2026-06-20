@@ -113,14 +113,10 @@ class GraspEnv(BaseEnv):
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
-        return self._step_observation(), 0.0, self._last_done, False, info
+        return self._build_observation(), 0.0, self._last_done, False, info
 
     def compute_reward(self) -> float:
         return self._last_reward
-
-    def get_observation(self, folder: str | Path) -> dict[str, Any]:
-        self._last_obs = self._mock_observation() if self._example_env is None else self._build_observation()
-        return super().get_observation(folder)
 
     def get_stereo_rgb_images(self, normalize: bool = True) -> Any:
         """Return stereo RGB images from the underlying GraspEnv."""
@@ -281,11 +277,7 @@ class GraspEnv(BaseEnv):
     def _normalize_states(self) -> dict:
         if self._last_obs is None or not isinstance(self._last_obs, dict):
             return {}
-        return {
-            key: value
-            for key, value in self._last_obs.items()
-            if key not in set(self._image_keys)
-        }
+        return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
     def _read_hand_camera_image(self) -> Any | None:
         if self._hand_camera is None or self._hand_camera_failed:
@@ -321,6 +313,7 @@ class GraspEnv(BaseEnv):
                 array = array * 255.0
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
 
 # Embedded genesis-world grasp env implementation.
 try:

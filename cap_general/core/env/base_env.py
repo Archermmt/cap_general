@@ -19,8 +19,8 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
 from cap_general.core.scene.context import get_current_scene
+from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
 
 
 @dataclass

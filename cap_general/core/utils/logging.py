@@ -11,7 +11,6 @@ def build_file_logger(
     log_dir: str | Path,
     *,
     logger_name: str,
-    log_filename: str = "agent.log",
     level: int = logging.INFO,
     fmt: str = "%(asctime)s %(levelname)s: %(message)s",
     console: bool = True,
@@ -23,14 +22,12 @@ def build_file_logger(
     logger.setLevel(level)
     logger.propagate = False
     formatter = logging.Formatter(fmt)
-
-    log_path = record_dir / log_filename
+    log_path = record_dir / (logger_name + ".log")
     existing_handler = next(
         (
             handler
             for handler in logger.handlers
-            if isinstance(handler, logging.FileHandler)
-            and Path(handler.baseFilename).resolve() == log_path.resolve()
+            if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).resolve() == log_path.resolve()
         ),
         None,
     )

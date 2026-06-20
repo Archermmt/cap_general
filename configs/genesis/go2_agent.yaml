@@ -26,7 +26,6 @@ record_dir: ./outputs/genesis
 agents:
 - name: go2
   alias:
-  - cap
   - 七仔
   config:
     type: go2_agent
