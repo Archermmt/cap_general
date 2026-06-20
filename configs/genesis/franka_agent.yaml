@@ -37,5 +37,5 @@ server:
   agent_name: 七仔
   agent_id: cap
   host: 127.0.0.1
-  port: 8905
-  skill_folder: skills
+  port: 8903
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

@@ -67,8 +67,8 @@ policies:
     log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
     bc_cfg_index: 4
 server:
-  agent_name: 七杀
-  agent_id: cap_grasp
+  agent_name: 七仔
+  agent_id: cap
   host: 127.0.0.1
-  port: 8907
-  skill_folder: skills
+  port: 8903
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills
