@@ -355,7 +355,14 @@ class BaseAgent(RegisteredBase):
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
         """Render agent-bound skills under ``skill_folder/agent_id``."""
         source_dir = Path(__file__).resolve().parents[2] / "skills"
-        target_dir = Path(server_config.skill_folder).expanduser() / server_config.agent_id
+        skill_root = Path(server_config.skill_folder).expanduser()
+        target_dir = skill_root / server_config.agent_id
+        if not skill_root.exists():
+            self._logger.info("Skip copying skills because skill_folder does not exist: %s", skill_root)
+            return target_dir
+        if not any(skill_root.iterdir()):
+            self._logger.info("Skip copying skills because skill_folder is empty: %s", skill_root)
+            return target_dir
         if not source_dir.exists():
             self._logger.warning("Skill source directory does not exist: %s", source_dir)
             return target_dir

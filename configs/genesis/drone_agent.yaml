@@ -73,8 +73,8 @@ policies:
     ckpt: 100
     train_cfg_index: 4
 server:
-  agent_name: 七仔
-  agent_id: cap
+  agent_name: 贪狼
+  agent_id: cap_go2
   host: 127.0.0.1
   port: 8908
   skill_folder: skills
