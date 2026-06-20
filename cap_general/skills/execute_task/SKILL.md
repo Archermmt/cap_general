@@ -1,5 +1,5 @@
 ---
-name: {agent_id}_execute_task
+name: {cap_id}_execute_task
 description: Decompose and execute a robot manipulation task through the {agent_name} CAP agent MCP tools, using agent_doc, execute, retry, get_obs, update_plan, and record.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
@@ -10,15 +10,16 @@ Execute a robot manipulation task by decomposing it into visually verifiable sub
 
 This skill uses the current CAP agent MCP interface:
 
-- `{agent_id}_reset`
-- `{agent_id}_agent_doc`
-- `{agent_id}_execute`
-- `{agent_id}_retry`
-- `{agent_id}_get_obs`
-- `{agent_id}_update_plan`
-- `{agent_id}_record`
+- `{cap_id}_reset`
+- `{cap_id}_agent_doc`
+- `{cap_id}_execute`
+- `{cap_id}_retry`
+- `{cap_id}_get_obs`
+- `{cap_id}_update_plan`
+- `{cap_id}_record`
 
 Do not use older tool names such as `step`, `get_record`, or `update_report`.
+Every tool call in this workflow must include `agent="{agent_name}"` so the scene can route the call to the correct agent.
 
 ## CRITICAL: Use `message` For Mid-Task Notifications
 
@@ -26,8 +27,8 @@ This task can execute many subtasks before the final response. The user sees not
 
 You MUST call `message` at these checkpoints:
 
-1. **After planning**: immediately after `{agent_id}_update_plan`, send the main task and numbered subtask list.
-2. **After each verification update**: immediately after `{agent_id}_update_plan`, send the SUCCESS/FAIL result and brief notes.
+1. **After planning**: immediately after `{cap_id}_update_plan`, send the main task and numbered subtask list.
+2. **After each verification update**: immediately after `{cap_id}_update_plan`, send the SUCCESS/FAIL result and brief notes.
 3. **After final record**: send the returned `record.code` in a fenced Python block before displaying the final video.
 
 These `message` calls are proactive status pushes. When `message` is used, the final normal LLM text response may be suppressed, so treat `message` as the communication channel for progress and final text summary during this skill.
@@ -38,10 +39,10 @@ Do not use `message` to display images or videos. Use the `media` tool for `obs.
 
 ### 1. Reset The Agent
 
-Always reset before starting a new episode. Follow the `{agent_id}_reset` MCP tool schema and documentation for supported options:
+Always reset before starting a new episode. Follow the `{cap_id}_reset` MCP tool schema and documentation for supported options:
 
 ```json
-{"name": "{agent_id}_reset", "arguments": {"options": {}}}
+{"name": "{cap_id}_reset", "arguments": {"agent": "{agent_name}", "options": {}}}
 ```
 
 ### 2. Read Agent Docs And Initial State
@@ -49,7 +50,7 @@ Always reset before starting a new episode. Follow the `{agent_id}_reset` MCP to
 Call `agent_doc` before writing code:
 
 ```json
-{"name": "{agent_id}_agent_doc", "arguments": {}}
+{"name": "{cap_id}_agent_doc", "arguments": {"agent": "{agent_name}"}}
 ```
 
 Use the returned fields as authoritative:
@@ -62,7 +63,7 @@ Use the returned fields as authoritative:
 Then get the current observation:
 
 ```json
-{"name": "{agent_id}_get_obs", "arguments": {}}
+{"name": "{cap_id}_get_obs", "arguments": {"agent": "{agent_name}"}}
 ```
 
 Use `main_image` for visual inspection when present.
@@ -82,8 +83,9 @@ Store the plan with `update_plan`:
 
 ```json
 {
-  "name": "{agent_id}_update_plan",
+  "name": "{cap_id}_update_plan",
   "arguments": {
+    "agent": "{agent_name}",
     "plan": {
       "main_task": "<original user task>",
       "sub_tasks": ["<subtask 1>", "<subtask 2>"]
@@ -120,7 +122,7 @@ RESULT = {"success": success, "task": "put the bowl on the stove"}
 Execute the code:
 
 ```json
-{"name": "{agent_id}_execute", "arguments": {"code": "<python code string>"}}
+{"name": "{cap_id}_execute", "arguments": {"agent": "{agent_name}", "code": "<python code string>"}}
 ```
 
 Read the response:
@@ -142,7 +144,7 @@ After each `execute` or `retry`, inspect `response["obs"]["main_image"]` if pres
 If the subtask failed, call `retry`:
 
 ```json
-{"name": "{agent_id}_retry", "arguments": {}}
+{"name": "{cap_id}_retry", "arguments": {"agent": "{agent_name}"}}
 ```
 
 Retry at most `max_retry` times after the first `execute` attempt. If `retry` returns `ok: false` with `error: "max_retry_exceeded"`, stop retrying that subtask.
@@ -171,8 +173,9 @@ For each verification result, update the plan:
 
 ```json
 {
-  "name": "{agent_id}_update_plan",
+  "name": "{cap_id}_update_plan",
   "arguments": {
+    "agent": "{agent_name}",
     "plan": {
       "verify_exec_<exec_cnt>_trial_<trial_cnt>": {
         "subtask": "<subtask>",
@@ -201,7 +204,7 @@ Immediately after `update_plan`, send the verification result to the user with `
 After all subtasks are completed or the task is stopped, call `record` exactly once for the full run:
 
 ```json
-{"name": "{agent_id}_record", "arguments": {"step_idx": -1}}
+{"name": "{cap_id}_record", "arguments": {"agent": "{agent_name}", "step_idx": -1}}
 ```
 
 The result contains:
@@ -235,22 +238,22 @@ If `main_video` is missing but `videos` contains camera videos, display the firs
 ## Complete Pseudo-Code
 
 ```python
-reset(options={})
+reset(agent="{agent_name}", options={})
 
-doc = agent_doc()
+doc = agent_doc(agent="{agent_name}")
 function_doc = doc["function_doc"]
 execute_rules = doc["execute_rules"]
 max_retry = doc["max_retry"]
-obs = get_obs()
+obs = get_obs(agent="{agent_name}")
 
 subtasks = decompose_task_using_execute_rules(user_task, execute_rules)
-update_plan(plan={"main_task": user_task, "sub_tasks": subtasks})
+update_plan(agent="{agent_name}", plan={"main_task": user_task, "sub_tasks": subtasks})
 subtask_list = "\n".join(f"{idx + 1}. {subtask}" for idx, subtask in enumerate(subtasks))
 message(content=f"Task: {user_task}\n\nSubtasks:\n{subtask_list}")
 
 for subtask in subtasks:
     code = make_code_from_function_doc(subtask, function_doc)
-    response = execute(code=code)
+    response = execute(agent="{agent_name}", code=code)
 
     attempts = 0
     while True:
@@ -276,11 +279,11 @@ for subtask in subtasks:
         if attempts >= max_retry:
             break
         attempts += 1
-        response = retry()
+        response = retry(agent="{agent_name}")
         if not response.get("ok", False):
             break
 
-record_result = record(step_idx=-1)
+record_result = record(agent="{agent_name}", step_idx=-1)
 message(content=f"Executed code:\n\n```python\n{record_result.get('code', '')}\n```")
 if record_result.get("main_video"):
     media_display(
@@ -293,15 +296,15 @@ if record_result.get("main_video"):
 
 ## Important Rules
 
-1. Always call `{agent_id}_agent_doc` before writing `execute` code.
+1. Always call `{cap_id}_agent_doc` before writing `execute` code.
 2. Use `execute`, not `step`.
-3. Use `record(step_idx=-1)`, not `get_record(record_all=true)`.
+3. Use `record(agent="{agent_name}", step_idx=-1)`, not `get_record(record_all=true)`.
 4. Use `update_plan(plan=...)`, not `update_report(info=...)`.
 5. After storing the plan with `update_plan`, call `message` immediately to send the main task and numbered subtask plan to the user.
 6. For each verification attempt, display `obs.main_image` with `media_type="image"` and `mode="display"` when an image is available.
 7. After storing a verification result with `update_plan`, call `message` immediately to send the SUCCESS/FAIL result and notes to the user.
 8. For LIBERO tasks, map the user request to exact task strings from `execute_rules`.
-9. After `record(step_idx=-1)`, send `record.code` to the user with `message`.
-10. After `record(step_idx=-1)`, display `main_video` with `media_type="video"` and `mode="display"`.
+9. After `record(agent="{agent_name}", step_idx=-1)`, send `record.code` to the user with `message`.
+10. After `record(agent="{agent_name}", step_idx=-1)`, display `main_video` with `media_type="video"` and `mode="display"`.
 11. Use an absolute path for `main_video` when calling `media`.
 12. Do not modify yaml configuration files as part of executing this skill.

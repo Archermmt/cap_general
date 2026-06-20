@@ -1,36 +1,41 @@
-type: libero
-record_dir: ./outputs/libero
-max_retry: 5
-reset_mode: per_trial
-record_execute: true
-env:
-  type: libero
-  task_suite_name: libero_goal
-  task_id: 1
-  seed: 7
-  resolution: 256
-  reset_time: 5
-  libero_home: /Users/tongmeng/Desktop/codes/LIBERO
-  video_fmt: mp4
-  image_keys:
-    - agentview_image
-    - robot0_eye_in_hand_image
-policies:
-  starvla:
-    type: starvla
-    ckpt_path: /Users/tongmeng/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
-    device: cpu
-    use_bf16: false
-    action_dtype: float32
-    unnorm_key: null
-    use_ddim: true
-    num_ddim_steps: 10
-    image_size:
-      - 224
-      - 224
+type: scene
+record_dir: ./outputs
+agents:
+  - name: libero
+    alias:
+      - 七仔
+    config:
+      type: libero
+      max_retry: 5
+      reset_mode: per_trial
+      record_execute: true
+      env:
+        type: libero
+        task_suite_name: libero_goal
+        task_id: 1
+        seed: 7
+        resolution: 256
+        reset_time: 5
+        libero_home: /Users/tongmeng/Desktop/codes/LIBERO
+        video_fmt: mp4
+        image_keys:
+          - agentview_image
+          - robot0_eye_in_hand_image
+      policies:
+        starvla:
+          type: starvla
+          ckpt_path: /Users/tongmeng/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
+          device: cpu
+          use_bf16: false
+          action_dtype: float32
+          unnorm_key: null
+          use_ddim: true
+          num_ddim_steps: 10
+          image_size:
+            - 224
+            - 224
 server:
-  agent_name: 七仔
-  agent_id: cap
+  cap_id: cap
   host: 127.0.0.1
   port: 8903
   skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

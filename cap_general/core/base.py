@@ -2,7 +2,7 @@
 
 from abc import ABC
 from dataclasses import fields, is_dataclass
-from typing import Any, ClassVar, Dict, Type
+from typing import Any, ClassVar, Dict, Type, get_type_hints
 
 
 class RegisteredBase(ABC):
@@ -79,11 +79,26 @@ class RegisteredBase(ABC):
 
     @staticmethod
     def _build_dataclass_config(config_cls, config_data: dict[str, Any]):
-        field_names = {field.name for field in fields(config_cls)}
+        config_fields = fields(config_cls)
+        field_names = {field.name for field in config_fields}
         if "reset_mode" in field_names and "reset_frequency" not in field_names:
             config_data = dict(config_data)
             legacy_reset_frequency = config_data.pop("reset_frequency", None)
             if legacy_reset_frequency is not None:
                 config_data.setdefault("reset_mode", legacy_reset_frequency)
-        values = {key: value for key, value in config_data.items() if key in field_names}
+        type_hints = get_type_hints(config_cls)
+        values = {
+            key: RegisteredBase._coerce_dataclass_field(type_hints.get(key), value)
+            for key, value in config_data.items()
+            if key in field_names
+        }
         return config_cls(**values)
+
+    @staticmethod
+    def _coerce_dataclass_field(field_type: Any, value: Any) -> Any:
+        """Build nested dataclass fields from dictionaries when the annotation is concrete."""
+        if isinstance(value, dict) and "type" in value:
+            return value
+        if isinstance(value, dict) and isinstance(field_type, type) and is_dataclass(field_type):
+            return RegisteredBase._build_dataclass_config(field_type, value)
+        return value

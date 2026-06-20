@@ -1,32 +1,44 @@
-"""Genesis scene monitor."""
+"""Genesis shared scene resource."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from cap_general.core.monitor import BaseMonitor, BaseMonitorConfig
+from cap_general.core.scene import BaseScene, BaseSceneConfig
+from cap_general.core.utils import save_image
 
 
 @dataclass
-class SceneConfig:
-    """Configuration for the process-global Genesis scene."""
+class GenesisSceneConfig(BaseSceneConfig):
+    """Configuration for a Genesis-backed multi-agent scene."""
 
+    backend: str | None = None
     show_viewer: bool = False
     sim_options: dict[str, Any] = field(default_factory=dict)
     rigid_options: dict[str, Any] = field(default_factory=dict)
     viewer_options: dict[str, Any] = field(default_factory=dict)
     vis_options: dict[str, Any] = field(default_factory=dict)
     profiling_options: dict[str, Any] = field(default_factory=dict)
+    image_key: str = "viewer"
+    camera_name: str = "scene_camera"
+    camera_res: tuple[int, int] = (640, 480)
+    camera_pos: tuple[float, float, float] = (3.0, 0.0, 3.0)
+    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.8)
+    camera_up: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    camera_fov: float = 45.0
+    camera_near: float = 0.02
+    camera_far: float = 20.0
 
 
 _SCENE: Any | None = None
-_SCENE_CONFIG: SceneConfig | None = None
+_SCENE_CONFIG: GenesisSceneConfig | None = None
 
 
-def get_scene(config: SceneConfig | dict[str, Any] | None = None, *, gs: Any | None = None) -> Any:
+def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
     """Create or return the process-global Genesis scene."""
     global _SCENE, _SCENE_CONFIG
 
@@ -35,34 +47,20 @@ def get_scene(config: SceneConfig | dict[str, Any] | None = None, *, gs: Any | N
     if gs is None:
         import genesis as gs
 
-    scene_config = coerce_scene_config(config)
-    kwargs: dict[str, Any] = {"show_viewer": scene_config.show_viewer}
-    if scene_config.sim_options:
-        kwargs["sim_options"] = gs.options.SimOptions(**_resolve_options(scene_config.sim_options, gs))
-    if scene_config.rigid_options:
-        kwargs["rigid_options"] = gs.options.RigidOptions(**_resolve_options(scene_config.rigid_options, gs))
-    if scene_config.viewer_options:
-        kwargs["viewer_options"] = gs.options.ViewerOptions(**_resolve_options(scene_config.viewer_options, gs))
-    if scene_config.vis_options:
-        kwargs["vis_options"] = gs.options.VisOptions(**_resolve_options(scene_config.vis_options, gs))
-    if scene_config.profiling_options:
-        kwargs["profiling_options"] = gs.options.ProfilingOptions(
-            **_resolve_options(scene_config.profiling_options, gs)
-        )
+    kwargs: dict[str, Any] = {"show_viewer": config.show_viewer}
+    if config.sim_options:
+        kwargs["sim_options"] = gs.options.SimOptions(**_resolve_options(config.sim_options, gs))
+    if config.rigid_options:
+        kwargs["rigid_options"] = gs.options.RigidOptions(**_resolve_options(config.rigid_options, gs))
+    if config.viewer_options:
+        kwargs["viewer_options"] = gs.options.ViewerOptions(**_resolve_options(config.viewer_options, gs))
+    if config.vis_options:
+        kwargs["vis_options"] = gs.options.VisOptions(**_resolve_options(config.vis_options, gs))
+    if config.profiling_options:
+        kwargs["profiling_options"] = gs.options.ProfilingOptions(**_resolve_options(config.profiling_options, gs))
     _SCENE = gs.Scene(**kwargs)
-    _SCENE_CONFIG = scene_config
+    _SCENE_CONFIG = config
     return _SCENE
-
-
-def coerce_scene_config(config: SceneConfig | dict[str, Any] | None) -> SceneConfig:
-    """Return a SceneConfig from a dataclass, dict, or None."""
-    if config is None:
-        return SceneConfig()
-    if isinstance(config, SceneConfig):
-        return config
-    if isinstance(config, dict):
-        return SceneConfig(**config)
-    raise TypeError(f"Expected SceneConfig or dict, got {type(config).__name__}")
 
 
 def reset_scene() -> None:
@@ -80,56 +78,44 @@ def _resolve_options(options: dict[str, Any], gs: Any) -> dict[str, Any]:
     return resolved
 
 
-@dataclass
-class GenesisSceneMonitorConfig(BaseMonitorConfig):
-    """Configuration for rendering the global Genesis scene."""
+class GenesisScene(BaseScene):
+    """Scene that owns one shared Genesis scene plus optional observation camera."""
 
-    backend: str | None = None
-    scene: SceneConfig | dict[str, Any] = field(default_factory=SceneConfig)
-    image_key: str = "viewer"
-    camera_name: str = "monitor_camera"
-    camera_res: tuple[int, int] = (640, 480)
-    camera_pos: tuple[float, float, float] = (3.0, 0.0, 3.0)
-    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.8)
-    camera_up: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    camera_fov: float = 45.0
-    camera_near: float = 0.02
-    camera_far: float = 20.0
-
-
-@BaseMonitor.register()
-class GenesisSceneMonitor(BaseMonitor):
-    """Monitor that renders the process-global Genesis scene camera."""
-
-    name = "Genesis Scene Monitor"
-    config_cls = GenesisSceneMonitorConfig
+    name = "Genesis Scene"
+    config_cls = GenesisSceneConfig
 
     @classmethod
-    def monitor_type(cls) -> str:
+    def scene_type(cls) -> str:
+        """Return the registry key for Genesis scene configs."""
         return "genesis_scene"
 
-    def __init__(
-        self,
-        config: GenesisSceneMonitorConfig | None = None,
-        logger=None,
-    ):
-        super().__init__(config=config or GenesisSceneMonitorConfig(), logger=logger)
-        self._config = config or GenesisSceneMonitorConfig()
-        self._scene_config = coerce_scene_config(self._config.scene)
-        self._scene = self._create_scene()
+    def __init__(self, config: GenesisSceneConfig | dict[str, Any], logger=None):
+        self._scene = None
         self._camera = None
         self._camera_failed = False
+        super().__init__(config=config, logger=logger)
+
+    @staticmethod
+    def _coerce_config(config: GenesisSceneConfig | dict[str, Any]) -> GenesisSceneConfig:
+        if isinstance(config, GenesisSceneConfig):
+            return config
+        if isinstance(config, dict):
+            return GenesisSceneConfig(**{key: value for key, value in config.items() if key != "type"})
+        raise TypeError(f"Expected GenesisSceneConfig or dict, got {type(config).__name__}")
+
+    def _before_build_agents(self) -> None:
+        self._scene = self._create_scene()
 
     @property
     def scene(self) -> Any | None:
-        """Return the Genesis scene owned by this monitor."""
+        """Return the Genesis scene owned by this scene wrapper."""
         return self._scene
 
     def _create_scene(self) -> Any | None:
         try:
             import genesis as gs
         except ImportError as exc:
-            self._logger.warning("Genesis scene monitor is disabled because Genesis is not importable: %s", exc)
+            self._logger.warning("Genesis scene is disabled because Genesis is not importable: %s", exc)
             return None
 
         try:
@@ -140,16 +126,19 @@ class GenesisSceneMonitor(BaseMonitor):
         except Exception as exc:
             message = str(exc)
             if "already" not in message.lower() and "initialized" not in message.lower():
-                self._logger.warning("Genesis scene monitor failed to initialize Genesis: %s", exc)
+                self._logger.warning("Genesis scene failed to initialize Genesis: %s", exc)
                 return None
-        return get_scene(self._scene_config, gs=gs)
+        return get_scene(self._config, gs=gs)
 
-    def _get_monitor_obs(self) -> dict[str, Any]:
-        """Render an image from the global Genesis scene camera."""
+    def get_observation(self, folder: str | Path) -> dict[str, Any]:
+        """Render and save the shared scene camera image."""
         image = self._render_scene_image()
         if image is None:
-            return {}
-        return {self._config.image_key: image}
+            return {"images": {}, "main_image": None}
+        image_dir = Path(folder)
+        image_dir.mkdir(parents=True, exist_ok=True)
+        image_path = save_image(image_dir / f"{self._config.image_key}.png", image)
+        return {"images": {self._config.image_key: image_path}, "main_image": image_path}
 
     def _render_scene_image(self) -> np.ndarray | None:
         if self._camera_failed:
@@ -165,7 +154,7 @@ class GenesisSceneMonitor(BaseMonitor):
             return self._to_image_array(rgb)
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self._camera_failed = True
-            self._logger.warning("Disabled Genesis scene monitor after render failure: %s", exc)
+            self._logger.warning("Disabled Genesis scene camera after render failure: %s", exc)
             return None
 
     def _ensure_camera(self, scene: Any) -> Any:
@@ -198,3 +187,12 @@ class GenesisSceneMonitor(BaseMonitor):
                 array = array * 255.0
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
+    def get_resource(self, name: str) -> Any:
+        """Return this Genesis scene by resource name."""
+        if name == "genesis_scene":
+            return self
+        return None
+
+
+GenesisScene._registry[GenesisScene.scene_type()] = GenesisScene

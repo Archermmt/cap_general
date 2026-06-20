@@ -23,6 +23,7 @@ from cap_general.core.utils import test_utils
 _DEFAULT_MAX_STEPS = 2
 _DEFAULT_TRIAL_NUM = 1
 _DEFAULT_CONFIG = "configs/genesis/franka_agent.yaml"
+_DEFAULT_AGENT = "franka"
 
 
 def _make_code(max_steps: int) -> str:
@@ -40,26 +41,26 @@ RESULT = {{
 """
 
 
-def _make_local_agent(config: str):
-    from cap_general.core.agent import BaseAgent
+def _make_local_scene(config: str):
     import cap_general.frameworks.genesis  # noqa: F401
+    from cap_general.core.scene import BaseScene
 
-    return BaseAgent.from_yaml(config)
+    return BaseScene.from_yaml(config)
 
 
 def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     """Run FrankaAgent episodes in-process."""
-    agent = _make_local_agent(config)
-    agent.reset(options={})
-    print(f"[test] agent_doc {agent.agent_doc()}")
+    scene = _make_local_scene(config)
+    scene.reset(agent=_DEFAULT_AGENT, options={})
+    print(f"[test] agent_doc {scene.agent_doc(agent=_DEFAULT_AGENT)}")
     for trial_idx in range(trial_num):
         print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
         if trial_idx == 0:
-            result = agent.execute(_make_code(max_steps))
+            result = scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps))
         else:
-            result = agent.retry()
+            result = scene.retry(agent=_DEFAULT_AGENT)
         test_utils.print_execution_summary("[test]", result)
-    record = agent.record(step_idx=-1)
+    record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
     test_utils.print_record("[test]", record)
     return record
 
@@ -69,25 +70,29 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
-    from cap_general.core.agent import BaseAgent
+    from cap_general.core.scene import BaseScene
 
-    url = BaseAgent.get_server_url(config)
+    url = BaseScene.get_server_url(config)
     async with streamablehttp_client(url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await test_utils.call_tool(session, "reset", {"options": {}})
-            agent_doc = await test_utils.call_tool(session, "agent_doc")
+            await test_utils.call_tool(session, "reset", {"agent": _DEFAULT_AGENT, "options": {}})
+            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agent": _DEFAULT_AGENT})
             print(f"[mcp_test] agent_doc {agent_doc}")
             for trial_idx in range(trial_num):
                 print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                 if trial_idx == 0:
-                    result = await test_utils.call_tool(session, "execute", {"code": _make_code(max_steps)})
+                    result = await test_utils.call_tool(
+                        session,
+                        "execute",
+                        {"agent": _DEFAULT_AGENT, "code": _make_code(max_steps)},
+                    )
                 else:
-                    result = await test_utils.call_tool(session, "retry")
+                    result = await test_utils.call_tool(session, "retry", {"agent": _DEFAULT_AGENT})
                 test_utils.print_execution_summary("[mcp_test]", result)
-            record = await test_utils.call_tool(session, "record", {"step_idx": -1})
+            record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
             return record
 

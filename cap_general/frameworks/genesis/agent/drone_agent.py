@@ -25,10 +25,10 @@ class DroneAgent(BaseAgent):
     name = "Genesis Drone Agent"
     config_cls = DroneAgentConfig
 
-    def __init__(self, config: DroneAgentConfig):
+    def __init__(self, config: DroneAgentConfig, logger=None):
         self._policy_name = config.policy
         self.horizon = int(config.horizon)
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:
@@ -55,7 +55,7 @@ class DroneAgent(BaseAgent):
             return {
                 "steps": 0,
                 "target_pos": list(target_pos),
-                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "obs": self._env.get_observation(self.step_dir),
                 "mock": True,
             }
 
@@ -71,7 +71,7 @@ class DroneAgent(BaseAgent):
             return {
                 "duration": duration,
                 "steps": 0,
-                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "obs": self._env.get_observation(self.step_dir),
                 "mock": True,
             }
 

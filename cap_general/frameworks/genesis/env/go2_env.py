@@ -227,9 +227,10 @@ class Go2Env(BaseEnv):
             return
 
         try:
-            scene = getattr(self._monitor, "scene", None)
+            scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+            scene = getattr(scene_resource, "scene", None)
             if scene is None:
-                self._mock_reason = "genesis scene monitor is not enabled or failed"
+                self._mock_reason = "genesis scene resource is not enabled or failed"
                 self.logger.warning("Genesis GO2 env running in mock mode: %s", self._mock_reason)
                 return
             env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
@@ -396,7 +397,7 @@ class _GenesisGo2CoreEnv:
         self.obs_scales: dict[str, float] = obs_cfg["obs_scales"]
         self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
 
-        # use scene owned by GenesisSceneMonitor
+        # use scene owned by the top-level CAP scene resource
         self.scene = env_cfg["_scene"]
 
         # add plain

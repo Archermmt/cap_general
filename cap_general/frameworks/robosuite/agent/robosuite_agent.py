@@ -43,13 +43,13 @@ class RobosuiteAgent(BaseAgent):
     name = "Robosuite Franka Agent"
     config_cls = RobosuiteAgentConfig
 
-    def __init__(self, config: RobosuiteAgentConfig):
+    def __init__(self, config: RobosuiteAgentConfig, logger=None):
         self._sam3_policy = config.sam3_policy
         self._graspnet_policy = config.graspnet_policy
         self._pyroki_policy = config.pyroki_policy
         self._tcp_offset = np.asarray(config.tcp_offset, dtype=np.float64)
         self._ik_cfg = None
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:

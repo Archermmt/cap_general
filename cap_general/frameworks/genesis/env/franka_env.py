@@ -251,10 +251,11 @@ class FrankaEnv(BaseEnv):
                 self._genesis_unavailable_logged = True
             return
 
-        self._scene = getattr(self._monitor, "scene", None)
+        scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+        self._scene = getattr(scene_resource, "scene", None)
         if self._scene is None:
             if not self._genesis_unavailable_logged:
-                self.logger.warning("Genesis scene monitor is not enabled or failed; FrankaEnv is running in mock mode")
+                self.logger.warning("Genesis scene resource is not enabled or failed; FrankaEnv is running in mock mode")
                 self._genesis_unavailable_logged = True
             return
         self._scene.add_entity(gs.morphs.Plane())

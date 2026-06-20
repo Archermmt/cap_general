@@ -56,3 +56,11 @@ def build_file_logger(
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
     return logger
+
+
+def close_file_handlers(logger: logging.Logger) -> None:
+    """Close and detach all file handlers from a logger."""
+    for handler in list(logger.handlers):
+        if isinstance(handler, logging.FileHandler):
+            logger.removeHandler(handler)
+            handler.close()

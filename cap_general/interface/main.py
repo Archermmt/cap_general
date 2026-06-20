@@ -5,8 +5,8 @@ import os
 import platform
 import sys
 
-from cap_general.core.agent import BaseAgent
 from cap_general.frameworks import import_frameworks
+from cap_general.core.scene import BaseScene
 
 
 def _normalize_graphics_env() -> None:
@@ -38,11 +38,11 @@ def main():
     # pylint: disable=import-outside-toplevel
     if parsed.subcommand in ("server"):
         sub_parser = argparse.ArgumentParser(parsed.subcommand)
-        sub_parser.add_argument("--config", required=True)
+        sub_parser.add_argument("--config", required=True, help="Scene config path.")
         sub_parser.add_argument("--transport", default="streamable-http")
         args = sub_parser.parse_args(sys.argv[2:])
-        agent = BaseAgent.from_yaml(args.config)
-        agent.serve(transport=args.transport)
+        scene = BaseScene.from_yaml(args.config)
+        scene.serve(transport=args.transport)
     else:
         raise ValueError(f"Unknown subcommand: {parsed.subcommand}")
     # pylint: enable=import-outside-toplevel

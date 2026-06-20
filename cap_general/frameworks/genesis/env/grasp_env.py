@@ -148,9 +148,10 @@ class GraspEnv(BaseEnv):
             return
 
         try:
-            scene = getattr(self._monitor, "scene", None)
+            scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+            scene = getattr(scene_resource, "scene", None)
             if scene is None:
-                self._mock_reason = "genesis scene monitor is not enabled or failed"
+                self._mock_reason = "genesis scene resource is not enabled or failed"
                 self.logger.warning("Genesis grasp env running in mock mode: %s", self._mock_reason)
                 return
             env_cfg, reward_cfg, robot_cfg, _rl_train_cfg, _bc_train_cfg = self._load_cfgs()

@@ -1,11 +1,9 @@
 """Base classes for CAP agents."""
 
 import contextlib
-import functools
 import inspect
 import io
 import logging
-import shutil
 import sys
 import time
 import traceback
@@ -38,32 +36,11 @@ class Tee(io.TextIOBase):
 
 
 @dataclass
-class ServerConfig:
-    """Configuration for the MCP server used by an agent."""
-
-    agent_name: str = "mcp"
-    agent_id: str = "mcp"
-    host: str = "127.0.0.1"
-    port: int = 8080
-    skill_folder: str = "skills"
-    name: str | None = None
-
-    def __post_init__(self) -> None:
-        """Keep old ``name`` configs usable while preferring agent_id/name."""
-        if self.name:
-            if self.agent_id == "mcp":
-                self.agent_id = self.name
-            if self.agent_name == "mcp":
-                self.agent_name = self.name
-
-
-@dataclass
 class BaseAgentConfig:
     """Configuration for constructing an agent."""
 
     env: BaseEnvConfig
-    policies: dict[str, BasePolicyConfig]
-    server: ServerConfig = field(default_factory=ServerConfig)
+    policies: dict[str, BasePolicyConfig] = field(default_factory=dict)
     record_dir: str | Path = "outputs"
     max_steps: int = 5000
     max_retry: int = 5
@@ -84,12 +61,11 @@ class BaseAgent(RegisteredBase):
         """Return the registry key for this agent."""
         return "base_agent"
 
-    def __init__(self, config: BaseAgentConfig):
+    def __init__(self, config: BaseAgentConfig, logger: logging.Logger | None = None):
         """Initialize an agent from config."""
         self._config = config
-        self._config.server = self._build_server_config(self._config.server)
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._logger = self._build_logger(self._record_dir)
+        self._logger = logger or self._build_logger(self._record_dir)
         self._env: BaseEnv = self._build_env(self._config.env, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
@@ -98,48 +74,6 @@ class BaseAgent(RegisteredBase):
         self._step_infos, self._step_codes = [], []
         self._plan, self._plan_start = {}, 0
         self._clear_record_dir_contents()
-
-    @classmethod
-    def from_yaml(cls, config_path: str | Path) -> "BaseAgent":
-        """Initialize an agent from a yaml config file."""
-        data = cls._load_yaml_config(config_path)
-        return cls.from_config(data)
-
-    @classmethod
-    def get_server_url(cls, config_path: str | Path) -> str:
-        """Return the MCP server URL configured by an agent YAML file."""
-        data = cls._load_yaml_config(config_path)
-        server = data.get("server", {})
-        s_config = cls._build_server_config(server)
-        return f"http://{s_config.host}:{s_config.port}/mcp"
-
-    @staticmethod
-    def _load_yaml_config(config_path: str | Path) -> dict[str, Any]:
-        """Load an agent YAML config, accepting both top-level and agent-wrapped forms."""
-        try:
-            import yaml
-        except ImportError as exc:
-            raise ImportError("PyYAML is required to load agent yaml configs") from exc
-
-        with Path(config_path).open() as file:
-            data = yaml.safe_load(file) or {}
-        if not isinstance(data, dict):
-            raise TypeError("Agent yaml config must contain a mapping at the top level")
-        return data
-
-    @staticmethod
-    def _build_logger(record_dir: Path) -> logging.Logger:
-        return cap_utils.build_file_logger(record_dir, logger_name=f"cap.{record_dir.resolve()}")
-
-    @staticmethod
-    def _build_server_config(config: ServerConfig | dict[str, Any] | None) -> ServerConfig:
-        if config is None:
-            return ServerConfig()
-        if isinstance(config, ServerConfig):
-            return config
-        if isinstance(config, dict):
-            return ServerConfig(**config)
-        raise TypeError(f"Expected ServerConfig or dict, got {type(config).__name__}")
 
     @staticmethod
     def _build_env(config: dict[str, Any], logger: logging.Logger) -> BaseEnv:
@@ -270,7 +204,7 @@ class BaseAgent(RegisteredBase):
         else:
             info, code = self._get_step_record(step_idx)
             start_frm, end_frm = info["step_start"], info["step_end"]
-            record_path = self._record_dir / "step_{}/trial_{}".format(info["exec_cnt"], info["trial_cnt"])
+            record_path = self._record_dir / self._step_dir_name(info["exec_cnt"], info["trial_cnt"])
         record_path.mkdir(parents=True, exist_ok=True)
         record = self._env.record(record_path, start_frm=start_frm, end_frm=end_frm)
         cap_utils.write_json(record_path / "info.json", info)
@@ -297,127 +231,8 @@ class BaseAgent(RegisteredBase):
             A dict containing the environment observation. Image observations are
             returned as local file paths.
         """
-        result = self._env.get_observation(self._record_dir / self.step_dir)
+        result = self._env.get_observation(self.step_dir)
         return cap_utils.to_json_safe(result)
-
-    def serve(self, transport: str = "streamable-http") -> None:
-        """Start an MCP server for this agent.
-
-        The server is configured by ``self.server_config`` and exposes the
-        public agent tools: ``reset``, ``agent_doc``, ``execute``, ``retry``,
-        ``record``, ``update_plan``, and ``get_obs``.
-
-        Args:
-            transport: MCP transport passed to ``FastMCP.run``. Defaults to
-                ``"streamable-http"``.
-        """
-        try:
-            from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise ImportError("Serving an agent over MCP requires the mcp package") from exc
-
-        s_config = self._config.server
-        self._copy_skills_for_server(s_config)
-        server = FastMCP(s_config.agent_id, host=s_config.host, port=s_config.port)
-        for method_name in (
-            "reset",
-            "agent_doc",
-            "execute",
-            "retry",
-            "record",
-            "update_plan",
-            "get_obs",
-        ):
-            method = getattr(self, method_name)
-
-            @functools.wraps(method)  # pylint: disable=cell-var-from-loop
-            def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                self._logger.info(
-                    "MCP tool call: %s args=%s kwargs=%s",
-                    _name,
-                    cap_utils.summarize_value(args),
-                    cap_utils.summarize_value(kwargs),
-                )
-                return _method(*args, **kwargs)
-
-            _wrapped.__doc__ = f"[{s_config.agent_id} only] " + self._mcp_tool_doc(method_name, method)
-            _wrapped.__signature__ = inspect.signature(method)  # type: ignore[attr-defined]
-            server.tool()(_wrapped)
-
-        self._logger.info(
-            "Starting MCP server %s at http://%s:%s/mcp",
-            s_config.agent_id,
-            s_config.host,
-            s_config.port,
-        )
-        server.run(transport=transport)
-
-    def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
-        """Render agent-bound skills under ``skill_folder/agent_id``."""
-        source_dir = Path(__file__).resolve().parents[2] / "skills"
-        skill_root = Path(server_config.skill_folder).expanduser()
-        target_dir = skill_root / server_config.agent_id
-        if not skill_root.exists():
-            self._logger.info("Skip copying skills because skill_folder does not exist: %s", skill_root)
-            return target_dir
-        if not any(skill_root.iterdir()):
-            self._logger.info("Skip copying skills because skill_folder is empty: %s", skill_root)
-            return target_dir
-        if not source_dir.exists():
-            self._logger.warning("Skill source directory does not exist: %s", source_dir)
-            return target_dir
-        if target_dir.resolve() == source_dir.resolve():
-            raise ValueError("server.skill_folder/agent_id must not point to the source skills directory")
-
-        target_resolved = target_dir.resolve()
-        source_paths = [
-            path
-            for path in source_dir.rglob("*")
-            if "__pycache__" not in path.parts
-            and not (path.resolve() == target_resolved or target_resolved in path.resolve().parents)
-        ]
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        replacements = {
-            "{agent_id}": server_config.agent_id,
-            "{agent_name}": server_config.agent_name,
-        }
-        for source_path in source_paths:
-            relative_path = source_path.relative_to(source_dir)
-            target_path = target_dir / relative_path
-            if source_path.is_dir():
-                target_path.mkdir(parents=True, exist_ok=True)
-                continue
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if source_path.name == "SKILL.md":
-                content = source_path.read_text(encoding="utf-8")
-                for old, new in replacements.items():
-                    content = content.replace(old, new)
-                target_path.write_text(content, encoding="utf-8")
-            else:
-                shutil.copy2(source_path, target_path)
-
-        self._logger.info("Copied skills to %s", target_dir)
-        return target_dir
-
-    def _mcp_tool_doc(self, method_name: str, method: Callable[..., Any]) -> str:
-        """Return the docstring to expose for an MCP tool."""
-        if method_name != "reset":
-            return inspect.getdoc(method) or ""
-
-        reset_rules = "\n".join(f"        {line}" if line else "" for line in self._reset_rules().splitlines())
-        return (
-            "Reset the agent, environment, or robot to a requested scope.\n\n"
-            "Use this tool before starting a new task, before retrying from a clean "
-            "state, or when the environment needs to be restored.\n\n"
-            "Args:\n"
-            "    options: Optional reset options.\n"
-            f"{reset_rules}\n\n"
-            "Returns:\n"
-            "    A dict with ``ok`` so MCP clients can confirm the reset completed."
-        )
 
     def _execute_once(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
@@ -532,27 +347,25 @@ class BaseAgent(RegisteredBase):
     def _join_codes(self) -> str:
         chunks = []
         for info, code in zip(self._step_infos, self._step_codes):
-            step_dir = "step_{}/trial_{}".format(info["exec_cnt"], info["trial_cnt"])
-            chunks.append(f"# {step_dir}\n{code.rstrip()}\n")
+            chunks.append(f"# {self._step_dir_name(info['exec_cnt'], info['trial_cnt'])}\n{code.rstrip()}\n")
         return "\n".join(chunks)
 
     def _clear_current_step_dir(self) -> None:
         """Remove artifacts for the current execute/trial slot before writing new ones."""
-        cap_utils.remove_path(self._record_dir / self.step_dir)
+        cap_utils.remove_path(self._current_step_dir_path())
+
+    @staticmethod
+    def _step_dir_name(exec_cnt: int, trial_cnt: int) -> str:
+        return "step_{}/trial_{}".format(exec_cnt, trial_cnt)
+
+    def _current_step_dir_path(self) -> Path:
+        return self._record_dir / self._step_dir_name(self._exec_cnt, self._trial_cnt)
 
     def _clear_record_dir_contents(self) -> None:
         """Remove all run artifacts under ``record_dir`` after a full agent reset."""
-        self._close_record_file_handlers()
         self._record_dir.mkdir(parents=True, exist_ok=True)
         for child in self._record_dir.iterdir():
             cap_utils.remove_path(child)
-        self._logger = self._build_logger(self._record_dir)
-
-    def _close_record_file_handlers(self) -> None:
-        for handler in list(self._logger.handlers):
-            if isinstance(handler, logging.FileHandler):
-                self._logger.removeHandler(handler)
-                handler.close()
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
@@ -566,12 +379,14 @@ class BaseAgent(RegisteredBase):
     @property
     def step_dir(self) -> Path:
         """Path to the current step directory."""
-        return "step_{}/trial_{}".format(self._exec_cnt, self._trial_cnt)
+        path = self._current_step_dir_path()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def debug_dir(self) -> Path:
         """Path to the debug directory for the current step."""
-        debug_path = self._record_dir / self.step_dir / "debug"
+        debug_path = self.step_dir / "debug"
         debug_path.mkdir(parents=True, exist_ok=True)
         return debug_path
 

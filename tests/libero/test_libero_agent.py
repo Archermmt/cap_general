@@ -35,6 +35,7 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 _DEFAULT_CONFIG = "configs/libero/libero_agent.yaml"
 _DEFAULT_MAX_STEPS = 300
 _DEFAULT_TRIAL_NUM = 1
+_DEFAULT_AGENT = "libero"
 
 TASKS = [
     "put the bowl on the stove",
@@ -53,23 +54,23 @@ RESULT = {{"success": success, "task": {task!r}}}
 
 
 def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
-    from cap_general.core.agent import BaseAgent
     from cap_general.frameworks.libero.agent import LiberoAgent  # noqa: F401
+    from cap_general.core.scene import BaseScene
 
     print(f"[test] Loading LiberoAgent from: {config}")
-    agent = BaseAgent.from_yaml(config)
-    agent.reset(options={"episode_idx": 0})
-    print(f"[test] agent_doc {agent.agent_doc()}")
+    scene = BaseScene.from_yaml(config)
+    scene.reset(agent=_DEFAULT_AGENT, options={"episode_idx": 0})
+    print(f"[test] agent_doc {scene.agent_doc(agent=_DEFAULT_AGENT)}")
     for task_idx, current_task in enumerate(TASKS):
         print(f"\n[test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
         for trial_idx in range(trial_num):
             print(f"[test] --- Trial {trial_idx + 1}/{trial_num} ---")
             if trial_idx == 0:
-                result = agent.execute(_make_code(current_task, max_steps))
+                result = scene.execute(agent=_DEFAULT_AGENT, code=_make_code(current_task, max_steps))
             else:
-                result = agent.retry()
+                result = scene.retry(agent=_DEFAULT_AGENT)
             test_utils.print_execution_summary("[test]", result)
-    record = agent.record(step_idx=-1)
+    record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
     test_utils.print_record("[test]", record)
     return record
 
@@ -78,16 +79,16 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
-    from cap_general.core.agent import BaseAgent
+    from cap_general.core.scene import BaseScene
 
-    url = BaseAgent.get_server_url(config)
+    url = BaseScene.get_server_url(config)
     async with streamablehttp_client(url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await test_utils.call_tool(session, "reset", {"options": {"episode_idx": 0}})
-            agent_doc = await test_utils.call_tool(session, "agent_doc")
+            await test_utils.call_tool(session, "reset", {"agent": _DEFAULT_AGENT, "options": {"episode_idx": 0}})
+            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agent": _DEFAULT_AGENT})
             print(f"[mcp_test] agent_doc {agent_doc}")
             for task_idx, current_task in enumerate(TASKS):
                 print(f"\n[mcp_test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
@@ -97,12 +98,12 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
                         result = await test_utils.call_tool(
                             session,
                             "execute",
-                            {"code": _make_code(current_task, max_steps)},
+                            {"agent": _DEFAULT_AGENT, "code": _make_code(current_task, max_steps)},
                         )
                     else:
-                        result = await test_utils.call_tool(session, "retry")
+                        result = await test_utils.call_tool(session, "retry", {"agent": _DEFAULT_AGENT})
                     test_utils.print_execution_summary("[mcp_test]", result)
-            record = await test_utils.call_tool(session, "record", {"step_idx": -1})
+            record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
             return record
 

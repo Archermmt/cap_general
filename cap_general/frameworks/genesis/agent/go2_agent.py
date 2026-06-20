@@ -25,10 +25,10 @@ class Go2Agent(BaseAgent):
     name = "Genesis GO2 Agent"
     config_cls = Go2AgentConfig
 
-    def __init__(self, config: Go2AgentConfig):
+    def __init__(self, config: Go2AgentConfig, logger=None):
         self._policy_name = config.policy
         self.horizon = int(config.horizon)
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:
@@ -54,7 +54,7 @@ class Go2Agent(BaseAgent):
             return {
                 "steps": 0,
                 "turn_angle": float(turn_angle),
-                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "obs": self._env.get_observation(self.step_dir),
                 "mock": True,
             }
 
@@ -75,7 +75,7 @@ class Go2Agent(BaseAgent):
             return {
                 "duration": duration,
                 "steps": 0,
-                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "obs": self._env.get_observation(self.step_dir),
                 "mock": True,
             }
 

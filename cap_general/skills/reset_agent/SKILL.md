@@ -1,31 +1,31 @@
 ---
-name: {agent_id}_reset_agent
+name: {cap_id}_reset_agent
 description: Reset the {agent_name} agent with its MCP-registered reset tool, then display the returned obs.main_image with the media image display tool.
 metadata: {"nanobot":{"emoji":"🔄"}}
 ---
 
 # Reset Agent Skill
 
-Reset the current `{agent_name}` agent by calling `{agent_id}_reset`, then use the returned `obs` object to display the primary image with the `media` tool.
+Reset the current `{agent_name}` agent by calling `{cap_id}_reset` with `agent="{agent_name}"`, then use the returned `obs` object to display the primary image with the `media` tool.
 
 ## Features
 
 - Reset the active `{agent_name}` agent or environment
 - Support reset options such as `reset_level` and `episode_idx`
-- Read the post-reset observation from the `{agent_id}_reset` return value
+- Read the post-reset observation from the `{cap_id}_reset` return value
 - Display the returned `main_image` with `media_type="image"` and `mode="display"`
 
 ## Tool Parameters
 
-The reset skill uses the `{agent_id}_reset` tool.
+The reset skill uses the `{cap_id}_reset` tool.
 
 ### Required Parameters
 
-None.
+- `agent` (string): The target agent name or alias. Use `{agent_name}`.
 
 ### Optional Parameters
 
-- `options` (object): Reset options passed to `{agent_id}_reset`.
+- `options` (object): Reset options passed to `{cap_id}_reset`.
   - `reset_level`: Reset scope. `0` resets robot pose, `1` resets environment, `2` resets full agent state. Defaults to full agent reset.
   - `episode_idx`: LIBERO initial state index. Defaults to `0` when used by LIBERO.
 
@@ -36,18 +36,18 @@ None.
 Reset the agent with default options:
 
 ```json
-{"name": "{agent_id}_reset", "arguments": {"options": {}}}
+{"name": "{cap_id}_reset", "arguments": {"agent": "{agent_name}", "options": {}}}
 ```
 
 For LIBERO-style episodes, reset to the first initial state:
 
 ```json
-{"name": "{agent_id}_reset", "arguments": {"options": {"episode_idx": 0}}}
+{"name": "{cap_id}_reset", "arguments": {"agent": "{agent_name}", "options": {"episode_idx": 0}}}
 ```
 
 ### Use Returned Post-Reset State
 
-The reset response includes `obs`; use that object directly instead of calling `{agent_id}_get_obs` again.
+The reset response includes `obs`; use that object directly instead of calling `{cap_id}_get_obs` again.
 
 Example reset response shape:
 
@@ -74,7 +74,7 @@ If `obs.main_image` is missing but `obs.images` contains camera images, display 
 
 ## Required Workflow
 
-1. Call `{agent_id}_reset`.
+1. Call `{cap_id}_reset` with `agent="{agent_name}"`.
 2. Read `obs` from the reset response.
 3. If `obs.main_image` is present, convert it to an absolute path if needed.
 4. Call `media` with `media_type="image"`, `mode="display"`, and the `obs.main_image` path.
@@ -82,8 +82,8 @@ If `obs.main_image` is missing but `obs.images` contains camera images, display 
 
 ## Important Rules
 
-1. **ALWAYS use `{agent_id}_reset`** to reset the agent. Do not call environment internals directly.
-2. **Use the `obs` returned by reset**. Do not call `{agent_id}_get_obs` just to fetch the post-reset image.
+1. **ALWAYS use `{cap_id}_reset`** to reset the agent. Do not call environment internals directly.
+2. **Use the `obs` returned by reset**. Do not call `{cap_id}_get_obs` just to fetch the post-reset image.
 3. **Display the returned primary image** using the `media` tool with `media_type="image"` and `mode="display"`.
 4. **Use absolute paths for `media` display**. If reset returns a relative image path, convert it to an absolute local path before calling `media`.
-5. **Do not pass unsupported reset options**. If unsure, use an empty `options` object or inspect `{agent_id}_agent_doc` for reset rules.
+5. **Do not pass unsupported reset options**. If unsure, use an empty `options` object or inspect `{cap_id}_agent_doc` with `agent="{agent_name}"` for reset rules.

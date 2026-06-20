@@ -1,41 +1,41 @@
-type: franka_agent
-record_dir: ./outputs/genesis/franka
-max_retry: 5
-reset_mode: never
-record_execute: true
-horizon: 100
-env:
-  type: genesis_franka
-  monitor:
-    enable: true
-    name: genesis_scene
-    config:
-      type: genesis_scene
-      backend: cpu
-      scene:
-        show_viewer: false
-        viewer_options:
-          camera_pos:
-            - 2.0
-            - -2.0
-            - 2.0
-          camera_lookat:
-            - 0.0
-            - 0.0
-            - 0.5
-          res:
-            - 1280
-            - 960
-          max_FPS: 60
-        sim_options:
-          dt: 0.01
-  seed: 7
-  reset_time: 0
-  video_fmt: mp4
-policies: {}
+type: genesis_scene
+backend: cpu
+show_viewer: false
+viewer_options:
+  camera_pos:
+  - 2.0
+  - -2.0
+  - 2.0
+  camera_lookat:
+  - 0.0
+  - 0.0
+  - 0.5
+  res:
+  - 1280
+  - 960
+  max_FPS: 60
+sim_options:
+  dt: 0.01
 server:
-  agent_name: 七仔
-  agent_id: cap
+  cap_id: cap
   host: 127.0.0.1
   port: 8903
   skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills
+record_dir: ./outputs/genesis
+agents:
+- name: franka
+  alias:
+  - cap
+  - 七仔
+  config:
+    type: franka_agent
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    horizon: 100
+    env:
+      type: genesis_franka
+      seed: 7
+      reset_time: 0
+      video_fmt: mp4
+    policies: {}

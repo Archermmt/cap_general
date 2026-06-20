@@ -19,8 +19,8 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.monitor import BaseMonitor, MonitorConfig, get_monitor_manager
 from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
+from cap_general.core.scene.context import get_current_scene
 
 
 @dataclass
@@ -31,7 +31,6 @@ class BaseEnvConfig:
     reset_time: float = 5.0
     video_fmt: str = ""
     image_keys: list[str] = field(default_factory=list)
-    monitor: MonitorConfig = field(default_factory=MonitorConfig)
 
 
 class BaseEnv(RegisteredBase, Env):
@@ -53,15 +52,14 @@ class BaseEnv(RegisteredBase, Env):
         self._video_fmt = config.video_fmt
         self._image_keys = list(config.image_keys or [])
         self._video_frames: dict[str, list[Any]] = {key: [] for key in self._image_keys}
-        self._monitor = self._build_monitor(config.monitor)
+        self._scene = get_current_scene()
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
 
-    def _build_monitor(self, config: MonitorConfig | dict[str, Any] | None) -> BaseMonitor | None:
-        monitor = get_monitor_manager().create_monitor(config=config)
-        if monitor is not None:
-            monitor.bind_env(self)
-        return monitor
+    @property
+    def cap_scene(self) -> Any | None:
+        """Return the top-level CAP scene that owns this env."""
+        return self._scene
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment and return the initial observation and info."""

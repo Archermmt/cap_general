@@ -21,10 +21,9 @@ from cap_general.frameworks.genesis.env import (
     GraspEnvConfig,
     ObjConfig,
 )
-from cap_general.frameworks.genesis.monitor import (
-    GenesisSceneMonitor,
-    GenesisSceneMonitorConfig,
-    SceneConfig,
+from cap_general.frameworks.genesis.scene import (
+    GenesisScene,
+    GenesisSceneConfig,
     get_scene,
     reset_scene,
 )
@@ -48,11 +47,10 @@ __all__ = [
     "Go2AgentConfig",
     "GraspAgent",
     "GraspAgentConfig",
-    "GenesisSceneMonitor",
-    "GenesisSceneMonitorConfig",
+    "GenesisScene",
+    "GenesisSceneConfig",
     "BehaviorCloningPolicy",
     "BehaviorCloningPolicyConfig",
-    "SceneConfig",
     "get_scene",
     "reset_scene",
 ]

@@ -28,13 +28,13 @@ class GraspAgent(BaseAgent):
     name = "Genesis Grasp Agent"
     config_cls = GraspAgentConfig
 
-    def __init__(self, config: GraspAgentConfig):
+    def __init__(self, config: GraspAgentConfig, logger=None):
         self._rl_policy_name = config.rl_policy
         self._bc_policy_name = config.bc_policy
         self._stage = config.stage
         self.horizon = int(config.horizon)
         self._run_demo_after_episode = bool(config.run_demo_after_episode)
-        super().__init__(config=config)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:
@@ -59,7 +59,7 @@ class GraspAgent(BaseAgent):
             return {
                 "steps": 0,
                 "stage": current_stage,
-                "obs": self._env.get_observation(self._record_dir / self.step_dir),
+                "obs": self._env.get_observation(self.step_dir),
                 "mock": True,
             }
 
