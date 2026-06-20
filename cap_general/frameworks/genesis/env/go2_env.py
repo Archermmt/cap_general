@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 
 def _load_genesis_deps():
@@ -48,6 +49,7 @@ class Go2EnvConfig(BaseEnvConfig):
     camera_far: float = 20.0
     turn_action_scale: float = 0.35
     max_episode_steps: int | None = 1_000_000
+    scene: SceneConfig | dict[str, Any] | None = None
 
 
 @BaseEnv.register()
@@ -60,6 +62,7 @@ class Go2Env(BaseEnv):
     def __init__(self, config: Go2EnvConfig, logger: logging.Logger | None = None):
         super().__init__(config=config, logger=logger)
         self._config = config
+        self._scene_config = self._build_scene_config(config)
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -235,6 +238,7 @@ class Go2Env(BaseEnv):
             env_cfg = dict(env_cfg)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
+            env_cfg["_scene_config"] = self._scene_config
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
@@ -252,30 +256,38 @@ class Go2Env(BaseEnv):
             self.logger.warning("Genesis GO2 env running in mock mode: %s", exc)
 
     def _build_example_env_with_camera(self, **kwargs: Any) -> Any:
+        env_cfg = dict(kwargs["env_cfg"])
         if not self._config.camera_enabled:
+            kwargs["env_cfg"] = env_cfg
             return _GenesisGo2CoreEnv(**kwargs)
 
-        original_scene_cls = gs.Scene
         camera_holder: dict[str, Any] = {}
-
-        def scene_factory(*scene_args: Any, **scene_kwargs: Any) -> Any:
-            scene = original_scene_cls(*scene_args, **scene_kwargs)
-            original_build = scene.build
-
-            def build_with_body_camera(*build_args: Any, **build_kwargs: Any) -> Any:
-                self._add_body_camera(scene, camera_holder)
-                return original_build(*build_args, **build_kwargs)
-
-            scene.build = build_with_body_camera
-            return scene
-
-        gs.Scene = scene_factory
-        try:
-            example_env = _GenesisGo2CoreEnv(**kwargs)
-        finally:
-            gs.Scene = original_scene_cls
+        env_cfg["_before_scene_build"] = lambda scene: self._add_body_camera(scene, camera_holder)
+        kwargs["env_cfg"] = env_cfg
+        example_env = _GenesisGo2CoreEnv(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
+
+    @staticmethod
+    def _build_scene_config(config: Go2EnvConfig) -> SceneConfig:
+        if config.scene:
+            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
+        return SceneConfig(
+            show_viewer=config.show_viewer,
+            sim_options={"dt": 0.02, "substeps": 2},
+            rigid_options={
+                "enable_self_collision": False,
+                "tolerance": 1e-5,
+                "max_collision_pairs": 20,
+            },
+            viewer_options={
+                "camera_pos": (2.0, 0.0, 2.5),
+                "camera_lookat": (0.0, 0.0, 0.5),
+                "camera_fov": 40,
+                "max_FPS": 50,
+            },
+            vis_options={"rendered_envs_idx": [0]},
+        )
 
     def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
         if camera_holder.get("camera") is not None:
@@ -409,27 +421,7 @@ class _GenesisGo2CoreEnv:
         self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
 
         # create scene
-        self.scene = gs.Scene(
-            sim_options=gs.options.SimOptions(
-                dt=self.dt,
-                substeps=2,
-            ),
-            rigid_options=gs.options.RigidOptions(
-                enable_self_collision=False,
-                tolerance=1e-5,
-                # For this locomotion policy, there are usually no more than 20 collision pairs. Setting a low value
-                # can save memory. Violating this condition will raise an exception.
-                max_collision_pairs=20,
-            ),
-            viewer_options=gs.options.ViewerOptions(
-                camera_pos=(2.0, 0.0, 2.5),
-                camera_lookat=(0.0, 0.0, 0.5),
-                camera_fov=40,
-                max_FPS=int(1.0 / self.dt),
-            ),
-            vis_options=gs.options.VisOptions(rendered_envs_idx=[0]),
-            show_viewer=show_viewer,
-        )
+        self.scene = get_scene(env_cfg.get("_scene_config"), gs=gs)
 
         # add plain
         self.scene.add_entity(
@@ -449,6 +441,9 @@ class _GenesisGo2CoreEnv:
         )
 
         # build
+        before_scene_build = env_cfg.get("_before_scene_build")
+        if before_scene_build is not None:
+            before_scene_build(self.scene)
         self.scene.build(n_envs=num_envs)
 
         # names to indices

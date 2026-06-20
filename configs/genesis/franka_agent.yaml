@@ -9,7 +9,23 @@ env:
   seed: 7
   reset_time: 0
   video_fmt: mp4
-  use_gui: false
+  scene:
+    show_viewer: false
+    viewer_options:
+      camera_pos:
+        - 2.0
+        - -2.0
+        - 2.0
+      camera_lookat:
+        - 0.0
+        - 0.0
+        - 0.5
+      res:
+        - 1280
+        - 960
+      max_FPS: 60
+    sim_options:
+      dt: 0.01
 policies: {}
 server:
   agent_name: 七仔

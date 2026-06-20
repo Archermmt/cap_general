@@ -45,10 +45,7 @@ hover_result = hover(time_s=3.0)
 RESULT = {{
     "success": True,
     "target_pos": follow_result.get("target_pos"),
-    "follow_steps": follow_result.get("steps"),
     "hover_duration": hover_result.get("duration"),
-    "hover_steps": hover_result.get("steps"),
-    "mock": follow_result.get("mock", False) or hover_result.get("mock", False),
 }}
 """
 

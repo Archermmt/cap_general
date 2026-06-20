@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 
 def _load_genesis_deps():
@@ -51,6 +52,7 @@ class DroneHoverEnvConfig(BaseEnvConfig):
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
     auto_reset: bool = False
+    scene: SceneConfig | dict[str, Any] = None
 
 
 @BaseEnv.register()
@@ -65,6 +67,7 @@ class DroneHoverEnv(BaseEnv):
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)
         self._config = config
+        self._scene_config = self._build_scene_config(config)
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -216,6 +219,7 @@ class DroneHoverEnv(BaseEnv):
             env_cfg["auto_reset"] = bool(self._config.auto_reset)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
+            env_cfg["_scene_config"] = self._scene_config
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
@@ -232,30 +236,39 @@ class DroneHoverEnv(BaseEnv):
             self.logger.warning("Genesis drone env running in mock mode: %s", exc)
 
     def _build_example_env_with_camera(self, **kwargs: Any) -> Any:
+        env_cfg = dict(kwargs["env_cfg"])
         if not self._config.camera_enabled:
+            kwargs["env_cfg"] = env_cfg
             return _GenesisDroneHoverCoreEnv(**kwargs)
 
-        original_scene_cls = gs.Scene
         camera_holder: dict[str, Any] = {}
-
-        def scene_factory(*scene_args: Any, **scene_kwargs: Any) -> Any:
-            scene = original_scene_cls(*scene_args, **scene_kwargs)
-            original_build = scene.build
-
-            def build_with_body_camera(*build_args: Any, **build_kwargs: Any) -> Any:
-                self._add_body_camera(scene, camera_holder)
-                return original_build(*build_args, **build_kwargs)
-
-            scene.build = build_with_body_camera
-            return scene
-
-        gs.Scene = scene_factory
-        try:
-            example_env = _GenesisDroneHoverCoreEnv(**kwargs)
-        finally:
-            gs.Scene = original_scene_cls
+        env_cfg["_before_scene_build"] = lambda scene: self._add_body_camera(scene, camera_holder)
+        kwargs["env_cfg"] = env_cfg
+        example_env = _GenesisDroneHoverCoreEnv(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
+
+    @staticmethod
+    def _build_scene_config(config: DroneHoverEnvConfig) -> SceneConfig:
+        if config.scene:
+            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
+        return SceneConfig(
+            show_viewer=config.show_viewer,
+            sim_options={"dt": 0.01, "substeps": 2},
+            viewer_options={
+                "max_FPS": int(config.max_visualize_fps),
+                "camera_pos": (3.0, 0.0, 3.0),
+                "camera_lookat": (0.0, 0.0, 1.0),
+                "camera_fov": 40,
+            },
+            vis_options={"rendered_envs_idx": list(range(min(10, config.num_envs)))},
+            rigid_options={
+                "dt": 0.01,
+                "constraint_solver": "Newton",
+                "enable_collision": True,
+                "enable_joint_limit": True,
+            },
+        )
 
     def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
         if camera_holder.get("camera") is not None:
@@ -393,23 +406,7 @@ class _GenesisDroneHoverCoreEnv:
         self.reward_scales = copy.deepcopy(reward_cfg["reward_scales"])
 
         # create scene
-        self.scene = gs.Scene(
-            sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
-            viewer_options=gs.options.ViewerOptions(
-                max_FPS=env_cfg["max_visualize_FPS"],
-                camera_pos=(3.0, 0.0, 3.0),
-                camera_lookat=(0.0, 0.0, 1.0),
-                camera_fov=40,
-            ),
-            vis_options=gs.options.VisOptions(rendered_envs_idx=list(range(self.rendered_env_num))),
-            rigid_options=gs.options.RigidOptions(
-                dt=self.dt,
-                constraint_solver=gs.constraint_solver.Newton,
-                enable_collision=True,
-                enable_joint_limit=True,
-            ),
-            show_viewer=show_viewer,
-        )
+        self.scene = get_scene(env_cfg.get("_scene_config"), gs=gs)
 
         # add plane
         self.scene.add_entity(gs.morphs.Plane())
@@ -449,6 +446,9 @@ class _GenesisDroneHoverCoreEnv:
         self.drone = self.scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
 
         # build scene
+        before_scene_build = env_cfg.get("_before_scene_build")
+        if before_scene_build is not None:
+            before_scene_build(self.scene)
         self.scene.build(n_envs=num_envs)
 
         # prepare reward functions and multiply reward scales by dt

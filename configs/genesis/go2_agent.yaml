@@ -13,8 +13,30 @@ env:
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
   log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
   backend: cpu
-  show_viewer: true
   num_envs: 1
+  scene:
+    show_viewer: true
+    sim_options:
+      dt: 0.02
+      substeps: 2
+    rigid_options:
+      enable_self_collision: false
+      tolerance: 1.0e-5
+      max_collision_pairs: 20
+    viewer_options:
+      camera_pos:
+        - 2.0
+        - 0.0
+        - 2.5
+      camera_lookat:
+        - 0.0
+        - 0.0
+        - 0.5
+      camera_fov: 40
+      max_FPS: 50
+    vis_options:
+      rendered_envs_idx:
+        - 0
   image_keys:
     - body_camera_image
   camera_enabled: true
