@@ -134,6 +134,7 @@ class LiberoEnv(BaseEnv):
         self._task_suite = None
         self._task = None
         self._initial_states = []
+        self._last_reward = 0.0
         self.task_description = ""
 
         self._init_libero_env()
@@ -264,7 +265,12 @@ class LiberoEnv(BaseEnv):
         """Apply a 7D LIBERO action and return a Gymnasium step tuple."""
         libero_action = self._coerce_action(action)
         obs, reward, done, info = self._task_env.step(libero_action)
-        return obs, float(reward), bool(done), False, info
+        self._last_reward = float(reward)
+        return obs, 0.0, bool(done), False, info
+
+    def compute_reward(self) -> SupportsFloat:
+        """Return the most recent LIBERO reward."""
+        return self._last_reward
 
     def _coerce_action(self, action: Any) -> list[float]:
         if action is None:

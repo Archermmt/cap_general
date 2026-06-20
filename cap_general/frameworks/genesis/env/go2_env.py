@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
-from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 
 def _load_genesis_deps():
@@ -36,8 +35,6 @@ class Go2EnvConfig(BaseEnvConfig):
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion"
     log_dir: str | Path = "logs/go2-walking"
-    backend: str = "cpu"
-    show_viewer: bool = False
     num_envs: int = 1
     image_keys: list[str] = field(default_factory=lambda: ["body_camera_image"])
     camera_enabled: bool = True
@@ -49,7 +46,6 @@ class Go2EnvConfig(BaseEnvConfig):
     camera_far: float = 20.0
     turn_action_scale: float = 0.35
     max_episode_steps: int | None = 1_000_000
-    scene: SceneConfig | dict[str, Any] | None = None
 
 
 @BaseEnv.register()
@@ -62,7 +58,6 @@ class Go2Env(BaseEnv):
     def __init__(self, config: Go2EnvConfig, logger: logging.Logger | None = None):
         super().__init__(config=config, logger=logger)
         self._config = config
-        self._scene_config = self._build_scene_config(config)
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -192,10 +187,10 @@ class Go2Env(BaseEnv):
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
 
-    def _step(self, action: Any = None) -> tuple[dict[str, Any], bool, bool, dict[str, Any]]:
+    def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         self._ensure_example_env()
         if self._example_env is None:
-            return self._mock_observation(), False, False, {"mock": True}
+            return self._mock_observation(), 0.0, False, False, {"mock": True}
 
         if action is None:
             action = self._zero_action()
@@ -203,7 +198,7 @@ class Go2Env(BaseEnv):
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
-        return self._build_observation(), self._last_done, False, info
+        return self._build_observation(), 0.0, self._last_done, False, info
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -232,13 +227,16 @@ class Go2Env(BaseEnv):
             return
 
         try:
-            backend = getattr(gs, self._config.backend)
-            gs.init(backend=backend)
+            scene = getattr(self._monitor, "scene", None)
+            if scene is None:
+                self._mock_reason = "genesis scene monitor is not enabled or failed"
+                self.logger.warning("Genesis GO2 env running in mock mode: %s", self._mock_reason)
+                return
             env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
-            env_cfg["_scene_config"] = self._scene_config
+            env_cfg["_scene"] = scene
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
@@ -247,7 +245,6 @@ class Go2Env(BaseEnv):
                 obs_cfg=obs_cfg,
                 reward_cfg=reward_cfg,
                 command_cfg=command_cfg,
-                show_viewer=self._config.show_viewer,
             )
             if hasattr(self._example_env, "get_observations"):
                 self._last_policy_obs = self._example_env.get_observations()
@@ -267,27 +264,6 @@ class Go2Env(BaseEnv):
         example_env = _GenesisGo2CoreEnv(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
-
-    @staticmethod
-    def _build_scene_config(config: Go2EnvConfig) -> SceneConfig:
-        if config.scene:
-            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
-        return SceneConfig(
-            show_viewer=config.show_viewer,
-            sim_options={"dt": 0.02, "substeps": 2},
-            rigid_options={
-                "enable_self_collision": False,
-                "tolerance": 1e-5,
-                "max_collision_pairs": 20,
-            },
-            viewer_options={
-                "camera_pos": (2.0, 0.0, 2.5),
-                "camera_lookat": (0.0, 0.0, 0.5),
-                "camera_fov": 40,
-                "max_FPS": 50,
-            },
-            vis_options={"rendered_envs_idx": [0]},
-        )
 
     def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
         if camera_holder.get("camera") is not None:
@@ -401,7 +377,7 @@ def gs_rand(lower, upper, batch_shape):
 
 
 class _GenesisGo2CoreEnv:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg):
         self.num_envs: int = num_envs
         self.num_actions = env_cfg["num_actions"]
         self.cfg = env_cfg
@@ -420,8 +396,8 @@ class _GenesisGo2CoreEnv:
         self.obs_scales: dict[str, float] = obs_cfg["obs_scales"]
         self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
 
-        # create scene
-        self.scene = get_scene(env_cfg.get("_scene_config"), gs=gs)
+        # use scene owned by GenesisSceneMonitor
+        self.scene = env_cfg["_scene"]
 
         # add plain
         self.scene.add_entity(

@@ -10,7 +10,6 @@ from typing import Any, SupportsFloat
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
-from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 _DEFAULT_COLORS = [
     (0.95, 0.12, 0.14, 1.0),
@@ -54,10 +53,6 @@ class FrankaEnvConfig(BaseEnvConfig):
     """Configuration for FrankaEnv."""
 
     robot: Any | None = None
-    backend: str = "cpu"
-    use_gui: bool = False
-    sim_step: float = 0.01
-    scene: SceneConfig | dict[str, Any] | None = None
     objects: list[ObjConfig | dict[str, Any]] = field(default_factory=_default_objects)
 
 
@@ -76,10 +71,6 @@ class FrankaEnv(BaseEnv):
         super().__init__(config=config, logger=logger)
         self._config = config
         self._robot = config.robot
-        self._backend = str(config.backend)
-        self._use_gui = bool(config.use_gui)
-        self._sim_step = float(config.sim_step)
-        self._scene_config = self._build_scene_config(config)
         self._object_configs = [self._coerce_obj_config(obj) for obj in config.objects]
         self._rng = np.random.default_rng(self._seed)
 
@@ -260,15 +251,12 @@ class FrankaEnv(BaseEnv):
                 self._genesis_unavailable_logged = True
             return
 
-        try:
-            backend = getattr(gs, self._backend)
-            gs.init(backend=backend)
-        except Exception as exc:
-            message = str(exc)
-            if "already" not in message.lower() and "initialized" not in message.lower():
-                raise
-
-        self._scene = get_scene(self._scene_config, gs=gs)
+        self._scene = getattr(self._monitor, "scene", None)
+        if self._scene is None:
+            if not self._genesis_unavailable_logged:
+                self.logger.warning("Genesis scene monitor is not enabled or failed; FrankaEnv is running in mock mode")
+                self._genesis_unavailable_logged = True
+            return
         self._scene.add_entity(gs.morphs.Plane())
         if self._robot is None:
             self._robot = self._scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
@@ -282,21 +270,6 @@ class FrankaEnv(BaseEnv):
             for spec in self._object_specs
         ]
         self._scene.build()
-
-    @staticmethod
-    def _build_scene_config(config: FrankaEnvConfig) -> SceneConfig:
-        if config.scene:
-            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
-        return SceneConfig(
-            show_viewer=config.use_gui,
-            viewer_options={
-                "camera_pos": (2.0, -2.0, 2.0),
-                "camera_lookat": (0.0, 0.0, 0.5),
-                "res": (1280, 960),
-                "max_FPS": 60,
-            },
-            sim_options={"dt": float(config.sim_step)},
-        )
 
     def _sample_object_specs(self) -> list[dict[str, Any]]:
         used_random_colors = list(_DEFAULT_COLORS)

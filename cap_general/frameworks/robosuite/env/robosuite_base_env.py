@@ -69,9 +69,9 @@ class RobosuiteBaseEnv(BaseEnv):
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         raise NotImplementedError("Subclasses must implement _reset")
 
-    def _step(self, action: Any) -> tuple[Any, bool, bool, dict[str, Any]]:
+    def _step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         obs = self._get_robot_obs()
-        return obs, False, self._step_cnt >= self.max_steps, {}
+        return obs, 0.0, False, self._step_cnt >= self.max_steps, {}
 
     def _get_robot_obs(self) -> dict[str, Any]:
         raise NotImplementedError("Subclasses must implement _get_robot_obs")

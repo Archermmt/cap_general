@@ -31,6 +31,19 @@ class DummyEnv(BaseEnv):
         return {"step": self.step_cnt}
 
 
+class RewardDummyEnv(DummyEnv):
+    """Dummy env whose step reward placeholder differs from computed reward."""
+
+    def _step(
+        self,
+        action: Any,
+    ) -> tuple[dict[str, Any], SupportsFloat, bool, bool, dict[str, Any]]:
+        return {"step": self.step_cnt}, 999.0, False, False, {"action": action}
+
+    def compute_reward(self) -> SupportsFloat:
+        return 3.5
+
+
 def test_env_base_reset_returns_gymnasium_tuple():
     env = DummyEnv(config=BaseEnvConfig(seed=123))
 
@@ -52,6 +65,15 @@ def test_env_base_step_returns_gymnasium_tuple_and_tracks_step_count():
     assert truncated is False
     assert info == {"action": {"move": 1}}
     assert env.step_cnt == 1
+
+
+def test_env_base_step_uses_compute_reward():
+    env = RewardDummyEnv(config=BaseEnvConfig())
+    env.reset()
+
+    _, reward, _, _, _ = env.step({"move": 1})
+
+    assert reward == 3.5
 
 
 def test_env_base_registry():

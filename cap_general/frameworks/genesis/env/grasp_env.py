@@ -11,7 +11,6 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
-from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 
 def _load_genesis_deps():
@@ -43,9 +42,7 @@ class GraspEnvConfig(BaseEnvConfig):
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation"
     log_dir: str | Path = "logs/grasp_rl"
-    backend: str = "cpu"
     stage: str = "rl"
-    show_viewer: bool = False
     num_envs: int = 1
     box_fixed: bool = False
     visualize_camera: bool = False
@@ -58,7 +55,6 @@ class GraspEnvConfig(BaseEnvConfig):
     camera_far: float = 5.0
     record_video: dict[str, str] | None = None
     max_episode_steps: int | None = 1_000_000
-    scene: SceneConfig | dict[str, Any] | None = None
 
 
 @BaseEnv.register()
@@ -73,7 +69,6 @@ class GraspEnv(BaseEnv):
             config.image_keys = [*config.image_keys, "hand_camera_image"]
         super().__init__(config=config, logger=logger)
         self._config = config
-        self._scene_config = self._build_scene_config(config)
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -107,10 +102,10 @@ class GraspEnv(BaseEnv):
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
 
-    def _step(self, action: Any = None) -> tuple[dict[str, Any], bool, bool, dict[str, Any]]:
+    def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         self._ensure_example_env()
         if self._example_env is None:
-            return self._mock_observation(), False, False, {"mock": True}
+            return self._mock_observation(), 0.0, False, False, {"mock": True}
 
         if action is None:
             action = self._zero_action()
@@ -118,7 +113,7 @@ class GraspEnv(BaseEnv):
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
-        return self._build_observation(), self._last_done, False, info
+        return self._build_observation(), 0.0, self._last_done, False, info
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -153,13 +148,11 @@ class GraspEnv(BaseEnv):
             return
 
         try:
-            backend = getattr(gs, self._config.backend)
-            try:
-                gs.init(backend=backend)
-            except Exception as exc:
-                message = str(exc)
-                if "already" not in message.lower() and "initialized" not in message.lower():
-                    raise
+            scene = getattr(self._monitor, "scene", None)
+            if scene is None:
+                self._mock_reason = "genesis scene monitor is not enabled or failed"
+                self.logger.warning("Genesis grasp env running in mock mode: %s", self._mock_reason)
+                return
             env_cfg, reward_cfg, robot_cfg, _rl_train_cfg, _bc_train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             env_cfg["num_envs"] = self._config.num_envs
@@ -169,12 +162,11 @@ class GraspEnv(BaseEnv):
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * float(env_cfg["ctrl_dt"])
             if self._config.record_video:
                 env_cfg["record_video"] = self._config.record_video
-            env_cfg["_scene_config"] = self._scene_config
+            env_cfg["_scene"] = scene
             self._example_env = self._build_example_env_with_camera(
                 env_cfg=env_cfg,
                 reward_cfg=dict(reward_cfg),
                 robot_cfg=robot_cfg,
-                show_viewer=self._config.show_viewer,
             )
         except Exception as exc:  # pragma: no cover - depends on Genesis runtime
             self._mock_reason = str(exc)
@@ -196,33 +188,6 @@ class GraspEnv(BaseEnv):
         example_env = _GenesisGraspCoreEnv(**kwargs)
         self._hand_camera = camera_holder.get("camera")
         return example_env
-
-    @staticmethod
-    def _build_scene_config(config: GraspEnvConfig) -> SceneConfig:
-        if config.scene:
-            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
-        return SceneConfig(
-            show_viewer=config.show_viewer,
-            sim_options={"dt": 0.01, "substeps": 2},
-            rigid_options={
-                "dt": 0.01,
-                "constraint_solver": "Newton",
-                "enable_collision": True,
-                "enable_joint_limit": True,
-            },
-            vis_options={
-                "rendered_envs_idx": list(range(min(10, config.num_envs))),
-                "env_separate_rigid": True,
-            },
-            viewer_options={
-                "res": (1280, 960),
-                "camera_pos": (2.5, -1.0, 2.5),
-                "camera_lookat": (0.5, -0.3, 0.1),
-                "camera_fov": 55,
-                "max_FPS": 2,
-            },
-            profiling_options={"show_FPS": False},
-        )
 
     def _add_hand_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
         if camera_holder.get("camera") is not None:
@@ -364,7 +329,6 @@ class _GenesisGraspCoreEnv:
         env_cfg: dict,
         reward_cfg: dict,
         robot_cfg: dict,
-        show_viewer: bool = False,
     ) -> None:
         self.num_envs = env_cfg["num_envs"]
         self.num_actions = env_cfg["num_actions"]
@@ -385,7 +349,7 @@ class _GenesisGraspCoreEnv:
         self.rgb_image_shape = (3, self.image_height, self.image_width)
 
         # == setup scene ==
-        self.scene = get_scene(env_cfg.get("_scene_config"), gs=gs)
+        self.scene = env_cfg["_scene"]
 
         # == add ground ==
         self.scene.add_entity(

@@ -10,44 +10,49 @@ bc_policy: bc
 run_demo_after_episode: true
 env:
   type: genesis_grasp
+  monitor:
+    enable: true
+    name: genesis_grasp_scene
+    config:
+      type: genesis_scene
+      backend: cpu
+      scene:
+        show_viewer: true
+        sim_options:
+          dt: 0.01
+          substeps: 2
+        rigid_options:
+          dt: 0.01
+          constraint_solver: Newton
+          enable_collision: true
+          enable_joint_limit: true
+        vis_options:
+          rendered_envs_idx:
+            - 0
+          env_separate_rigid: true
+        viewer_options:
+          res:
+            - 1280
+            - 960
+          camera_pos:
+            - 2.5
+            - -1.0
+            - 2.5
+          camera_lookat:
+            - 0.5
+            - -0.3
+            - 0.1
+          camera_fov: 55
+          max_FPS: 2
+        profiling_options:
+          show_FPS: false
   video_fmt: mp4
   seed: 7
   reset_time: 0
   example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
   log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-  backend: cpu
   stage: rl
   num_envs: 1
-  scene:
-    show_viewer: true
-    sim_options:
-      dt: 0.01
-      substeps: 2
-    rigid_options:
-      dt: 0.01
-      constraint_solver: Newton
-      enable_collision: true
-      enable_joint_limit: true
-    vis_options:
-      rendered_envs_idx:
-        - 0
-      env_separate_rigid: true
-    viewer_options:
-      res:
-        - 1280
-        - 960
-      camera_pos:
-        - 2.5
-        - -1.0
-        - 2.5
-      camera_lookat:
-        - 0.5
-        - -0.3
-        - 0.1
-      camera_fov: 55
-      max_FPS: 2
-    profiling_options:
-      show_FPS: false
   box_fixed: false
   visualize_camera: true
   max_episode_steps: 1000000

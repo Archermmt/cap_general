@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
+from cap_general.core.monitor import BaseMonitor, MonitorConfig, get_monitor_manager
 from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
 
 
@@ -30,6 +31,7 @@ class BaseEnvConfig:
     reset_time: float = 5.0
     video_fmt: str = ""
     image_keys: list[str] = field(default_factory=list)
+    monitor: MonitorConfig = field(default_factory=MonitorConfig)
 
 
 class BaseEnv(RegisteredBase, Env):
@@ -51,8 +53,15 @@ class BaseEnv(RegisteredBase, Env):
         self._video_fmt = config.video_fmt
         self._image_keys = list(config.image_keys or [])
         self._video_frames: dict[str, list[Any]] = {key: [] for key in self._image_keys}
+        self._monitor = self._build_monitor(config.monitor)
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
+
+    def _build_monitor(self, config: MonitorConfig | dict[str, Any] | None) -> BaseMonitor | None:
+        monitor = get_monitor_manager().create_monitor(config=config)
+        if monitor is not None:
+            monitor.bind_env(self)
+        return monitor
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment and return the initial observation and info."""
@@ -77,15 +86,10 @@ class BaseEnv(RegisteredBase, Env):
             observation, reward, terminated, truncated, info.
         """
         self._step_cnt += 1
-        step_result = self._step(action)
-        if len(step_result) == 4:
-            obs, terminated, truncated, info = step_result
-            reward = self.compute_reward()
-        else:
-            obs, reward, terminated, truncated, info = step_result
-        self._last_obs = obs
-        self._record_frame(obs)
-        return obs, reward, terminated, truncated, info
+        self._last_obs, _reward, terminated, truncated, info = self._step(action)
+        reward = self.compute_reward()
+        self._record_frame(self._last_obs)
+        return self._last_obs, reward, terminated, truncated, info
 
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
@@ -144,14 +148,13 @@ class BaseEnv(RegisteredBase, Env):
         return self._logger
 
     @abstractmethod
-    def _step(
-        self, action: ActType
-    ) -> tuple[ObsType, bool, bool, dict[str, Any]] | tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+    def _step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         """Take one environment step.
 
         Returns:
-            observation, terminated, truncated, info, or the legacy
-            observation, reward, terminated, truncated, info tuple.
+            observation, reward placeholder, terminated, truncated, info.
+            The public ``step`` method computes the returned reward with
+            ``compute_reward()``.
         """
         raise NotImplementedError
 

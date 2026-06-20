@@ -21,8 +21,14 @@ from cap_general.frameworks.genesis.env import (
     GraspEnvConfig,
     ObjConfig,
 )
+from cap_general.frameworks.genesis.monitor import (
+    GenesisSceneMonitor,
+    GenesisSceneMonitorConfig,
+    SceneConfig,
+    get_scene,
+    reset_scene,
+)
 from cap_general.frameworks.genesis.policy import BehaviorCloningPolicy, BehaviorCloningPolicyConfig
-from cap_general.frameworks.genesis.scene import SceneConfig, get_scene, reset_scene
 
 __all__ = [
     "DroneHoverEnv",
@@ -42,6 +48,8 @@ __all__ = [
     "Go2AgentConfig",
     "GraspAgent",
     "GraspAgentConfig",
+    "GenesisSceneMonitor",
+    "GenesisSceneMonitorConfig",
     "BehaviorCloningPolicy",
     "BehaviorCloningPolicyConfig",
     "SceneConfig",

@@ -11,7 +11,6 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.env import BaseEnv, BaseEnvConfig
-from cap_general.frameworks.genesis.scene import SceneConfig, get_scene
 
 
 def _load_genesis_deps():
@@ -36,8 +35,6 @@ class DroneHoverEnvConfig(BaseEnvConfig):
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/drone"
     log_dir: str | Path = "logs/drone-hovering"
-    backend: str | None = None
-    show_viewer: bool = False
     num_envs: int = 1
     visualize_target: bool = True
     visualize_camera: bool = False
@@ -52,7 +49,6 @@ class DroneHoverEnvConfig(BaseEnvConfig):
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
     auto_reset: bool = False
-    scene: SceneConfig | dict[str, Any] = None
 
 
 @BaseEnv.register()
@@ -67,7 +63,6 @@ class DroneHoverEnv(BaseEnv):
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)
         self._config = config
-        self._scene_config = self._build_scene_config(config)
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -162,10 +157,10 @@ class DroneHoverEnv(BaseEnv):
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
 
-    def _step(self, action: Any = None) -> tuple[dict[str, Any], bool, bool, dict[str, Any]]:
+    def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         self._ensure_example_env()
         if self._example_env is None:
-            return self._mock_observation(), False, False, {"mock": True}
+            return self._mock_observation(), 0.0, False, False, {"mock": True}
 
         if action is None:
             action = self._zero_action()
@@ -173,7 +168,7 @@ class DroneHoverEnv(BaseEnv):
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
-        return self._build_observation(), self._last_done, False, info
+        return self._build_observation(), 0.0, self._last_done, False, info
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -202,15 +197,11 @@ class DroneHoverEnv(BaseEnv):
             return
 
         try:
-            try:
-                if self._config.backend:
-                    gs.init(backend=getattr(gs, self._config.backend))
-                else:
-                    gs.init()
-            except Exception as exc:
-                message = str(exc)
-                if "already" not in message.lower() and "initialized" not in message.lower():
-                    raise
+            scene = getattr(self._monitor, "scene", None)
+            if scene is None:
+                self._mock_reason = "genesis scene monitor is not enabled or failed"
+                self.logger.warning("Genesis drone env running in mock mode: %s", self._mock_reason)
+                return
             env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             env_cfg["visualize_target"] = self._config.visualize_target
@@ -219,7 +210,7 @@ class DroneHoverEnv(BaseEnv):
             env_cfg["auto_reset"] = bool(self._config.auto_reset)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
-            env_cfg["_scene_config"] = self._scene_config
+            env_cfg["_scene"] = scene
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
@@ -228,7 +219,6 @@ class DroneHoverEnv(BaseEnv):
                 obs_cfg=obs_cfg,
                 reward_cfg=reward_cfg,
                 command_cfg=command_cfg,
-                show_viewer=self._config.show_viewer,
             )
             self._last_policy_obs = self._example_env.get_observations()
         except Exception as exc:  # pragma: no cover - depends on Genesis runtime
@@ -247,28 +237,6 @@ class DroneHoverEnv(BaseEnv):
         example_env = _GenesisDroneHoverCoreEnv(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
-
-    @staticmethod
-    def _build_scene_config(config: DroneHoverEnvConfig) -> SceneConfig:
-        if config.scene:
-            return config.scene if isinstance(config.scene, SceneConfig) else SceneConfig(**config.scene)
-        return SceneConfig(
-            show_viewer=config.show_viewer,
-            sim_options={"dt": 0.01, "substeps": 2},
-            viewer_options={
-                "max_FPS": int(config.max_visualize_fps),
-                "camera_pos": (3.0, 0.0, 3.0),
-                "camera_lookat": (0.0, 0.0, 1.0),
-                "camera_fov": 40,
-            },
-            vis_options={"rendered_envs_idx": list(range(min(10, config.num_envs)))},
-            rigid_options={
-                "dt": 0.01,
-                "constraint_solver": "Newton",
-                "enable_collision": True,
-                "enable_joint_limit": True,
-            },
-        )
 
     def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
         if camera_holder.get("camera") is not None:
@@ -385,7 +353,7 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 class _GenesisDroneHoverCoreEnv:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, show_viewer=False):
+    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg):
         self.num_envs = num_envs
         self.rendered_env_num = min(10, self.num_envs)
         self.num_actions = env_cfg["num_actions"]
@@ -405,8 +373,8 @@ class _GenesisDroneHoverCoreEnv:
         self.obs_scales = obs_cfg["obs_scales"]
         self.reward_scales = copy.deepcopy(reward_cfg["reward_scales"])
 
-        # create scene
-        self.scene = get_scene(env_cfg.get("_scene_config"), gs=gs)
+        # use scene owned by GenesisSceneMonitor
+        self.scene = env_cfg["_scene"]
 
         # add plane
         self.scene.add_entity(gs.morphs.Plane())
