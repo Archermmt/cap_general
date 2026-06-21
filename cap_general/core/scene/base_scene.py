@@ -137,27 +137,6 @@ class BaseScene(RegisteredBase):
                     continue
                 self._agent_aliases[alias] = spec.name
 
-    @property
-    def server_config(self) -> ServerConfig:
-        """Return this scene's MCP server configuration."""
-        return self._server_config
-
-    @property
-    def agents(self) -> dict[str, BaseAgent]:
-        """Return agents keyed by canonical name."""
-        return dict(self._agents)
-
-    def _get_agent(self, agent: str | None = None) -> BaseAgent:
-        """Return an agent by name or alias."""
-        if agent is None:
-            if len(self._agents) == 1:
-                return next(iter(self._agents.values()))
-            raise ValueError("agent is required when a scene has multiple agents")
-        canonical = self._agent_aliases.get(agent)
-        if canonical is None:
-            raise KeyError(f"Unknown agent: {agent}")
-        return self._agents[canonical]
-
     def reset(self, agent: str | None = None, options: dict[str, Any] | None = None):
         """Reset one agent by name or alias."""
         return self._get_agent(agent).reset(options=options)
@@ -218,6 +197,17 @@ class BaseScene(RegisteredBase):
         )
         server.run(transport=transport)
 
+    def _get_agent(self, agent: str | None = None) -> BaseAgent:
+        """Return an agent by name or alias."""
+        if agent is None:
+            if len(self._agents) == 1:
+                return next(iter(self._agents.values()))
+            raise ValueError("agent is required when a scene has multiple agents")
+        canonical = self._agent_aliases.get(agent)
+        if canonical is None:
+            raise KeyError(f"Unknown agent: {agent}")
+        return self._agents[canonical]
+
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
         """Render scene-bound skills under ``skill_folder/cap_id``."""
         source_dir = Path(__file__).resolve().parents[2] / "skills"
@@ -260,6 +250,16 @@ class BaseScene(RegisteredBase):
     def _mcp_tool_doc(method_name: str, method: Callable[..., Any]) -> str:
         doc = inspect.getdoc(method) or ""
         return f"{doc}\n\nArgs:\n    agent: Agent name or alias to route this call to."
+
+    @property
+    def server_config(self) -> ServerConfig:
+        """Return this scene's MCP server configuration."""
+        return self._server_config
+
+    @property
+    def agents(self) -> dict[str, BaseAgent]:
+        """Return agents keyed by canonical name."""
+        return dict(self._agents)
 
 
 BaseScene._registry[BaseScene.scene_type()] = BaseScene

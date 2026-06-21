@@ -125,11 +125,14 @@ class BaseAgent(RegisteredBase):
 
         Returns:
             A dict with ``function_doc`` (str), ``policy_doc`` (dict),
-            ``execute_rules`` (str), and ``max_retry`` (int).
+            ``reset_doc`` (str), ``reset_rules`` (str), ``execute_rules`` (str),
+            and ``max_retry`` (int).
         """
         return {
             "function_doc": self._function_doc(),
             "policy_doc": self._policy_doc(),
+            "reset_doc": self._reset_doc(),
+            "reset_rules": self._reset_rules(),
             "execute_rules": self._execute_rules(),
             "max_retry": self._config.max_retry,
         }
@@ -330,6 +333,24 @@ class BaseAgent(RegisteredBase):
     def _policy_doc(self) -> dict[str, dict[str, str]]:
         """Return capability descriptions for configured policies."""
         return {name: policy.describe for name, policy in self._policies.items()}
+
+    def _reset_doc(self) -> str:
+        """Return reset documentation with agent-specific option rules."""
+        try:
+            sig = str(inspect.signature(self.reset))
+        except Exception:
+            sig = "(…)"
+        doc = inspect.getdoc(self.reset) or ""
+        old_options_doc = (
+            'options: Optional reset options. See ``agent_doc()["reset_rules"]``\n'
+            "        for supported keys."
+        )
+        reset_rules = self._reset_rules().strip()
+        options_doc = "options: Optional reset options."
+        if reset_rules:
+            options_doc = f"{options_doc}\n    {reset_rules.replace(chr(10), chr(10) + '    ')}"
+        doc = doc.replace(old_options_doc, options_doc)
+        return f"reset{sig}\n  Doc:\n" + "\n".join(f"    {line}" for line in doc.splitlines())
 
     def _reset_rules(self) -> str:
         """Return the rules for reset options."""

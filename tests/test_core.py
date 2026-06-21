@@ -72,6 +72,17 @@ def test_agent__function_doc():
     assert "b: int" in doc or "b:int" in doc
 
 
+def test_agent_doc_reset_options_use_reset_rules():
+    """Test that agent_doc embeds reset rules in reset documentation."""
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}))
+    doc = agent.agent_doc()
+
+    assert "reset_rules" in doc
+    assert "reset_doc" in doc
+    assert doc["reset_rules"] in doc["reset_doc"]
+    assert 'agent_doc()["reset_rules"]' not in doc["reset_doc"]
+
+
 def test_policy_base_cannot_instantiate():
     """Test that base BasePolicy cannot be instantiated directly."""
     with pytest.raises(TypeError):
