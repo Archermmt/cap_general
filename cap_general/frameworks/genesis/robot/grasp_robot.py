@@ -90,6 +90,9 @@ class GraspRobot(BaseRobot):
     @property
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
+        if self._last_policy_obs is None and self._example_env is not None:
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+                self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -97,6 +100,9 @@ class GraspRobot(BaseRobot):
         if self._example_env is None:
             obs = self._mock_observation()
             return obs, {"mock": True, "reason": self._mock_reason}
+        if getattr(self._example_env, "_deferred_build", False):
+            obs = self._mock_observation()
+            return obs, {"mock": False, "pending_build": True, "options": options or {}}
         self._last_policy_obs = self._example_env.reset()
         self._last_reward = 0.0
         self._last_done = False
@@ -106,6 +112,8 @@ class GraspRobot(BaseRobot):
         self._ensure_example_env()
         if self._example_env is None:
             return self._mock_observation(), 0.0, False, False, {"mock": True}
+        if getattr(self._example_env, "_deferred_build", False):
+            return self._mock_observation(), 0.0, False, False, {"pending_build": True}
 
         if action is None:
             action = self._zero_action()
@@ -160,6 +168,7 @@ class GraspRobot(BaseRobot):
             if self._config.record_video:
                 env_cfg["record_video"] = self._config.record_video
             env_cfg["_scene"] = scene
+            env_cfg["_scene_resource"] = scene_resource
             self._example_env = self._build_example_env_with_camera(
                 env_cfg=env_cfg,
                 reward_cfg=dict(reward_cfg),
@@ -343,6 +352,7 @@ class _GenesisGraspCoreRobot:
         self.env_cfg = env_cfg
         self.reward_scales = reward_cfg
         self.action_scales = torch.tensor(env_cfg["action_scales"], device=self.device)
+        self._deferred_build = False
 
         # camera config
         self.image_width = env_cfg["image_resolution"][0]
@@ -454,7 +464,16 @@ class _GenesisGraspCoreRobot:
         before_scene_build = env_cfg.get("_before_scene_build")
         if before_scene_build is not None:
             before_scene_build(self.scene)
-        self.scene.build(n_envs=env_cfg["num_envs"], env_spacing=(1.0, 1.0))
+        scene_resource = env_cfg.get("_scene_resource")
+        build_kwargs = {"n_envs": env_cfg["num_envs"], "env_spacing": (1.0, 1.0)}
+        if scene_resource is not None and scene_resource.defer_build(build_kwargs, self._post_build):
+            self._deferred_build = True
+            return
+        self.scene.build(**build_kwargs)
+        self._post_build()
+
+    def _post_build(self) -> None:
+        self._deferred_build = False
         # set pd gains (must be called after scene.build)
         self.robot.set_pd_gains()
 

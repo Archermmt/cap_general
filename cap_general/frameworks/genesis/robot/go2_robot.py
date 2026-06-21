@@ -79,6 +79,9 @@ class Go2Robot(BaseRobot):
     @property
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
+        if self._last_policy_obs is None and self._example_env is not None:
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+                self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
 
     @property
@@ -181,6 +184,9 @@ class Go2Robot(BaseRobot):
         if self._example_env is None:
             obs = self._mock_observation()
             return obs, {"mock": True, "reason": self._mock_reason}
+        if getattr(self._example_env, "_deferred_build", False):
+            obs = self._mock_observation()
+            return obs, {"mock": False, "pending_build": True, "options": options or {}}
         if hasattr(self._example_env, "get_observations"):
             self._last_policy_obs = self._example_env.get_observations()
         self._last_reward = 0.0
@@ -238,6 +244,7 @@ class Go2Robot(BaseRobot):
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
             env_cfg["_scene"] = scene
+            env_cfg["_scene_resource"] = scene_resource
             reward_cfg = dict(reward_cfg)
             reward_cfg["reward_scales"] = {}
             self._example_env = self._build_example_env_with_camera(
@@ -247,7 +254,7 @@ class Go2Robot(BaseRobot):
                 reward_cfg=reward_cfg,
                 command_cfg=command_cfg,
             )
-            if hasattr(self._example_env, "get_observations"):
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
                 self._last_policy_obs = self._example_env.get_observations()
         except Exception as exc:  # pragma: no cover - depends on Genesis runtime
             self._mock_reason = str(exc)
@@ -393,6 +400,7 @@ class _GenesisGo2CoreRobot:
         self.obs_cfg = obs_cfg
         self.reward_cfg = reward_cfg
         self.command_cfg = command_cfg
+        self._deferred_build = False
 
         self.obs_scales: dict[str, float] = obs_cfg["obs_scales"]
         self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
@@ -421,8 +429,16 @@ class _GenesisGo2CoreRobot:
         before_scene_build = env_cfg.get("_before_scene_build")
         if before_scene_build is not None:
             before_scene_build(self.scene)
-        self.scene.build(n_envs=num_envs)
+        scene_resource = env_cfg.get("_scene_resource")
+        build_kwargs = {"n_envs": num_envs}
+        if scene_resource is not None and scene_resource.defer_build(build_kwargs, self._post_build):
+            self._deferred_build = True
+            return
+        self.scene.build(**build_kwargs)
+        self._post_build()
 
+    def _post_build(self) -> None:
+        self._deferred_build = False
         # names to indices
         self.motors_dof_idx = torch.tensor(
             [self.robot.get_joint(name).dof_start for name in self.env_cfg["joint_names"]],

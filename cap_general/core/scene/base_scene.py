@@ -69,6 +69,7 @@ class BaseScene(RegisteredBase):
         set_current_scene(self)
         try:
             self._build_agents(self._config.agents)
+            self._after_build_agents()
         finally:
             set_current_scene(None)
 
@@ -116,6 +117,9 @@ class BaseScene(RegisteredBase):
 
     def _before_build_agents(self) -> None:
         """Hook for subclasses to initialize state before agents."""
+
+    def _after_build_agents(self) -> None:
+        """Hook for subclasses to finalize state after agents."""
 
     def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
         for spec_data in specs:

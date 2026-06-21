@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,16 @@ def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
     if gs is None:
         import genesis as gs
 
+    _SCENE = create_scene_from_config(config, gs=gs)
+    _SCENE_CONFIG = config
+    return _SCENE
+
+
+def create_scene_from_config(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
+    """Create a fresh Genesis scene from config."""
+    if gs is None:
+        import genesis as gs
+
     kwargs: dict[str, Any] = {"show_viewer": config.show_viewer}
     if config.sim_options:
         kwargs["sim_options"] = gs.options.SimOptions(**_resolve_options(config.sim_options, gs))
@@ -58,9 +69,7 @@ def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
         kwargs["vis_options"] = gs.options.VisOptions(**_resolve_options(config.vis_options, gs))
     if config.profiling_options:
         kwargs["profiling_options"] = gs.options.ProfilingOptions(**_resolve_options(config.profiling_options, gs))
-    _SCENE = gs.Scene(**kwargs)
-    _SCENE_CONFIG = config
-    return _SCENE
+    return gs.Scene(**kwargs)
 
 
 def reset_scene() -> None:
@@ -93,6 +102,10 @@ class GenesisScene(BaseScene):
         self._scene = None
         self._camera = None
         self._camera_failed = False
+        self._defer_scene_build = False
+        self._scene_built = False
+        self._build_kwargs: dict[str, Any] | None = None
+        self._post_build_callbacks: list[Callable[[], None]] = []
         super().__init__(config=config, logger=logger)
 
     @staticmethod
@@ -105,6 +118,21 @@ class GenesisScene(BaseScene):
 
     def _before_build_agents(self) -> None:
         self._scene = self._create_scene()
+        self._defer_scene_build = True
+
+    def _after_build_agents(self) -> None:
+        self._defer_scene_build = False
+        if self._scene is None or self._scene_built:
+            return
+        if self._build_kwargs is None:
+            return
+        self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
+        self._scene.build(**self._build_kwargs)
+        self._scene_built = True
+        callbacks = list(self._post_build_callbacks)
+        self._post_build_callbacks.clear()
+        for callback in callbacks:
+            callback()
 
     @property
     def scene(self) -> Any | None:
@@ -129,6 +157,29 @@ class GenesisScene(BaseScene):
                 self._logger.warning("Genesis scene failed to initialize Genesis: %s", exc)
                 return None
         return get_scene(self._config, gs=gs)
+
+    def defer_build(self, build_kwargs: dict[str, Any], post_build: Callable[[], None]) -> bool:
+        """Defer the shared Genesis scene build until all robots are created."""
+        if not self._defer_scene_build:
+            return False
+        self._merge_build_kwargs(build_kwargs)
+        self._post_build_callbacks.append(post_build)
+        return True
+
+    def _merge_build_kwargs(self, build_kwargs: dict[str, Any]) -> None:
+        if self._build_kwargs is None:
+            self._build_kwargs = dict(build_kwargs)
+            return
+        for key, value in build_kwargs.items():
+            if key not in self._build_kwargs:
+                self._build_kwargs[key] = value
+            elif self._build_kwargs[key] != value:
+                self._logger.warning(
+                    "Ignoring conflicting Genesis scene.build kwarg %s=%r; using %r",
+                    key,
+                    value,
+                    self._build_kwargs[key],
+                )
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Render and save the shared scene camera image."""
