@@ -65,7 +65,6 @@ class BaseAgent(RegisteredBase):
         """Initialize an agent from config."""
         self._config = config
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._owns_logger = logger is None
         self._logger = logger or cap_utils.build_file_logger(
             self._record_dir,
             logger_name="agent",

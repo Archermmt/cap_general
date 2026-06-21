@@ -71,7 +71,6 @@ def test_scene_routes_agent_methods_by_name_and_alias():
 
     assert agent._record_dir == Path("outputs/test_scene/alpha").resolve()
     assert agent._logger is scene._logger
-    assert agent._owns_logger is False
     assert scene.reset(agent="alpha", options={"x": 1})["ok"] is True
     assert "echo" in scene.agent_doc(agent="a")["function_doc"]
 
