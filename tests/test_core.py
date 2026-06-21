@@ -1,9 +1,9 @@
-"""Tests for core CAP agent, env, and policy primitives."""
+"""Tests for core CAP agent, robot, and policy primitives."""
 
 import pytest
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
-from cap_general.core.env import BaseEnv
+from cap_general.core.robot import BaseRobot
 from cap_general.core.policy import (
     BasePolicy,
     GraspNetPolicy,
@@ -12,14 +12,14 @@ from cap_general.core.policy import (
 )
 
 
-@BaseEnv.register()
-class CoreDummyEnv(BaseEnv):
-    """Small env for core agent tests."""
+@BaseRobot.register()
+class CoreDummyRobot(BaseRobot):
+    """Small robot for core agent tests."""
 
-    name = "Core Dummy Env"
+    name = "Core Dummy Robot"
 
     @classmethod
-    def env_type(cls) -> str:
+    def robot_type(cls) -> str:
         return "core_dummy"
 
     def _reset(self, options=None):
@@ -61,7 +61,7 @@ class SimpleAgent(BaseAgent):
 
 def test_agent__function_doc():
     """Test that _function_doc extracts method signatures and docstrings."""
-    agent = SimpleAgent(config=BaseAgentConfig(env={"type": "core_dummy"}))
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}))
     doc = agent._function_doc()
 
     assert "add" in doc

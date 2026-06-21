@@ -28,7 +28,7 @@ Write ONLY executable Python code (no code fences). Import numpy if needed.
 class RobosuiteAgentConfig(BaseAgentConfig):
     """Configuration for RobosuiteAgent."""
 
-    env: dict[str, Any] = field(default_factory=lambda: {"type": "robosuite"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "robosuite_robot"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     sam3_policy: str = "sam3"
     graspnet_policy: str = "graspnet"
@@ -38,7 +38,7 @@ class RobosuiteAgentConfig(BaseAgentConfig):
 
 @BaseAgent.register()
 class RobosuiteAgent(BaseAgent):
-    """Agent that executes Franka pick-place code against a Robosuite env."""
+    """Agent that executes Franka pick-place code against a Robosuite robot."""
 
     name = "Robosuite Franka Agent"
     config_cls = RobosuiteAgentConfig
@@ -85,7 +85,7 @@ class RobosuiteAgent(BaseAgent):
         import open3d as o3d
         import viser.transforms as vtf
 
-        obs = self._env._get_robot_obs()
+        obs = self._robot._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
             self._save_rgbd(rgb, depth)
@@ -142,7 +142,7 @@ class RobosuiteAgent(BaseAgent):
         """
         import viser.transforms as vtf
 
-        obs = self._env._get_robot_obs()
+        obs = self._robot._get_robot_obs()
         rgb, depth, intrinsics = self._main_rgbd(obs)
         if self._config.debug:
             self._save_rgbd(rgb, depth)
@@ -199,15 +199,15 @@ class RobosuiteAgent(BaseAgent):
 
     def open_gripper(self) -> None:
         """Open gripper fully."""
-        self._env._set_gripper(1.0)
+        self._robot._set_gripper(1.0)
         for _ in range(30):
-            self._env._step_once()
+            self._robot._step_once()
 
     def close_gripper(self) -> None:
         """Close gripper fully."""
-        self._env._set_gripper(0.0)
+        self._robot._set_gripper(0.0)
         for _ in range(30):
-            self._env._step_once()
+            self._robot._step_once()
 
     def home_pose(self) -> None:
         """Move the robot to a safe home pose."""
@@ -223,10 +223,10 @@ class RobosuiteAgent(BaseAgent):
             ],
             dtype=np.float64,
         )
-        self._env.move_to_joints_blocking(joints)
+        self._robot.move_to_joints_blocking(joints)
 
     def _compute_reward(self) -> float:
-        return float(self._env.compute_reward())
+        return float(self._robot.compute_reward())
 
     def _goto_offset_pose(self, offset_pos: np.ndarray, quat_wxyz: np.ndarray) -> None:
         if self._pyroki_policy not in self._policies:
@@ -240,7 +240,7 @@ class RobosuiteAgent(BaseAgent):
             )
             joints = np.asarray(result.joint_positions, dtype=np.float64)
         self._ik_cfg = joints
-        self._env.move_to_joints_blocking(joints[:7])
+        self._robot.move_to_joints_blocking(joints[:7])
 
     @staticmethod
     def _main_rgbd(obs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -288,7 +288,7 @@ class RobosuiteAgent(BaseAgent):
 
         d2d = depth[:, :, 0] if depth.ndim == 3 else depth
         debug_dir = self.debug_dir
-        step_cnt = self._env.step_cnt
+        step_cnt = self._robot.step_cnt
         _Image.fromarray(cap_utils.depth_to_rgb(d2d)).save(debug_dir / f"depth_image_{step_cnt}.jpg")
         _Image.fromarray(rgb).save(debug_dir / f"rgb_image_{step_cnt}.jpg")
 
@@ -301,7 +301,7 @@ class RobosuiteAgent(BaseAgent):
         if not results:
             return
         debug_dir = self.debug_dir
-        step_cnt = self._env.step_cnt
+        step_cnt = self._robot.step_cnt
         safe_function = self._safe_debug_name(function_name)
         safe_object = self._safe_debug_name(object_name)
         signature = f"{safe_function}_{safe_object}_{step_cnt}"

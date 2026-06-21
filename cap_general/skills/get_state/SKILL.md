@@ -1,12 +1,13 @@
 ---
 name: {cap_id}_get_state
-description: Get and display the current state/observation/view of the {agent_name} agent by calling get_obs. Use this when the user asks what {agent_name} is doing, wants to see {agent_name}, or asks for current status/state/view/observation.
+description: Get and display the current state/observation/view of the {agent_name} agent by calling get_obs. agent_name can be any one of {available_names}. Use this when the user asks what {agent_name} is doing, wants to see {agent_name}, or asks for current status/state/view/observation.
 metadata: {"nanobot":{"emoji":"📍"}}
 ---
 
 # Get State Skill
 
 Get the current agent state by calling the `{cap_id}_get_obs` MCP tool with `agent="{agent_name}"`. This returns the latest observation saved by the agent environment, including image paths when image observations are available and normalized state fields when the environment provides them.
+The placeholder `{agent_name}` can be replaced by any available agent name or alias from this scene: `{available_names}`.
 
 Use this skill for present-state questions, including:
 
@@ -30,7 +31,7 @@ The get state skill uses the `{cap_id}_get_obs` tool.
 
 ### Required Parameters
 
-- `agent` (string): The target agent name or alias. Use `{agent_name}`.
+- `agent` (string): The target agent name or alias. Use `{agent_name}`; it must be one of `{available_names}`.
 
 ### Optional Parameters
 

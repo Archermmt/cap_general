@@ -12,7 +12,7 @@ from cap_general.core.agent import BaseAgent, BaseAgentConfig
 class GraspAgentConfig(BaseAgentConfig):
     """Configuration for GraspAgent."""
 
-    env: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp_robot"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     rl_policy: str = "runner"
     bc_policy: str = "bc"
@@ -42,7 +42,7 @@ class GraspAgent(BaseAgent):
 
     def _execute_rules(self) -> str:
         return (
-            "The Genesis grasp agent evaluates RL or BC policies in an env-controlled "
+            "The Genesis grasp agent evaluates RL or BC policies in a robot-controlled "
             "Franka grasp scene. Use grasp_episode(stage='rl'|'bc', max_steps=...). "
             "Do not create Genesis scenes, robots, cameras, or policies in generated code."
         )
@@ -54,33 +54,33 @@ class GraspAgent(BaseAgent):
         """Run one Genesis grasp episode with an RL or BC policy."""
         current_stage = stage or self._stage
         steps = int(max_steps or self.horizon)
-        env = self._env.example_env
+        env = self._robot.example_env
         if env is None:
             return {
                 "steps": 0,
                 "stage": current_stage,
-                "obs": self._env.get_observation(self.step_dir),
+                "obs": self._robot.get_observation(self.step_dir),
                 "mock": True,
             }
 
-        obs = self._env.policy_obs
+        obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":
                 action = self._run_policy(self._rl_policy_name, env=env, obs=obs)
             elif current_stage == "bc":
-                rgb_obs = self._env.get_stereo_rgb_images(normalize=True).float()
+                rgb_obs = self._robot.get_stereo_rgb_images(normalize=True).float()
                 ee_pose = env.robot.ee_pose.float()
                 action = self._run_policy(self._bc_policy_name, env=env, rgb_obs=rgb_obs, ee_pose=ee_pose)
             else:
                 raise ValueError(f"Unknown grasp stage: {current_stage!r}")
-            obs, _reward, terminated, truncated, _info = self._env.step(action)
+            obs, _reward, terminated, truncated, _info = self._robot.step(action)
             if terminated or truncated:
                 break
-            obs = self._env.policy_obs
+            obs = self._robot.policy_obs
 
         demo_ran = self.grasp_and_lift_demo() if self._run_demo_after_episode else False
         return {"stage": current_stage, "demo_ran": demo_ran}
 
     def grasp_and_lift_demo(self) -> bool:
         """Run the scripted grasp-and-lift demo from the underlying env."""
-        return bool(self._env.grasp_and_lift_demo())
+        return bool(self._robot.grasp_and_lift_demo())

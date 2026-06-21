@@ -10,8 +10,8 @@ agents:
       max_retry: 5
       reset_mode: never
       record_execute: true
-      env:
-        type: robosuite
+      robot:
+        type: robosuite_robot
         controller_cfg: /home/genie_store/nfs_datas/tm/codes/cap_general/cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json
         seed: 7
         reset_time: 0

@@ -10,15 +10,15 @@ from cap_general.frameworks.genesis.agent import (
     GraspAgent,
     GraspAgentConfig,
 )
-from cap_general.frameworks.genesis.env import (
-    DroneHoverEnv,
-    DroneHoverEnvConfig,
-    FrankaEnv,
-    FrankaEnvConfig,
-    Go2Env,
-    Go2EnvConfig,
-    GraspEnv,
-    GraspEnvConfig,
+from cap_general.frameworks.genesis.robot import (
+    DroneHoverRobot,
+    DroneHoverRobotConfig,
+    FrankaRobot,
+    FrankaRobotConfig,
+    Go2Robot,
+    Go2RobotConfig,
+    GraspRobot,
+    GraspRobotConfig,
     ObjConfig,
 )
 from cap_general.frameworks.genesis.scene import (
@@ -30,15 +30,15 @@ from cap_general.frameworks.genesis.scene import (
 from cap_general.frameworks.genesis.policy import BehaviorCloningPolicy, BehaviorCloningPolicyConfig
 
 __all__ = [
-    "DroneHoverEnv",
-    "DroneHoverEnvConfig",
-    "FrankaEnv",
-    "FrankaEnvConfig",
+    "DroneHoverRobot",
+    "DroneHoverRobotConfig",
+    "FrankaRobot",
+    "FrankaRobotConfig",
     "ObjConfig",
-    "Go2Env",
-    "Go2EnvConfig",
-    "GraspEnv",
-    "GraspEnvConfig",
+    "Go2Robot",
+    "Go2RobotConfig",
+    "GraspRobot",
+    "GraspRobotConfig",
     "DroneAgent",
     "DroneAgentConfig",
     "FrankaAgent",

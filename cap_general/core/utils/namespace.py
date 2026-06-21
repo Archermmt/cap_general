@@ -4,10 +4,10 @@ from enum import Enum, IntEnum
 
 
 class ResetNamespace:
-    """Namespace for reset semantics shared by agents and environments."""
+    """Namespace for reset semantics shared by agents and robots."""
 
     class ResetMode(str, Enum):
-        """When an agent should reset its environment."""
+        """When an agent should reset its robot."""
 
         NEVER = "never"
         PER_EXEC = "per_exec"

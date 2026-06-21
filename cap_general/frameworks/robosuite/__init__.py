@@ -5,18 +5,18 @@ from cap_general.frameworks.robosuite.agent import (
     RobosuiteAgent,
     RobosuiteAgentConfig,
 )
-from cap_general.frameworks.robosuite.env import (
-    RobosuiteBaseEnv,
-    RobosuiteBaseEnvConfig,
-    RobosuiteCubeEnv,
-    RobosuiteCubeEnvConfig,
+from cap_general.frameworks.robosuite.robot import (
+    RobosuiteBaseRobot,
+    RobosuiteBaseRobotConfig,
+    RobosuiteCubeRobot,
+    RobosuiteCubeRobotConfig,
 )
 
 __all__ = [
-    "RobosuiteBaseEnv",
-    "RobosuiteBaseEnvConfig",
-    "RobosuiteCubeEnv",
-    "RobosuiteCubeEnvConfig",
+    "RobosuiteBaseRobot",
+    "RobosuiteBaseRobotConfig",
+    "RobosuiteCubeRobot",
+    "RobosuiteCubeRobotConfig",
     "RobosuiteAgent",
     "RobosuiteAgentConfig",
     "PROMPT",

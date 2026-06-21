@@ -9,8 +9,8 @@ agents:
       max_retry: 5
       reset_mode: per_trial
       record_execute: true
-      env:
-        type: libero
+      robot:
+        type: libero_robot
         task_suite_name: libero_goal
         task_id: 1
         seed: 7

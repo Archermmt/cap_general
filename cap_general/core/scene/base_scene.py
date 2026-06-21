@@ -235,7 +235,10 @@ class BaseScene(RegisteredBase):
         if target_dir.exists():
             shutil.rmtree(target_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
-        replacements = {"{cap_id}": server_config.cap_id}
+        replacements = {
+            "{cap_id}": server_config.cap_id,
+            "{available_names}": ", ".join(sorted(self._agent_aliases)),
+        }
         for source_path in source_dir.rglob("*"):
             if "__pycache__" in source_path.parts:
                 continue

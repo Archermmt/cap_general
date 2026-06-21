@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 
 from cap_general.core import utils as cap_utils
 from cap_general.core.base import RegisteredBase
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.core.policy import BasePolicyConfig
 
 
@@ -39,7 +39,7 @@ class Tee(io.TextIOBase):
 class BaseAgentConfig:
     """Configuration for constructing an agent."""
 
-    env: BaseEnvConfig
+    robot: BaseRobotConfig
     policies: dict[str, BasePolicyConfig] = field(default_factory=dict)
     record_dir: str | Path = "outputs"
     max_steps: int = 5000
@@ -64,9 +64,13 @@ class BaseAgent(RegisteredBase):
     def __init__(self, config: BaseAgentConfig, logger: logging.Logger | None = None):
         """Initialize an agent from config."""
         self._config = config
-        self._logger = logger
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._env: BaseEnv = self._build_env(self._config.env, self._logger)
+        self._owns_logger = logger is None
+        self._logger = logger or cap_utils.build_file_logger(
+            self._record_dir,
+            logger_name="agent",
+        )
+        self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
@@ -76,10 +80,10 @@ class BaseAgent(RegisteredBase):
         self._clear_record_dir_contents()
 
     @staticmethod
-    def _build_env(config: dict[str, Any], logger: logging.Logger) -> BaseEnv:
-        env = BaseEnv.from_config(config, logger=logger)
-        env.reset()
-        return env
+    def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
+        robot = BaseRobot.from_config(config, logger=logger)
+        robot.reset()
+        return robot
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
@@ -91,10 +95,10 @@ class BaseAgent(RegisteredBase):
         return policies
 
     def reset(self, options: dict[str, Any] | None = None):
-        """Reset the agent, environment, or robot to a requested scope.
+        """Reset the agent, scene, or robot to a requested scope.
 
         Use this tool before starting a new task, before retrying from a clean
-        state, or when the environment needs to be restored.
+        state, or when the robot needs to be restored.
 
         Args:
             options: Optional reset options. See ``agent_doc()["reset_rules"]``
@@ -104,7 +108,7 @@ class BaseAgent(RegisteredBase):
             A dict with ``ok`` so MCP clients can confirm the reset completed.
         """
         options = dict(options or {})
-        self._env.reset(options=options)
+        self._robot.reset(options=options)
         reset_level = cap_utils.ResetLevel(options.get("reset_level", cap_utils.ResetLevel.AGENT))
         if reset_level >= cap_utils.ResetLevel.AGENT:
             self._exec_cnt, self._trial_cnt = 0, 0
@@ -135,7 +139,7 @@ class BaseAgent(RegisteredBase):
         """Execute Python code as a new agent step.
 
         The code runs in a persistent namespace containing the low-level
-        environment as ``env`` and all functions returned by ``functions()``.
+        robot as ``robot`` and all functions returned by ``functions()``.
         Use ``agent_doc`` first to inspect the available function signatures,
         policy descriptions, reset rules, and execution rules.
 
@@ -187,7 +191,7 @@ class BaseAgent(RegisteredBase):
                 single recorded step/trial.
 
         Returns:
-            A dict containing saved media paths from the environment plus
+            A dict containing saved media paths from the robot plus
             ``info`` and ``code`` for the requested scope.
         """
         if step_idx == -1:
@@ -195,18 +199,18 @@ class BaseAgent(RegisteredBase):
                 "plan": self._plan,
                 "executes": self._step_infos,
                 "total_execute": len(self._step_infos),
-                "total_step": self._env.step_cnt,
+                "total_step": self._robot.step_cnt,
                 "total_duration": self._format_duration(time.time() - self._plan_start),
             }
             code = self._join_codes()
-            start_frm, end_frm = 0, self._env.step_cnt
+            start_frm, end_frm = 0, self._robot.step_cnt
             record_path = self._record_dir
         else:
             info, code = self._get_step_record(step_idx)
             start_frm, end_frm = info["step_start"], info["step_end"]
             record_path = self._record_dir / self._step_dir_name(info["exec_cnt"], info["trial_cnt"])
         record_path.mkdir(parents=True, exist_ok=True)
-        record = self._env.record(record_path, start_frm=start_frm, end_frm=end_frm)
+        record = self._robot.record(record_path, start_frm=start_frm, end_frm=end_frm)
         cap_utils.write_json(record_path / "info.json", info)
         cap_utils.write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
@@ -228,10 +232,10 @@ class BaseAgent(RegisteredBase):
         """Return the current observation and save images under the active step directory.
 
         Returns:
-            A dict containing the environment observation. Image observations are
+            A dict containing the robot observation. Image observations are
             returned as local file paths.
         """
-        result = self._env.get_observation(self.step_dir)
+        result = self._robot.get_observation(self.step_dir)
         return cap_utils.to_json_safe(result)
 
     def _execute_once(self, code: str):
@@ -239,18 +243,18 @@ class BaseAgent(RegisteredBase):
         self._clear_current_step_dir()
         if self._reset_mode is cap_utils.ResetMode.PER_TRIAL:
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
-        step_start, time_start = self._env.step_cnt, time.time()
+        step_start, time_start = self._robot.step_cnt, time.time()
         exec_result = self._execute_code(code)
         max_steps = self._config.max_steps
         info = {
             **exec_result,
             "step_start": step_start,
-            "step_end": self._env.step_cnt,
+            "step_end": self._robot.step_cnt,
             "duration": self._format_duration(time.time() - time_start),
             "exec_cnt": self._exec_cnt,
             "trial_cnt": self._trial_cnt,
             "reward": self._compute_reward(),
-            "truncated": self._env.step_cnt > max_steps,
+            "truncated": self._robot.step_cnt > max_steps,
             "obs": self.get_obs(),
         }
         self._step_infos.append(info)
@@ -281,7 +285,7 @@ class BaseAgent(RegisteredBase):
 
     def _init_exec_globals(self) -> None:
         """Initialize the persistent globals dictionary for generated code."""
-        g: dict[str, Any] = {"__name__": "__main__", "env": self._env, "INPUTS": {}, "RESULT": None}
+        g: dict[str, Any] = {"__name__": "__main__", "robot": self._robot, "INPUTS": {}, "RESULT": None}
         for fn_name, fn in self.functions().items():
             g[fn_name] = fn
         self._exec_globals = g
@@ -331,7 +335,7 @@ class BaseAgent(RegisteredBase):
     def _reset_rules(self) -> str:
         """Return the rules for reset options."""
         return (
-            "reset_level: 0 resets only the robot pose, 1 resets the environment, "
+            "reset_level: 0 resets only the robot pose, 1 resets the robot controller, "
             "and 2 resets the full agent state. Defaults to 2."
         )
 
@@ -391,9 +395,9 @@ class BaseAgent(RegisteredBase):
         return debug_path
 
     @property
-    def env(self):
-        """Low-level environment instance for direct interaction in code execution."""
-        return self._env
+    def robot(self):
+        """Low-level robot controller for direct interaction in code execution."""
+        return self._robot
 
     @property
     def policies(self) -> dict[str, Any]:
@@ -402,5 +406,5 @@ class BaseAgent(RegisteredBase):
 
     @property
     def logger(self) -> logging.Logger:
-        """Shared logger used by the agent, environment, and policies."""
+        """Shared logger used by the agent, robot, and policies."""
         return self._logger

@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_skills
-description: All cap_general skills are bound to {agent_name}; before calling any {agent_name} tool, read the relevant skill instructions first. Questions like "what is {agent_name} doing", "show me {agent_name}", or "current state/status/observation" should use get_state.
+description: All cap_general skills are bound to {agent_name}; agent_name can be any one of {available_names}. Before calling any {agent_name} tool, read the relevant skill instructions first. Questions like "what is {agent_name} doing", "show me {agent_name}", or "current state/status/observation" should use get_state.
 metadata: {"nanobot":{"emoji":"🧭"}}
 ---
 
@@ -8,6 +8,7 @@ metadata: {"nanobot":{"emoji":"🧭"}}
 
 This directory contains skills for working with `cap_general` CAP agents. These skills are wrappers around agent-bound MCP tools, where the concrete tool name is parameterized by `{agent_name}`.
 The MCP server is scene-based: every scene tool call must include an `agent` argument that identifies the target agent name or alias. Use `agent="{agent_name}"` unless a skill says otherwise.
+The placeholder `{agent_name}` can be replaced by any available agent name or alias from this scene: `{available_names}`.
 
 ## Available Skills
 
@@ -17,7 +18,7 @@ The MCP server is scene-based: every scene tool call must include an `agent` arg
 
 ## Mandatory Rules
 
-1. **All skills are bound to `agent_name`.** Do not use any skill in this directory unless the user request clearly involves a concrete `agent_name` or the active context makes the target agent unambiguous.
+1. **All skills are bound to `agent_name`.** `agent_name` must be one of `{available_names}`. Do not use any skill in this directory unless the user request clearly involves a concrete `agent_name` or the active context makes the target agent unambiguous.
 2. **Read the relevant skill before agent-bound calls.** For any operation involving `{agent_name}`, read the matching skill first and follow its workflow. Do not directly call `{agent_name}` tools without reading the skill.
 3. **Use the skill-specific tool sequence.** For example, use `get_state` before calling `{cap_id}_get_obs`, `reset_agent` before calling `{cap_id}_reset`, and `execute_task` before calling `{cap_id}_execute` or `{cap_id}_retry`.
 4. **Respect exact tool names.** Replace `{agent_name}` with the active agent name and call only the MCP-registered tool names documented by the relevant skill.

@@ -9,7 +9,7 @@ from cap_general.core.agent import (
     Tee,
 )
 from cap_general.core.base import RegisteredBase
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.core.policy import (
     BasePolicy,
     BasePolicyConfig,
@@ -51,6 +51,6 @@ __all__ = [
     "GraspNetPolicyConfig",
     "PyrokiPolicy",
     "PyrokiPolicyConfig",
-    "BaseEnv",
-    "BaseEnvConfig",
+    "BaseRobot",
+    "BaseRobotConfig",
 ]

@@ -34,8 +34,8 @@ agents:
     record_execute: true
     policy: runner
     horizon: 1000
-    env:
-      type: genesis_drone_hover
+    robot:
+      type: genesis_drone_hover_robot
       video_fmt: mp4
       seed: 7
       reset_time: 0

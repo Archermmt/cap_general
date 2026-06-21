@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
 def _load_genesis_deps():
@@ -30,7 +30,7 @@ def _load_genesis_deps():
 
 
 @dataclass
-class DroneHoverEnvConfig(BaseEnvConfig):
+class DroneHoverRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis drone hover example."""
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/drone"
@@ -51,14 +51,14 @@ class DroneHoverEnvConfig(BaseEnvConfig):
     auto_reset: bool = False
 
 
-@BaseEnv.register()
-class DroneHoverEnv(BaseEnv):
+@BaseRobot.register()
+class DroneHoverRobot(BaseRobot):
     """Genesis drone hover eval environment."""
 
-    name = "Genesis Drone Hover Env"
-    config_cls = DroneHoverEnvConfig
+    name = "Genesis Drone Hover Robot"
+    config_cls = DroneHoverRobotConfig
 
-    def __init__(self, config: DroneHoverEnvConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: DroneHoverRobotConfig, logger: logging.Logger | None = None):
         if config.camera_enabled and "camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)
@@ -72,12 +72,12 @@ class DroneHoverEnv(BaseEnv):
         self._camera_failed = False
 
     @classmethod
-    def env_type(cls) -> str:
-        return "genesis_drone_hover"
+    def robot_type(cls) -> str:
+        return "genesis_drone_hover_robot"
 
     @property
     def example_env(self) -> Any:
-        """Return the underlying genesis-world HoverEnv."""
+        """Return the underlying genesis-world HoverRobot."""
         self._ensure_example_env()
         return self._example_env
 
@@ -230,12 +230,12 @@ class DroneHoverEnv(BaseEnv):
         env_cfg = dict(kwargs["env_cfg"])
         if not self._config.camera_enabled:
             kwargs["env_cfg"] = env_cfg
-            return _GenesisDroneHoverCoreEnv(**kwargs)
+            return _GenesisDroneHoverCoreRobot(**kwargs)
 
         camera_holder: dict[str, Any] = {}
         env_cfg["_before_scene_build"] = lambda scene: self._add_body_camera(scene, camera_holder)
         kwargs["env_cfg"] = env_cfg
-        example_env = _GenesisDroneHoverCoreEnv(**kwargs)
+        example_env = _GenesisDroneHoverCoreRobot(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
 
@@ -353,7 +353,7 @@ def gs_rand_float(lower, upper, shape, device):
     return (upper - lower) * torch.rand(size=shape, device=device) + lower
 
 
-class _GenesisDroneHoverCoreEnv:
+class _GenesisDroneHoverCoreRobot:
     def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg):
         self.num_envs = num_envs
         self.rendered_env_num = min(10, self.num_envs)

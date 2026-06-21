@@ -1,4 +1,4 @@
-"""Base classes for Gymnasium-style environment control loops."""
+"""Base classes for robot control loops."""
 
 import logging
 import time
@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any, ClassVar, SupportsFloat
 
 try:
-    from gymnasium import Env
+    from gymnasium import Env as GymEnv
 except ImportError:  # pragma: no cover - fallback for minimal test environments
 
-    class Env:
+    class GymEnv:
         """Minimal fallback matching the Gymnasium Env reset hook."""
 
         def reset(self, options: dict[str, Any] | None = None):
@@ -24,8 +24,8 @@ from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, sav
 
 
 @dataclass
-class BaseEnvConfig:
-    """Configuration for constructing an environment."""
+class BaseRobotConfig:
+    """Configuration for constructing a robot controller."""
 
     seed: int | None = None
     reset_time: float = 5.0
@@ -33,19 +33,19 @@ class BaseEnvConfig:
     image_keys: list[str] = field(default_factory=list)
 
 
-class BaseEnv(RegisteredBase, Env):
-    """Abstract base class for low-level control environments."""
+class BaseRobot(RegisteredBase, GymEnv):
+    """Abstract base class for low-level robot controllers."""
 
-    _registry: ClassVar[dict[str, type["BaseEnv"]]] = {}
-    config_cls: ClassVar[type[BaseEnvConfig]] = BaseEnvConfig
-    registry_key_method: ClassVar[str] = "env_type"
+    _registry: ClassVar[dict[str, type["BaseRobot"]]] = {}
+    config_cls: ClassVar[type[BaseRobotConfig]] = BaseRobotConfig
+    registry_key_method: ClassVar[str] = "robot_type"
 
     @classmethod
-    def env_type(cls) -> str:
-        """Return the registry key for this environment."""
-        return "base_env"
+    def robot_type(cls) -> str:
+        """Return the registry key for this robot controller."""
+        return "base_robot"
 
-    def __init__(self, config: BaseEnvConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: BaseRobotConfig, logger: logging.Logger | None = None):
         self._logger = logger or logging.getLogger(__name__)
         self._seed = config.seed
         self._reset_time = config.reset_time
@@ -58,11 +58,11 @@ class BaseEnv(RegisteredBase, Env):
 
     @property
     def cap_scene(self) -> Any | None:
-        """Return the top-level CAP scene that owns this env."""
+        """Return the top-level CAP scene that owns this robot."""
         return self._scene
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
-        """Reset the environment and return the initial observation and info."""
+        """Reset the robot and return the initial observation and info."""
         reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
         if reset_level >= ResetLevel.AGENT:
             self._step_cnt = 0
@@ -74,11 +74,11 @@ class BaseEnv(RegisteredBase, Env):
 
     @abstractmethod
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
-        """Reset the environment and return the initial observation and info."""
+        """Reset the robot and return the initial observation and info."""
         raise NotImplementedError
 
     def step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        """Take one environment step.
+        """Take one robot control step.
 
         Returns:
             observation, reward, terminated, truncated, info.
@@ -108,7 +108,7 @@ class BaseEnv(RegisteredBase, Env):
     def record(
         self, folder: str | Path, start_frm: int = 0, end_frm: int | None = None
     ) -> dict[str, list[Path] | Path | None]:
-        """Record environment artifacts to ``folder`` and return saved paths."""
+        """Record robot artifacts to ``folder`` and return saved paths."""
         if not self._video_fmt or not self._video_frames:
             return {"videos": [], "main_video": None}
         record_path = Path(folder)
@@ -142,12 +142,12 @@ class BaseEnv(RegisteredBase, Env):
 
     @property
     def logger(self) -> logging.Logger:
-        """Shared logger for this environment."""
+        """Shared logger for this robot."""
         return self._logger
 
     @abstractmethod
     def _step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        """Take one environment step.
+        """Take one robot control step.
 
         Returns:
             observation, reward placeholder, terminated, truncated, info.

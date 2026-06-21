@@ -5,19 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from cap_general.core.agent import BaseAgent
-from cap_general.core.env import BaseEnv
+from cap_general.core.robot import BaseRobot
 from cap_general.core.scene import BaseScene
 
 
-@BaseEnv.register()
-class SceneDummyEnv(BaseEnv):
-    """Small env for scene routing tests."""
+@BaseRobot.register()
+class SceneDummyRobot(BaseRobot):
+    """Small robot for scene routing tests."""
 
-    name = "Scene Dummy Env"
+    name = "Scene Dummy Robot"
 
     @classmethod
-    def env_type(cls) -> str:
-        return "scene_dummy_env"
+    def robot_type(cls) -> str:
+        return "scene_dummy_robot"
 
     def _reset(self, options=None):
         return {"options": options or {}}, {}
@@ -57,7 +57,7 @@ def _scene_config(agent_name: str = "alpha") -> dict:
                 "alias": ["a"],
                 "config": {
                     "type": "scene_dummy_agent",
-                    "env": {"type": "scene_dummy_env", "reset_time": 0},
+                    "robot": {"type": "scene_dummy_robot", "reset_time": 0},
                     "policies": {},
                 },
             }
@@ -100,8 +100,8 @@ agents:
       - a
     config:
       type: scene_dummy_agent
-      env:
-        type: scene_dummy_env
+      robot:
+        type: scene_dummy_robot
         reset_time: 0
       policies: {}
 """,

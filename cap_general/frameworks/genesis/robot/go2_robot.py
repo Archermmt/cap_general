@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
 def _load_genesis_deps():
@@ -30,7 +30,7 @@ def _load_genesis_deps():
 
 
 @dataclass
-class Go2EnvConfig(BaseEnvConfig):
+class Go2RobotConfig(BaseRobotConfig):
     """Configuration for the Genesis GO2 locomotion example."""
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion"
@@ -48,14 +48,14 @@ class Go2EnvConfig(BaseEnvConfig):
     max_episode_steps: int | None = 1_000_000
 
 
-@BaseEnv.register()
-class Go2Env(BaseEnv):
+@BaseRobot.register()
+class Go2Robot(BaseRobot):
     """Genesis GO2 locomotion eval environment."""
 
-    name = "Genesis GO2 Env"
-    config_cls = Go2EnvConfig
+    name = "Genesis GO2 Robot"
+    config_cls = Go2RobotConfig
 
-    def __init__(self, config: Go2EnvConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: Go2RobotConfig, logger: logging.Logger | None = None):
         super().__init__(config=config, logger=logger)
         self._config = config
         self._example_env = None
@@ -67,12 +67,12 @@ class Go2Env(BaseEnv):
         self._body_camera_failed = False
 
     @classmethod
-    def env_type(cls) -> str:
-        return "genesis_go2"
+    def robot_type(cls) -> str:
+        return "genesis_go2_robot"
 
     @property
     def example_env(self) -> Any:
-        """Return the underlying genesis-world Go2Env."""
+        """Return the underlying genesis-world Go2Robot."""
         self._ensure_example_env()
         return self._example_env
 
@@ -257,12 +257,12 @@ class Go2Env(BaseEnv):
         env_cfg = dict(kwargs["env_cfg"])
         if not self._config.camera_enabled:
             kwargs["env_cfg"] = env_cfg
-            return _GenesisGo2CoreEnv(**kwargs)
+            return _GenesisGo2CoreRobot(**kwargs)
 
         camera_holder: dict[str, Any] = {}
         env_cfg["_before_scene_build"] = lambda scene: self._add_body_camera(scene, camera_holder)
         kwargs["env_cfg"] = env_cfg
-        example_env = _GenesisGo2CoreEnv(**kwargs)
+        example_env = _GenesisGo2CoreRobot(**kwargs)
         self._body_camera = camera_holder.get("camera")
         return example_env
 
@@ -377,7 +377,7 @@ def gs_rand(lower, upper, batch_shape):
     return (upper - lower) * torch.rand(size=(*batch_shape, *lower.shape), dtype=gs.tc_float, device=gs.device) + lower
 
 
-class _GenesisGo2CoreEnv:
+class _GenesisGo2CoreRobot:
     def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg):
         self.num_envs: int = num_envs
         self.num_actions = env_cfg["num_actions"]

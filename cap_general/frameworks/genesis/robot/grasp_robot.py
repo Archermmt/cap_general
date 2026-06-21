@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
 def _load_genesis_deps():
@@ -37,7 +37,7 @@ def _load_genesis_deps():
 
 
 @dataclass
-class GraspEnvConfig(BaseEnvConfig):
+class GraspRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis grasp manipulation example."""
 
     example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation"
@@ -57,14 +57,14 @@ class GraspEnvConfig(BaseEnvConfig):
     max_episode_steps: int | None = 1_000_000
 
 
-@BaseEnv.register()
-class GraspEnv(BaseEnv):
+@BaseRobot.register()
+class GraspRobot(BaseRobot):
     """Genesis grasp manipulation eval environment."""
 
-    name = "Genesis Grasp Env"
-    config_cls = GraspEnvConfig
+    name = "Genesis Grasp Robot"
+    config_cls = GraspRobotConfig
 
-    def __init__(self, config: GraspEnvConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: GraspRobotConfig, logger: logging.Logger | None = None):
         if config.visualize_camera and "hand_camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "hand_camera_image"]
         super().__init__(config=config, logger=logger)
@@ -78,12 +78,12 @@ class GraspEnv(BaseEnv):
         self._hand_camera_failed = False
 
     @classmethod
-    def env_type(cls) -> str:
-        return "genesis_grasp"
+    def robot_type(cls) -> str:
+        return "genesis_grasp_robot"
 
     @property
     def example_env(self) -> Any:
-        """Return the underlying genesis-world GraspEnv."""
+        """Return the underlying genesis-world GraspRobot."""
         self._ensure_example_env()
         return self._example_env
 
@@ -119,14 +119,14 @@ class GraspEnv(BaseEnv):
         return self._last_reward
 
     def get_stereo_rgb_images(self, normalize: bool = True) -> Any:
-        """Return stereo RGB images from the underlying GraspEnv."""
+        """Return stereo RGB images from the underlying GraspRobot."""
         self._ensure_example_env()
         if self._example_env is None:
             return None
         return self._example_env.get_stereo_rgb_images(normalize=normalize)
 
     def grasp_and_lift_demo(self) -> bool:
-        """Run the demo lift sequence from the underlying GraspEnv."""
+        """Run the demo lift sequence from the underlying GraspRobot."""
         self._ensure_example_env()
         if self._example_env is None:
             return False
@@ -177,12 +177,12 @@ class GraspEnv(BaseEnv):
         env_cfg = dict(kwargs["env_cfg"])
         if not self._config.visualize_camera:
             kwargs["env_cfg"] = env_cfg
-            return _GenesisGraspCoreEnv(**kwargs)
+            return _GenesisGraspCoreRobot(**kwargs)
 
         camera_holder: dict[str, Any] = {}
         env_cfg["_before_scene_build"] = lambda scene: self._add_hand_camera(scene, camera_holder)
         kwargs["env_cfg"] = env_cfg
-        example_env = _GenesisGraspCoreEnv(**kwargs)
+        example_env = _GenesisGraspCoreRobot(**kwargs)
         self._hand_camera = camera_holder.get("camera")
         return example_env
 
@@ -324,7 +324,7 @@ except ImportError:
     _ENABLE_MADRONA = False
 
 
-class _GenesisGraspCoreEnv:
+class _GenesisGraspCoreRobot:
     def __init__(
         self,
         env_cfg: dict,

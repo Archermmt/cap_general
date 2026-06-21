@@ -12,7 +12,7 @@ from cap_general.core.agent import BaseAgent, BaseAgentConfig
 class Go2AgentConfig(BaseAgentConfig):
     """Configuration for Go2Agent."""
 
-    env: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_go2"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_go2_robot"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     policy: str = "runner"
     horizon: int = 1000
@@ -36,7 +36,7 @@ class Go2Agent(BaseAgent):
 
     def _execute_rules(self) -> str:
         return (
-            "The Genesis GO2 agent evaluates locomotion policies in an env-controlled scene. "
+            "The Genesis GO2 agent evaluates locomotion policies in a robot-controlled scene. "
             "Use walk_forward(max_steps=..., turn_angle=0.0) to make GO2 walk forward "
             "and optionally turn by a yaw angle in radians. Use stand_still(time_s=...) "
             "to keep GO2 standing still for a duration in seconds. Do not create "
@@ -49,20 +49,20 @@ class Go2Agent(BaseAgent):
     def walk_forward(self, max_steps: int | None = None, turn_angle: float = 0.0) -> dict[str, Any]:
         """Make GO2 walk forward and smoothly turn by biasing policy actions."""
         steps = int(max_steps or self.horizon)
-        env = self._env.example_env
+        env = self._robot.example_env
         if env is None:
             return {
                 "steps": 0,
                 "turn_angle": float(turn_angle),
-                "obs": self._env.get_observation(self.step_dir),
+                "obs": self._robot.get_observation(self.step_dir),
                 "mock": True,
             }
 
-        self._env.set_walk_command(turn_angle=0.0, steps=steps)
+        self._robot.set_walk_command(turn_angle=0.0, steps=steps)
         self._run_policy_steps(
             env=env,
             steps=steps,
-            after_step=lambda: self._env.set_walk_command(turn_angle=0.0, steps=steps),
+            after_step=lambda: self._robot.set_walk_command(turn_angle=0.0, steps=steps),
             turn_angle=float(turn_angle),
         )
         return {"steps": steps, "turn_angle": float(turn_angle)}
@@ -70,18 +70,18 @@ class Go2Agent(BaseAgent):
     def stand_still(self, time_s: float) -> dict[str, Any]:
         """Keep GO2 standing still for time_s seconds."""
         duration = max(float(time_s), 0.0)
-        env = self._env.example_env
+        env = self._robot.example_env
         if env is None:
             return {
                 "duration": duration,
                 "steps": 0,
-                "obs": self._env.get_observation(self.step_dir),
+                "obs": self._robot.get_observation(self.step_dir),
                 "mock": True,
             }
 
-        steps = int(round(duration / max(float(self._env.dt), 1e-6)))
-        self._env.stop_command()
-        self._run_policy_steps(env=env, steps=steps, after_step=self._env.stop_command)
+        steps = int(round(duration / max(float(self._robot.dt), 1e-6)))
+        self._robot.stop_command()
+        self._run_policy_steps(env=env, steps=steps, after_step=self._robot.stop_command)
         return {"duration": duration}
 
     def _run_policy_steps(
@@ -92,13 +92,13 @@ class Go2Agent(BaseAgent):
         after_step: Callable[[], Any],
         turn_angle: float = 0.0,
     ) -> int:
-        obs = self._env.policy_obs
+        obs = self._robot.policy_obs
         for _ in range(max(int(steps), 0)):
             action = self._run_policy(self._policy_name, env=env, obs=obs)
-            action = self._env.apply_turn_to_action(action, turn_angle)
-            obs, _reward, terminated, truncated, _info = self._env.step(action)
+            action = self._robot.apply_turn_to_action(action, turn_angle)
+            obs, _reward, terminated, truncated, _info = self._robot.step(action)
             after_step()
             if terminated or truncated:
                 break
-            obs = self._env.policy_obs
+            obs = self._robot.policy_obs
         return None

@@ -8,14 +8,14 @@ from typing import Any, Callable
 import numpy as np
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
-from cap_general.frameworks.libero.env.libero_env import _binarize_gripper_open, build_example_from_obs
+from cap_general.frameworks.libero.robot.libero_robot import _binarize_gripper_open, build_example_from_obs
 
 
 @dataclass
 class LiberoAgentConfig(BaseAgentConfig):
     """Configuration for LiberoAgent."""
 
-    env: dict[str, Any] = field(default_factory=lambda: {"type": "libero"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "libero_robot"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -32,11 +32,11 @@ class LiberoAgent(BaseAgent):
 
     def _execute_rules(self) -> str:
         """Return valid rules for execute for the loaded LIBERO suite."""
-        task_suite = getattr(self._env, "_task_suite", None)
+        task_suite = getattr(self._robot, "_task_suite", None)
         if task_suite is None:
             return ""
 
-        suite_name = getattr(self._env, "_task_suite_name", "unknown")
+        suite_name = getattr(self._robot, "_task_suite_name", "unknown")
         tasks = [task_suite.get_task(i).language for i in range(task_suite.get_num_tasks())]
         task_list = "\n".join(f"  - {task}" for task in tasks)
         return (
@@ -66,14 +66,14 @@ class LiberoAgent(BaseAgent):
         Args:
             task: Task description string. It must match one task language in the
                 current LIBERO suite.
-            max_steps: Maximum number of environment steps.
+            max_steps: Maximum number of robot control steps.
             vla_policy: Name of the configured VLA policy to run.
 
         Returns:
             True when the LIBERO success predicate is reached.
         """
-        self._env.set_task_goal(task)
-        obs, done = self._env.last_obs, False
+        self._robot.set_task_goal(task)
+        obs, done = self._robot.last_obs, False
         for step_idx in range(max_steps):
             example = build_example_from_obs(obs, task)
             response = self._run_policy(policy_name, example=example, step=step_idx)
@@ -85,7 +85,7 @@ class LiberoAgent(BaseAgent):
                     _binarize_gripper_open(raw["open_gripper"]),
                 ]
             )
-            obs, _reward, terminated, truncated, _info = self._env.step(action.tolist())
+            obs, _reward, terminated, truncated, _info = self._robot.step(action.tolist())
             done = bool(terminated or truncated)
             if done:
                 break

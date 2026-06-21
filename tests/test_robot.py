@@ -1,19 +1,19 @@
-"""Tests for Gymnasium-style BaseEnv behavior."""
+"""Tests for BaseRobot behavior."""
 
 from typing import Any, SupportsFloat
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
-@BaseEnv.register()
-class DummyEnv(BaseEnv):
-    """Small concrete environment for base interface tests."""
+@BaseRobot.register()
+class DummyRobot(BaseRobot):
+    """Small concrete robot for base interface tests."""
 
-    name = "Dummy Env"
+    name = "Dummy Robot"
 
     @classmethod
-    def env_type(cls) -> str:
-        return "dummy_env"
+    def robot_type(cls) -> str:
+        return "dummy_robot"
 
     def _reset(
         self,
@@ -31,8 +31,8 @@ class DummyEnv(BaseEnv):
         return {"step": self.step_cnt}
 
 
-class RewardDummyEnv(DummyEnv):
-    """Dummy env whose step reward placeholder differs from computed reward."""
+class RewardDummyRobot(DummyRobot):
+    """Dummy robot whose step reward placeholder differs from computed reward."""
 
     def _step(
         self,
@@ -44,38 +44,38 @@ class RewardDummyEnv(DummyEnv):
         return 3.5
 
 
-def test_env_base_reset_returns_gymnasium_tuple():
-    env = DummyEnv(config=BaseEnvConfig(seed=123))
+def test_robot_base_reset_returns_gymnasium_tuple():
+    robot = DummyRobot(config=BaseRobotConfig(seed=123))
 
-    obs, info = env.reset(options={"difficulty": "easy"})
+    obs, info = robot.reset(options={"difficulty": "easy"})
 
     assert obs == {"step": 0}
     assert info == {"seed": 123, "options": {"difficulty": "easy"}}
 
 
-def test_env_base_step_returns_gymnasium_tuple_and_tracks_step_count():
-    env = DummyEnv(config=BaseEnvConfig())
-    env.reset()
+def test_robot_base_step_returns_gymnasium_tuple_and_tracks_step_count():
+    robot = DummyRobot(config=BaseRobotConfig())
+    robot.reset()
 
-    obs, reward, terminated, truncated, info = env.step({"move": 1})
+    obs, reward, terminated, truncated, info = robot.step({"move": 1})
 
     assert obs == {"step": 1}
     assert reward == 0.0
     assert terminated is False
     assert truncated is False
     assert info == {"action": {"move": 1}}
-    assert env.step_cnt == 1
+    assert robot.step_cnt == 1
 
 
-def test_env_base_step_uses_compute_reward():
-    env = RewardDummyEnv(config=BaseEnvConfig())
-    env.reset()
+def test_robot_base_step_uses_compute_reward():
+    robot = RewardDummyRobot(config=BaseRobotConfig())
+    robot.reset()
 
-    _, reward, _, _, _ = env.step({"move": 1})
+    _, reward, _, _, _ = robot.step({"move": 1})
 
     assert reward == 3.5
 
 
-def test_env_base_registry():
-    assert BaseEnv.env_type() == "base_env"
-    assert BaseEnv.get_registered_class("dummy_env") is DummyEnv
+def test_robot_base_registry():
+    assert BaseRobot.robot_type() == "base_robot"
+    assert BaseRobot.get_registered_class("dummy_robot") is DummyRobot

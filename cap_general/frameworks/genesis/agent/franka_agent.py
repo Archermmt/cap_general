@@ -12,14 +12,14 @@ from cap_general.core.agent import BaseAgent, BaseAgentConfig
 class FrankaAgentConfig(BaseAgentConfig):
     """Configuration for FrankaAgent."""
 
-    env: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka_robot"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     horizon: int = 100
 
 
 @BaseAgent.register()
 class FrankaAgent(BaseAgent):
-    """Agent that runs high-level Franka episodes through the Genesis env."""
+    """Agent that runs high-level Franka episodes through the Genesis robot controller."""
 
     name = "Genesis Franka Agent"
     config_cls = FrankaAgentConfig
@@ -33,13 +33,13 @@ class FrankaAgent(BaseAgent):
         return "franka_agent"
 
     def _execute_rules(self) -> str:
-        """Return valid rules for execute for the Genesis Franka env."""
+        """Return valid rules for execute for the Genesis Franka robot."""
         return (
-            "The Genesis Franka scene is controlled by env. It contains one Franka arm "
+            "The Genesis Franka scene is controlled by robot. It contains one Franka arm "
             "and configured objects such as boxes, spheres, or cylinders. Generated code should "
-            "use env methods such as env.step(...), env.get_observation(...), "
-            "env.set_joint_positions(...), env.move_to_pose(...), env.grasp(), "
-            "env.release(), and env.step_simulation(). Do not create scenes, robots, "
+            "use robot methods such as robot.step(...), robot.get_observation(...), "
+            "robot.set_joint_positions(...), robot.move_to_pose(...), robot.grasp(), "
+            "robot.release(), and robot.step_simulation(). Do not create scenes, robots, "
             "or objects in execute code."
         )
 
@@ -52,23 +52,23 @@ class FrankaAgent(BaseAgent):
         actions: list[dict[str, Any]] | None = None,
         max_steps: int | None = None,
     ) -> dict[str, Any]:
-        """Run a Franka episode using env-controlled scene logic.
+        """Run a Franka episode using robot-controlled scene logic.
 
         Args:
-            actions: Optional low-level env action dictionaries. When omitted,
+            actions: Optional low-level robot action dictionaries. When omitted,
                 the episode advances the simulator with empty actions.
-            max_steps: Maximum number of environment steps.
+            max_steps: Maximum number of robot control steps.
 
         Returns:
             Episode summary with step count and final observation.
         """
         steps = int(max_steps or self.horizon)
-        obs = self._env.last_obs
+        obs = self._robot.last_obs
         action_sequence = actions or []
 
         for step_idx in range(steps):
             action = action_sequence[step_idx] if step_idx < len(action_sequence) else {}
-            obs, _reward, _terminated, _truncated, _info = self._env.step(action)
+            obs, _reward, _terminated, _truncated, _info = self._robot.step(action)
 
         return {
             "steps": step_idx + 1 if steps > 0 else 0,

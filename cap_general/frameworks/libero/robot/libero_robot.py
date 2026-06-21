@@ -14,7 +14,7 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig, ResetLevel
+from cap_general.core.robot import BaseRobot, BaseRobotConfig, ResetLevel
 
 _DEFAULT_RESOLUTION = 256
 _DEFAULT_IMAGE_KEYS = ["agentview_image", "robot0_eye_in_hand_image"]
@@ -98,8 +98,8 @@ def _libero_init_state_torch_load_compat():
 
 
 @dataclass
-class LiberoEnvConfig(BaseEnvConfig):
-    """Configuration for LiberoEnv."""
+class LiberoRobotConfig(BaseRobotConfig):
+    """Configuration for LiberoRobot."""
 
     task_suite_name: str = "libero_goal"
     task_id: int = 0
@@ -110,17 +110,17 @@ class LiberoEnvConfig(BaseEnvConfig):
     reset_settle_steps: int = 10
 
 
-@BaseEnv.register()
-class LiberoEnv(BaseEnv):
+@BaseRobot.register()
+class LiberoRobot(BaseRobot):
     """Gymnasium-style wrapper around LIBERO OffScreenRenderEnv."""
 
-    name = "LIBERO Env"
-    config_cls = LiberoEnvConfig
+    name = "LIBERO Robot"
+    config_cls = LiberoRobotConfig
     dummy_action = _DUMMY_ACTION
 
     def __init__(
         self,
-        config: LiberoEnvConfig,
+        config: LiberoRobotConfig,
         logger: logging.Logger | None = None,
     ):
         super().__init__(config=config, logger=logger)
@@ -137,17 +137,17 @@ class LiberoEnv(BaseEnv):
         self._last_reward = 0.0
         self.task_description = ""
 
-        self._init_libero_env()
+        self._init_libero_robot()
 
     @classmethod
-    def env_type(cls) -> str:
-        return "libero"
+    def robot_type(cls) -> str:
+        return "libero_robot"
 
     @staticmethod
     def _resolve_libero_home(configured_home: str | None) -> str:
         return configured_home or os.environ.get("LIBERO_HOME")
 
-    def _init_libero_env(self) -> None:
+    def _init_libero_robot(self) -> None:
         if self._libero_home not in sys.path:
             sys.path.insert(0, self._libero_home)
         os.environ.setdefault("LIBERO_CONFIG_PATH", str(Path(self._libero_home) / "libero"))
@@ -170,7 +170,7 @@ class LiberoEnv(BaseEnv):
             missing_module = getattr(exc, "name", None)
             missing_hint = f" Missing module: {missing_module!r}." if missing_module else ""
             raise ImportError(
-                "LiberoEnv requires gymnasium and LIBERO to be importable. "
+                "LiberoRobot requires gymnasium and LIBERO to be importable. "
                 "Set libero_home or LIBERO_HOME to the LIBERO repository root."
                 f"{missing_hint}{robosuite_hint} Install the LIBERO extra with: "
                 'pip install -e ".[libero]".'

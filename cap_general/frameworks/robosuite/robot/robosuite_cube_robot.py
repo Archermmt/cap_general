@@ -8,39 +8,39 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv
-from cap_general.frameworks.robosuite.env.robosuite_base_env import RobosuiteBaseEnv, RobosuiteBaseEnvConfig
+from cap_general.core.robot import BaseRobot
+from cap_general.frameworks.robosuite.robot.robosuite_base_robot import RobosuiteBaseRobot, RobosuiteBaseRobotConfig
 
 
 @dataclass
-class RobosuiteCubeEnvConfig(RobosuiteBaseEnvConfig):
-    """Configuration for RobosuiteCubeEnv."""
+class RobosuiteCubeRobotConfig(RobosuiteBaseRobotConfig):
+    """Configuration for RobosuiteCubeRobot."""
 
 
-@BaseEnv.register()
-class RobosuiteCubeEnv(RobosuiteBaseEnv):
+@BaseRobot.register()
+class RobosuiteCubeRobot(RobosuiteBaseRobot):
     """Robosuite Franka Stack environment compatible with FrankaControlApi."""
 
     name = "Robosuite Cube Env"
-    config_cls = RobosuiteCubeEnvConfig
+    config_cls = RobosuiteCubeRobotConfig
     _SUBSAMPLE_RATE = 5
 
     @classmethod
-    def env_type(cls) -> str:
-        return "robosuite"
+    def robot_type(cls) -> str:
+        return "robosuite_robot"
 
     def __init__(
         self,
-        config: RobosuiteCubeEnvConfig | None = None,
+        config: RobosuiteCubeRobotConfig | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         if config is None:
-            config = RobosuiteCubeEnvConfig()
+            config = RobosuiteCubeRobotConfig()
         super().__init__(config=config, logger=logger)
         try:
             self._init_robosuite_stack()
         except Exception as exc:
-            raise RuntimeError(f"Failed to initialize RobosuiteCubeEnv: {exc}") from exc
+            raise RuntimeError(f"Failed to initialize RobosuiteCubeRobot: {exc}") from exc
 
     def _init_robosuite_stack(self) -> None:
         import robosuite as suite
@@ -52,7 +52,7 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         controller = load_composite_controller_config(controller=self.controller_cfg)
         if self.privileged and not self.enable_render:
             self.render_camera_names = []
-            self.robosuite_env = suite.environments.manipulation.stack.Stack(
+            self.robosuite_robot = suite.environments.manipulation.stack.Stack(
                 robots=["Panda"],
                 use_camera_obs=False,
                 has_renderer=False,
@@ -66,7 +66,7 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
                 horizon=self.max_steps,
             )
         else:
-            self.robosuite_env = suite.environments.manipulation.stack.Stack(
+            self.robosuite_robot = suite.environments.manipulation.stack.Stack(
                 robots=["Panda"],
                 has_renderer=not self.privileged,
                 has_offscreen_renderer=True,
@@ -80,8 +80,8 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
                 reward_shaping=True,
             )
 
-        cubes = [self.robosuite_env.cubeA, self.robosuite_env.cubeB]
-        self.robosuite_env.placement_initializer = UniformRandomSampler(
+        cubes = [self.robosuite_robot.cubeA, self.robosuite_robot.cubeB]
+        self.robosuite_robot.placement_initializer = UniformRandomSampler(
             name="ObjectSampler",
             mujoco_objects=cubes,
             x_range=[-0.18, 0.18],
@@ -89,9 +89,9 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
             rotation=None,
             ensure_object_boundary_in_range=False,
             ensure_valid_placement=True,
-            reference_pos=self.robosuite_env.table_offset,
+            reference_pos=self.robosuite_robot.table_offset,
             z_offset=0.01,
-            rng=self.robosuite_env.rng,
+            rng=self.robosuite_robot.rng,
         )
         self._init_robot_links()
         self._init_viser_debug(self.viser_debug)
@@ -102,21 +102,21 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
             self._seed = seed
-        return BaseEnv.reset(self, options=options)
+        return BaseRobot.reset(self, options=options)
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if self._seed is not None:
-            self.robosuite_env.rng = np.random.default_rng(self._seed)
-            self.robosuite_env.placement_initializer.rng = self.robosuite_env.rng
-        self.robosuite_env.reset()
-        self.robosuite_env.sim.data.qpos[6] -= np.pi
+            self.robosuite_robot.rng = np.random.default_rng(self._seed)
+            self.robosuite_robot.placement_initializer.rng = self.robosuite_robot.rng
+        self.robosuite_robot.reset()
+        self.robosuite_robot.sim.data.qpos[6] -= np.pi
         self._sim_step_count = 0
         for _ in range(50):
-            self.robosuite_env.sim.forward()
-            self.robosuite_env.sim.step()
+            self.robosuite_robot.sim.forward()
+            self.robosuite_robot.sim.step()
             self._set_gripper(1.0)
 
-        robosuite_obs = self.robosuite_env._get_observations()
+        robosuite_obs = self.robosuite_robot._get_observations()
         self._current_joints = np.asarray(robosuite_obs["robot0_joint_pos"], dtype=np.float64)
         self._current_joints[6] -= np.pi
         self._refresh_gripper_pose()
@@ -153,10 +153,10 @@ class RobosuiteCubeEnv(RobosuiteBaseEnv):
         return pose_dict
 
     def compute_reward(self) -> float:
-        return float(self.robosuite_env.reward(action=None))
+        return float(self.robosuite_robot.reward(action=None))
 
     def _get_robot_obs(self) -> dict[str, Any]:
-        robosuite_obs = self.robosuite_env._get_observations()
+        robosuite_obs = self.robosuite_robot._get_observations()
         pose_dict = self._cube_pose_dict(robosuite_obs)
         robosuite_obs["cube_poses"] = {key: np.asarray(value, dtype=np.float32) for key, value in pose_dict.items()}
         robosuite_obs["cube_extents"] = {

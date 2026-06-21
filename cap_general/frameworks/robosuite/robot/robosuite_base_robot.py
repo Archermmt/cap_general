@@ -13,14 +13,14 @@ import numpy as np
 os.environ.setdefault("MUJOCO_GL", "egl")
 
 from cap_general.core import utils as cap_utils
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 _DEFAULT_CONTROLLER_CFG = str(Path(__file__).resolve().parent / "controllers" / "panda_joint_ctrl.json")
 
 
 @dataclass
-class RobosuiteBaseEnvConfig(BaseEnvConfig):
-    """Configuration for RobosuiteBaseEnv."""
+class RobosuiteBaseRobotConfig(BaseRobotConfig):
+    """Configuration for RobosuiteBaseRobot."""
 
     controller_cfg: str = _DEFAULT_CONTROLLER_CFG
     max_steps: int = 1500
@@ -30,7 +30,7 @@ class RobosuiteBaseEnvConfig(BaseEnvConfig):
     reset_time: float = 0.0
 
 
-class RobosuiteBaseEnv(BaseEnv):
+class RobosuiteBaseRobot(BaseRobot):
     """Base class for single-arm Robosuite Franka low-level environments."""
 
     _SUBSAMPLE_RATE: int = 5
@@ -38,7 +38,7 @@ class RobosuiteBaseEnv(BaseEnv):
 
     def __init__(
         self,
-        config: RobosuiteBaseEnvConfig,
+        config: RobosuiteBaseRobotConfig,
         logger: logging.Logger | None = None,
     ) -> None:
         super().__init__(config=config, logger=logger)
@@ -82,18 +82,18 @@ class RobosuiteBaseEnv(BaseEnv):
 
     def _init_robot_links(self) -> None:
         self.gripper_metric_length = 0.04
-        self.base_link_idx = self.robosuite_env.sim.model.body_name2id("fixed_mount0_base")
-        self.gripper_link_idx = self.robosuite_env.sim.model.body_name2id("gripper0_right_eef")
+        self.base_link_idx = self.robosuite_robot.sim.model.body_name2id("fixed_mount0_base")
+        self.gripper_link_idx = self.robosuite_robot.sim.model.body_name2id("gripper0_right_eef")
         self.base_link_wxyz_xyz = np.concatenate(
             [
-                self.robosuite_env.sim.data.xquat[self.base_link_idx],
-                self.robosuite_env.sim.data.xpos[self.base_link_idx],
+                self.robosuite_robot.sim.data.xquat[self.base_link_idx],
+                self.robosuite_robot.sim.data.xpos[self.base_link_idx],
             ]
         )
         self.gripper_link_wxyz_xyz = np.concatenate(
             [
-                self.robosuite_env.sim.data.xquat[self.gripper_link_idx],
-                self.robosuite_env.sim.data.xpos[self.gripper_link_idx],
+                self.robosuite_robot.sim.data.xquat[self.gripper_link_idx],
+                self.robosuite_robot.sim.data.xpos[self.gripper_link_idx],
             ]
         )
 
@@ -130,9 +130,9 @@ class RobosuiteBaseEnv(BaseEnv):
             self, "viser_server"
         )
         if need_render:
-            self.robosuite_env.step(sliced)
+            self.robosuite_robot.step(sliced)
         else:
-            self.robosuite_env.step(sliced, skip_render_images=True)
+            self.robosuite_robot.step(sliced, skip_render_images=True)
 
     def _step_once(self) -> None:
         self._do_robosuite_step(self._build_action())
@@ -158,7 +158,7 @@ class RobosuiteBaseEnv(BaseEnv):
         target = np.asarray(joints, dtype=np.float64).reshape(7)
         self._current_joints = target
         for _ in range(max_steps):
-            robosuite_obs = self.robosuite_env._get_observations()
+            robosuite_obs = self.robosuite_robot._get_observations()
             current = np.asarray(robosuite_obs["robot0_joint_pos"], dtype=np.float64)
             if np.linalg.norm(current - target) < tolerance:
                 break
@@ -201,7 +201,7 @@ class RobosuiteBaseEnv(BaseEnv):
     def render(self, mode: str = "rgb_array") -> np.ndarray:
         if mode != "rgb_array":
             raise ValueError("Only rgb_array render mode is supported")
-        frame = self.robosuite_env.sim.render(
+        frame = self.robosuite_robot.sim.render(
             camera_name=self.save_camera_name,
             width=self._render_width,
             height=self._render_height,
@@ -210,7 +210,7 @@ class RobosuiteBaseEnv(BaseEnv):
         return frame[::-1]
 
     def render_wrist(self) -> np.ndarray:
-        frame = self.robosuite_env.sim.render(
+        frame = self.robosuite_robot.sim.render(
             camera_name=self._wrist_camera_name,
             width=self._render_width,
             height=self._render_height,
@@ -229,8 +229,8 @@ class RobosuiteBaseEnv(BaseEnv):
 
         for camera_name in self.render_camera_names:
             camera_entry = robosuite_obs.setdefault(camera_name, {})
-            cam_id = self.robosuite_env.sim.model.camera_name2id(camera_name)
-            fovy = self.robosuite_env.sim.model.cam_fovy[cam_id]
+            cam_id = self.robosuite_robot.sim.model.camera_name2id(camera_name)
+            fovy = self.robosuite_robot.sim.model.cam_fovy[cam_id]
             f = 0.5 * self._render_height / np.tan(fovy * np.pi / 360.0)
             camera_entry["intrinsics"] = np.array(
                 [[f, 0, 0.5 * self._render_width], [0, f, 0.5 * self._render_height], [0, 0, 1]]
@@ -238,8 +238,8 @@ class RobosuiteBaseEnv(BaseEnv):
             base_wxyz_xyz_local = base_wxyz_xyz if base_wxyz_xyz is not None else self.base_link_wxyz_xyz
             cam_world_wxyz_xyz = np.concatenate(
                 [
-                    vtf.SO3.from_matrix(self.robosuite_env.sim.data.get_camera_xmat(camera_name)).wxyz,
-                    self.robosuite_env.sim.data.get_camera_xpos(camera_name),
+                    vtf.SO3.from_matrix(self.robosuite_robot.sim.data.get_camera_xmat(camera_name)).wxyz,
+                    self.robosuite_robot.sim.data.get_camera_xpos(camera_name),
                 ]
             )
             cam_robot_tf = (
@@ -260,7 +260,7 @@ class RobosuiteBaseEnv(BaseEnv):
                 camera_entry["images"]["rgb"] = robosuite_obs[f"{camera_name}_image"][::-1]
             if f"{camera_name}_depth" in robosuite_obs:
                 camera_entry["images"]["depth"] = get_real_depth_map(
-                    self.robosuite_env.sim,
+                    self.robosuite_robot.sim,
                     robosuite_obs[f"{camera_name}_depth"][::-1],
                 )
 
@@ -290,8 +290,8 @@ class RobosuiteBaseEnv(BaseEnv):
         if hasattr(self, "gripper_link_idx"):
             self.gripper_link_wxyz_xyz = np.concatenate(
                 [
-                    self.robosuite_env.sim.data.xquat[self.gripper_link_idx],
-                    self.robosuite_env.sim.data.xpos[self.gripper_link_idx],
+                    self.robosuite_robot.sim.data.xquat[self.gripper_link_idx],
+                    self.robosuite_robot.sim.data.xpos[self.gripper_link_idx],
                 ]
             )
 

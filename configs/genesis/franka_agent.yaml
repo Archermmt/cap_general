@@ -33,8 +33,8 @@ agents:
     reset_mode: never
     record_execute: true
     horizon: 100
-    env:
-      type: genesis_franka
+    robot:
+      type: genesis_franka_robot
       seed: 7
       reset_time: 0
       video_fmt: mp4

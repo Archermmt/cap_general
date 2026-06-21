@@ -9,7 +9,7 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
-from cap_general.core.env import BaseEnv, BaseEnvConfig
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 _DEFAULT_COLORS = [
     (0.95, 0.12, 0.14, 1.0),
@@ -49,23 +49,23 @@ def _default_objects() -> list[ObjConfig]:
 
 
 @dataclass
-class FrankaEnvConfig(BaseEnvConfig):
-    """Configuration for FrankaEnv."""
+class FrankaRobotConfig(BaseRobotConfig):
+    """Configuration for FrankaRobot."""
 
     robot: Any | None = None
     objects: list[ObjConfig | dict[str, Any]] = field(default_factory=_default_objects)
 
 
-@BaseEnv.register()
-class FrankaEnv(BaseEnv):
+@BaseRobot.register()
+class FrankaRobot(BaseRobot):
     """Genesis scene with one Franka arm and configured objects."""
 
-    name = "Genesis Franka Env"
-    config_cls = FrankaEnvConfig
+    name = "Genesis Franka Robot"
+    config_cls = FrankaRobotConfig
 
     def __init__(
         self,
-        config: FrankaEnvConfig,
+        config: FrankaRobotConfig,
         logger: logging.Logger | None = None,
     ):
         super().__init__(config=config, logger=logger)
@@ -80,8 +80,8 @@ class FrankaEnv(BaseEnv):
         self._genesis_unavailable_logged = False
 
     @classmethod
-    def env_type(cls) -> str:
-        return "genesis_franka"
+    def robot_type(cls) -> str:
+        return "genesis_franka_robot"
 
     @property
     def robot(self) -> Any | None:
@@ -247,7 +247,7 @@ class FrankaEnv(BaseEnv):
             import genesis as gs
         except ImportError:
             if not self._genesis_unavailable_logged:
-                self.logger.warning("Genesis is not importable; FrankaEnv is running in mock mode")
+                self.logger.warning("Genesis is not importable; FrankaRobot is running in mock mode")
                 self._genesis_unavailable_logged = True
             return
 
@@ -255,7 +255,7 @@ class FrankaEnv(BaseEnv):
         self._scene = getattr(scene_resource, "scene", None)
         if self._scene is None:
             if not self._genesis_unavailable_logged:
-                self.logger.warning("Genesis scene resource is not enabled or failed; FrankaEnv is running in mock mode")
+                self.logger.warning("Genesis scene resource is not enabled or failed; FrankaRobot is running in mock mode")
                 self._genesis_unavailable_logged = True
             return
         self._scene.add_entity(gs.morphs.Plane())

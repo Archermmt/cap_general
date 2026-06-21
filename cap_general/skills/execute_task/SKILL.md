@@ -1,12 +1,13 @@
 ---
 name: {cap_id}_execute_task
-description: Decompose and execute a robot manipulation task through the {agent_name} CAP agent MCP tools, using agent_doc, execute, retry, get_obs, update_plan, and record.
+description: Decompose and execute a robot manipulation task through the {agent_name} CAP agent MCP tools, using agent_doc, execute, retry, get_obs, update_plan, and record. agent_name can be any one of {available_names}.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 
 # Execute Task Skill
 
 Execute a robot manipulation task by decomposing it into visually verifiable subtasks, running each subtask through the `{agent_name}` CAP agent, retrying failures, and producing a final run record.
+The placeholder `{agent_name}` can be replaced by any available agent name or alias from this scene: `{available_names}`.
 
 This skill uses the current CAP agent MCP interface:
 
@@ -20,6 +21,7 @@ This skill uses the current CAP agent MCP interface:
 
 Do not use older tool names such as `step`, `get_record`, or `update_report`.
 Every tool call in this workflow must include `agent="{agent_name}"` so the scene can route the call to the correct agent.
+The `agent` value must be one of `{available_names}`.
 
 ## CRITICAL: Use `message` For Mid-Task Notifications
 

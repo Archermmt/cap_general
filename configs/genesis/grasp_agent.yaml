@@ -44,8 +44,8 @@ agents:
     rl_policy: runner
     bc_policy: bc
     run_demo_after_episode: true
-    env:
-      type: genesis_grasp
+    robot:
+      type: genesis_grasp_robot
       video_fmt: mp4
       image_keys:
       - hand_camera_image

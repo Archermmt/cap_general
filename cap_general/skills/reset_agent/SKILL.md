@@ -1,12 +1,13 @@
 ---
 name: {cap_id}_reset_agent
-description: Reset the {agent_name} agent with its MCP-registered reset tool, then display the returned obs.main_image with the media image display tool.
+description: Reset the {agent_name} agent with its MCP-registered reset tool, then display the returned obs.main_image with the media image display tool. agent_name can be any one of {available_names}.
 metadata: {"nanobot":{"emoji":"🔄"}}
 ---
 
 # Reset Agent Skill
 
 Reset the current `{agent_name}` agent by calling `{cap_id}_reset` with `agent="{agent_name}"`, then use the returned `obs` object to display the primary image with the `media` tool.
+The placeholder `{agent_name}` can be replaced by any available agent name or alias from this scene: `{available_names}`.
 
 ## Features
 
@@ -21,7 +22,7 @@ The reset skill uses the `{cap_id}_reset` tool.
 
 ### Required Parameters
 
-- `agent` (string): The target agent name or alias. Use `{agent_name}`.
+- `agent` (string): The target agent name or alias. Use `{agent_name}`; it must be one of `{available_names}`.
 
 ### Optional Parameters
 
