@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from cap_general.core.agent import BaseAgent
@@ -78,10 +79,56 @@ def test_scene_routes_agent_methods_by_name_and_alias():
 def test_scene_execute_routes_to_selected_agent():
     scene = BaseScene.from_config(_scene_config())
 
-    result = scene.execute(agent="alpha", code='RESULT = {"value": echo("ok")}')
+    async def _run():
+        started = await scene.execute(agent="alpha", code='RESULT = {"value": echo("ok")}')
+        assert started["running"] is True
+        status = await scene.monitor(agent="alpha", wait_finish=True)
+        return status["result"]
+
+    result = asyncio.run(_run())
 
     assert result["ok"] is True
     assert result["result"] == {"value": "ok"}
+
+
+def test_scene_execute_reports_running_for_busy_agent():
+    scene = BaseScene.from_config(_scene_config())
+
+    async def _run():
+        first = await scene.execute(
+            agent="alpha",
+            code='import time\ntime.sleep(0.1)\nRESULT = {"value": "first"}',
+        )
+        second = await scene.execute(agent="alpha", code='RESULT = {"value": "second"}')
+        final = await scene.monitor(agent="alpha", wait_finish=True)
+        return first, second, final
+
+    first, second, final = asyncio.run(_run())
+
+    assert first["running"] is True
+    assert second["running"] is True
+    assert final["running"] is False
+    assert final["result"]["result"] == {"value": "first"}
+
+
+def test_scene_retry_reports_running_for_busy_agent():
+    scene = BaseScene.from_config(_scene_config())
+
+    async def _run():
+        await scene.execute(agent="alpha", code='RESULT = {"value": "first"}')
+        await scene.monitor(agent="alpha", wait_finish=True)
+        retry_started = await scene.retry(agent="alpha")
+        busy = await scene.retry(agent="alpha")
+        final = await scene.monitor(agent="alpha", wait_finish=True)
+        return retry_started, busy, final
+
+    retry_started, busy, final = asyncio.run(_run())
+
+    assert retry_started["running"] is True
+    assert busy["running"] is True
+    assert final["running"] is False
+    assert final["method"] == "retry"
+    assert final["result"]["result"] == {"value": "first"}
 
 
 def test_scene_from_yaml_loads_agents(tmp_path: Path):

@@ -28,6 +28,21 @@ _DEFAULT_AGENT = "go2"
 ROUND_NUM = 10
 
 
+def test_go2_config_initial_pose_matches_eval() -> None:
+    """Go2 should start where the genesis-world eval viewer is looking."""
+    import yaml
+
+    with Path(_DEFAULT_CONFIG).open() as file:
+        config = yaml.safe_load(file)
+    robot_cfg = config["agents"][0]["config"]["robot"]
+    assert robot_cfg["base_init_pos"] == [0.0, 0.0, 0.42]
+    assert robot_cfg["camera_pos"] == [2.0, 0.0, 2.5]
+    assert robot_cfg["camera_lookat"] == [0.0, 0.0, 0.5]
+    assert robot_cfg["camera_attach_to_base"] is False
+    assert config["viewer_options"]["camera_pos"] == [2.0, 0.0, 2.5]
+    assert config["viewer_options"]["camera_lookat"] == [0.0, 0.0, 0.5]
+
+
 def _random_turn_angles(task_num: int) -> list[float]:
     """Create turn angles that complete one circle every ROUND_NUM tasks."""
     if task_num <= 0:
@@ -58,7 +73,7 @@ def _make_local_scene(config: str):
     return BaseScene.from_yaml(config)
 
 
-def _run_local(config: str, max_steps: int, task_num: int) -> dict:
+async def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     """Run Go2Agent episodes in-process."""
     scene = _make_local_scene(config)
     scene.reset(agent=_DEFAULT_AGENT, options={})
@@ -66,7 +81,9 @@ def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     turn_angles = _random_turn_angles(task_num)
     for task_idx, turn_angle in enumerate(turn_angles):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
-        result = scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps, turn_angle=turn_angle))
+        await scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps, turn_angle=turn_angle))
+        status = await scene.monitor(agent=_DEFAULT_AGENT, wait_finish=True)
+        result = status["result"]
         test_utils.print_execution_summary("[test]", result)
     record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
     test_utils.print_record("[test]", record)
@@ -97,6 +114,8 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
                     "execute",
                     {"agent": _DEFAULT_AGENT, "code": _make_code(max_steps, turn_angle=turn_angle)},
                 )
+                result = await test_utils.call_tool(session, "monitor", {"agent": _DEFAULT_AGENT, "wait_finish": True})
+                result = result["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
@@ -114,7 +133,7 @@ def run_go2_test(
         if not config:
             raise ValueError("Remote Go2Agent test requires --config")
         return asyncio.run(_run_remote(config, max_steps, task_num))
-    return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
 
 
 def test_local_go2_agent() -> None:

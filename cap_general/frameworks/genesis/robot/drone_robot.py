@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.frameworks.genesis.utils import step_scene
 
 
 def _load_genesis_deps():
@@ -49,6 +50,7 @@ class DroneHoverRobotConfig(BaseRobotConfig):
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
     auto_reset: bool = False
+    base_init_pos: tuple[float, float, float] | None = None
 
 
 @BaseRobot.register()
@@ -217,6 +219,8 @@ class DroneHoverRobot(BaseRobot):
             env_cfg["auto_reset"] = bool(self._config.auto_reset)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
+            if self._config.base_init_pos is not None:
+                env_cfg["base_init_pos"] = list(self._config.base_init_pos)
             env_cfg["_scene"] = scene
             env_cfg["_scene_resource"] = scene_resource
             reward_cfg = dict(reward_cfg)
@@ -386,9 +390,6 @@ class _GenesisDroneHoverCoreRobot:
         # use scene owned by the top-level CAP scene resource
         self.scene = env_cfg["_scene"]
 
-        # add plane
-        self.scene.add_entity(gs.morphs.Plane())
-
         # add target
         if self.env_cfg["visualize_target"]:
             self.target = self.scene.add_entity(
@@ -462,6 +463,10 @@ class _GenesisDroneHoverCoreRobot:
 
         self.extras = dict()  # extra information for logging
 
+        self._being_stepped = False
+        self._hover_rpm = torch.ones(self.num_envs, 4, device=gs.device) * 14468.429183500699
+        self.scene.register_pre_step_callback(self._pre_step_maintain_hover)
+
         self.reset()
 
     def _resample_commands(self, envs_idx):
@@ -476,16 +481,27 @@ class _GenesisDroneHoverCoreRobot:
             .reshape((-1,))
         )
 
+    def _pre_step_maintain_hover(self):
+        if not self._being_stepped:
+            self.drone.set_propellers_rpm(self._hover_rpm)
+            if self.target is not None and hasattr(self, "commands"):
+                all_envs_idx = torch.arange(self.num_envs, device=self.device)
+                self.target.set_pos(self.commands.detach(), zero_velocity=True, envs_idx=all_envs_idx)
+        return False
+
     def step(self, actions):
-        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+        self._being_stepped = True
+        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]).detach()
         exec_actions = self.actions
 
         # 14468 is hover rpm
-        self.drone.set_propellers_rpm((1 + exec_actions * 0.8) * 14468.429183500699)
+        rpm = ((1 + exec_actions * 0.8) * 14468.429183500699).detach()
+        self.drone.set_propellers_rpm(rpm)
         # update target pos
         if self.target is not None:
-            self.target.set_pos(self.commands, zero_velocity=True)
-        self.scene.step()
+            all_envs_idx = torch.arange(self.num_envs, device=self.device)
+            self.target.set_pos(self.commands.detach(), zero_velocity=True, envs_idx=all_envs_idx)
+        step_scene(self.scene)
 
         # update buffers
         self.episode_length_buf += 1
@@ -536,6 +552,7 @@ class _GenesisDroneHoverCoreRobot:
 
         self.last_actions[:] = self.actions[:]
 
+        self._being_stepped = False
         return self.get_observations(), self.rew_buf, self.reset_buf, self.extras
 
     def _update_observation(self):

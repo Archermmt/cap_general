@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.frameworks.genesis.utils import step_scene
 
 
 def _load_genesis_deps():
@@ -39,13 +40,15 @@ class Go2RobotConfig(BaseRobotConfig):
     image_keys: list[str] = field(default_factory=lambda: ["body_camera_image"])
     camera_enabled: bool = True
     camera_res: tuple[int, int] = (320, 240)
-    camera_fov: float = 70.0
-    camera_pos: tuple[float, float, float] = (0.35, 0.0, 0.25)
-    camera_lookat: tuple[float, float, float] = (1.0, 0.0, 0.15)
+    camera_fov: float = 40.0
+    camera_pos: tuple[float, float, float] = (2.0, 0.0, 2.5)
+    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
+    camera_attach_to_base: bool = False
     camera_near: float = 0.05
     camera_far: float = 20.0
     turn_action_scale: float = 0.35
     max_episode_steps: int | None = 1_000_000
+    base_init_pos: tuple[float, float, float] | None = None
 
 
 @BaseRobot.register()
@@ -243,6 +246,8 @@ class Go2Robot(BaseRobot):
             env_cfg = dict(env_cfg)
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
+            if self._config.base_init_pos is not None:
+                env_cfg["base_init_pos"] = list(self._config.base_init_pos)
             env_cfg["_scene"] = scene
             env_cfg["_scene_resource"] = scene_resource
             reward_cfg = dict(reward_cfg)
@@ -277,8 +282,6 @@ class Go2Robot(BaseRobot):
         if camera_holder.get("camera") is not None:
             return
         try:
-            from genesis.utils import geom as gu
-
             robot = scene.entities[-1]
             camera = scene.add_camera(
                 res=tuple(self._config.camera_res),
@@ -291,13 +294,16 @@ class Go2Robot(BaseRobot):
                 GUI=False,
                 debug=True,
             )
-            base_link = getattr(robot, "base_link", None) or robot.links[0]
-            offset_T = gu.pos_lookat_up_to_T(
-                np.asarray(self._config.camera_pos, dtype=np.float32),
-                np.asarray(self._config.camera_lookat, dtype=np.float32),
-                np.asarray((0.0, 0.0, 1.0), dtype=np.float32),
-            )
-            camera.attach(base_link, offset_T)
+            if self._config.camera_attach_to_base:
+                from genesis.utils import geom as gu
+
+                base_link = getattr(robot, "base_link", None) or robot.links[0]
+                offset_T = gu.pos_lookat_up_to_T(
+                    np.asarray(self._config.camera_pos, dtype=np.float32),
+                    np.asarray(self._config.camera_lookat, dtype=np.float32),
+                    np.asarray((0.0, 0.0, 1.0), dtype=np.float32),
+                )
+                camera.attach(base_link, offset_T)
             camera_holder["camera"] = camera
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self.logger.warning("Failed to add GO2 body camera: %s", exc)
@@ -347,7 +353,8 @@ class Go2Robot(BaseRobot):
         if self._body_camera is None or self._body_camera_failed:
             return None
         try:
-            self._body_camera.move_to_attach()
+            if self._config.camera_attach_to_base:
+                self._body_camera.move_to_attach()
             rgb = self._body_camera.render(rgb=True, force_render=True)[0]
             if getattr(rgb, "ndim", 0) > 3:
                 rgb = rgb[0]
@@ -408,14 +415,6 @@ class _GenesisGo2CoreRobot:
         # use scene owned by the top-level CAP scene resource
         self.scene = env_cfg["_scene"]
 
-        # add plain
-        self.scene.add_entity(
-            gs.morphs.URDF(
-                file="urdf/plane/plane.urdf",
-                fixed=True,
-            )
-        )
-
         # add robot
         self.robot = self.scene.add_entity(
             gs.morphs.URDF(
@@ -440,8 +439,9 @@ class _GenesisGo2CoreRobot:
     def _post_build(self) -> None:
         self._deferred_build = False
         # names to indices
+        robot_dof_start = self.robot.dof_start
         self.motors_dof_idx = torch.tensor(
-            [self.robot.get_joint(name).dof_start for name in self.env_cfg["joint_names"]],
+            [self.robot.get_joint(name).dof_start - robot_dof_start for name in self.env_cfg["joint_names"]],
             dtype=gs.tc_int,
             device=gs.device,
         )
@@ -523,7 +523,7 @@ class _GenesisGo2CoreRobot:
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
-        self.scene.step()
+        step_scene(self.scene)
 
         # update buffers
         self.episode_length_buf += 1
@@ -573,8 +573,19 @@ class _GenesisGo2CoreRobot:
         return TensorDict({"policy": self.obs_buf}, batch_size=[self.num_envs])
 
     def _reset_idx(self, envs_idx=None):
+        # envs_idx may be a bool mask (from reset_buf) or None (reset all).
+        if envs_idx is not None and envs_idx.dtype == torch.bool:
+            envs_idx_bool = envs_idx
+            envs_idx_int = envs_idx.nonzero(as_tuple=False).reshape(-1)
+        else:
+            envs_idx_bool = None
+            envs_idx_int = envs_idx
+
+        if envs_idx_int is not None and len(envs_idx_int) == 0:
+            return
+
         # reset state
-        self.robot.set_qpos(self.init_qpos, envs_idx=envs_idx, zero_velocity=True, skip_forward=True)
+        self.robot.set_qpos(self.init_qpos, envs_idx=envs_idx_int, zero_velocity=True, skip_forward=True)
 
         # reset buffers
         if envs_idx is None:
@@ -591,37 +602,52 @@ class _GenesisGo2CoreRobot:
             self.episode_length_buf.zero_()
             self.reset_buf.fill_(True)
         else:
-            torch.where(envs_idx[:, None], self.init_base_pos, self.base_pos, out=self.base_pos)
-            torch.where(envs_idx[:, None], self.init_base_quat, self.base_quat, out=self.base_quat)
+            mask = envs_idx_bool
+            if mask is None:
+                mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.base_pos.device)
+                mask[envs_idx_int] = True
+            torch.where(mask[:, None], self.init_base_pos, self.base_pos, out=self.base_pos)
+            torch.where(mask[:, None], self.init_base_quat, self.base_quat, out=self.base_quat)
             torch.where(
-                envs_idx[:, None], self.init_projected_gravity, self.projected_gravity, out=self.projected_gravity
+                mask[:, None], self.init_projected_gravity, self.projected_gravity, out=self.projected_gravity
             )
-            torch.where(envs_idx[:, None], self.init_dof_pos, self.dof_pos, out=self.dof_pos)
-            self.base_lin_vel.masked_fill_(envs_idx[:, None], 0.0)
-            self.base_ang_vel.masked_fill_(envs_idx[:, None], 0.0)
-            self.dof_vel.masked_fill_(envs_idx[:, None], 0.0)
-            self.actions.masked_fill_(envs_idx[:, None], 0.0)
-            self.last_actions.masked_fill_(envs_idx[:, None], 0.0)
-            self.last_dof_vel.masked_fill_(envs_idx[:, None], 0.0)
-            self.episode_length_buf.masked_fill_(envs_idx, 0)
-            self.reset_buf.masked_fill_(envs_idx, True)
+            torch.where(mask[:, None], self.init_dof_pos, self.dof_pos, out=self.dof_pos)
+            self.base_lin_vel.masked_fill_(mask[:, None], 0.0)
+            self.base_ang_vel.masked_fill_(mask[:, None], 0.0)
+            self.dof_vel.masked_fill_(mask[:, None], 0.0)
+            self.actions.masked_fill_(mask[:, None], 0.0)
+            self.last_actions.masked_fill_(mask[:, None], 0.0)
+            self.last_dof_vel.masked_fill_(mask[:, None], 0.0)
+            self.episode_length_buf.masked_fill_(mask, 0)
+            self.reset_buf.masked_fill_(mask, True)
 
         # fill extras
-        n_envs = envs_idx.sum() if envs_idx is not None else self.num_envs
         self.extras["episode"] = {}
         for key, value in self.episode_sums.items():
             if envs_idx is None:
                 mean = value.mean()
+            elif envs_idx_bool is not None:
+                n_envs = envs_idx_bool.sum()
+                mean = value[envs_idx_bool].sum() / n_envs if n_envs > 0 else value.new_tensor(0.0)
             else:
-                mean = torch.where(n_envs > 0, value[envs_idx].sum() / n_envs, 0.0)
+                mean = value[envs_idx_int].mean() if len(envs_idx_int) > 0 else value.new_tensor(0.0)
             self.extras["episode"]["rew_" + key] = mean / self.env_cfg["episode_length_s"]
             if envs_idx is None:
                 value.zero_()
+            elif envs_idx_bool is not None:
+                value.masked_fill_(envs_idx_bool, 0.0)
             else:
-                value.masked_fill_(envs_idx, 0.0)
+                value[envs_idx_int] = 0.0
 
         # random sample command upon reset
-        self._resample_commands(envs_idx)
+        if envs_idx_bool is not None:
+            self._resample_commands(envs_idx_bool)
+        elif envs_idx_int is not None:
+            mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.base_pos.device)
+            mask[envs_idx_int] = True
+            self._resample_commands(mask)
+        else:
+            self._resample_commands(None)
 
     def _update_observation(self):
         self.obs_buf = torch.concatenate(

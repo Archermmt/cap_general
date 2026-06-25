@@ -63,6 +63,29 @@ def load_contact_graspnet_config(
     return config
 
 
+def _sample_random_camera_viewpoint(
+    target_point: np.ndarray, xy_extent_meters: float = 0.25
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample a random camera viewpoint looking at target_point. Returns (position, wxyz)."""
+    import viser.transforms as vtf
+
+    position = np.random.uniform(-xy_extent_meters, xy_extent_meters, 3)
+    z_c = target_point - position
+    z_c /= np.linalg.norm(z_c)
+    down_world = np.array([0.0, 1.0, 0.0])
+    y_c = down_world - np.dot(down_world, z_c) * z_c
+    y_c_norm = np.linalg.norm(y_c)
+    if y_c_norm < 1e-6:
+        y_c = np.array([1.0, 0.0, 0.0])
+        y_c = y_c - np.dot(y_c, z_c) * z_c
+        y_c /= np.linalg.norm(y_c)
+    else:
+        y_c /= y_c_norm
+    x_c = np.cross(y_c, z_c)
+    R_wc = np.column_stack([x_c, y_c, z_c])
+    return position, vtf.SO3.from_matrix(R_wc).wxyz
+
+
 @dataclass
 class GraspNetPolicyConfig(BasePolicyConfig):
     """Configuration for GraspNetPolicy."""
@@ -142,6 +165,7 @@ class GraspNetPolicy(BasePolicy):
             checkpoint_io.load(self._checkpoint_name)
         except FileExistsError:
             pass
+        self._estimator.model.float()
 
     def plan(
         self,
@@ -153,26 +177,77 @@ class GraspNetPolicy(BasePolicy):
         filter_grasps: bool = True,
         skip_border_objects: bool = False,
         z_range: list[float] | None = None,
-        forward_passes: int = 1,
+        forward_passes: int = 2,
+        max_retries: int = 10,
     ) -> GraspNetResult:
         """Plan grasps from depth, camera intrinsics, and segmentation map."""
+        import torch
+        import viser.transforms as vtf
+
         self.reset()
         z_range = [0.2, 2.0] if z_range is None else z_range
-        pc_full, pc_segments, _ = self._estimator.extract_point_clouds(
-            depth,
-            cam_k,
-            segmap=segmap,
-            segmap_id=segmap_id,
-            skip_border_objects=skip_border_objects,
-            z_range=z_range,
-        )
-        return self.plan_point_clouds(
-            pc_full=pc_full,
-            pc_segment=pc_segments.get(segmap_id, np.empty((0, 3))),
-            segmap_id=segmap_id,
-            local_regions=local_regions,
-            filter_grasps=filter_grasps,
-            forward_passes=forward_passes,
+
+        estimator_device = self._estimator.device
+        device_type = getattr(estimator_device, "type", str(estimator_device).split(":", 1)[0])
+        with torch.no_grad(), torch.autocast(device_type=device_type, enabled=False):
+            pc_full, pc_segments, _ = self._estimator.extract_point_clouds(
+                depth,
+                cam_k,
+                segmap=segmap,
+                segmap_id=segmap_id,
+                skip_border_objects=skip_border_objects,
+                z_range=z_range,
+            )
+
+            pred_grasps, scores, contact_pts, _ = self._estimator.predict_scene_grasps(
+                pc_full,
+                pc_segments=pc_segments,
+                local_regions=local_regions,
+                filter_grasps=filter_grasps,
+                forward_passes=forward_passes,
+            )
+
+            current_retries = 0
+            while len(pred_grasps.get(segmap_id, [])) == 0 and current_retries < max_retries:
+                if segmap_id in pc_segments and len(pc_segments[segmap_id]) > 0:
+                    target_centroid = np.mean(pc_segments[segmap_id], axis=0)
+                else:
+                    target_centroid = np.mean(pc_full, axis=0)
+
+                position, wxyz = _sample_random_camera_viewpoint(target_centroid, xy_extent_meters=0.25)
+                tf_wc = vtf.SE3(wxyz_xyz=np.concatenate([wxyz, position]))
+                tf_cw_matrix = tf_wc.inverse().as_matrix()
+
+                pc_full_h = np.hstack([pc_full, np.ones((pc_full.shape[0], 1))])
+                pc_full_cam = (tf_cw_matrix @ pc_full_h.T).T[:, :3]
+                pc_segments_cam = {}
+                for seg_id, pts in pc_segments.items():
+                    pts_h = np.hstack([pts, np.ones((pts.shape[0], 1))])
+                    pc_segments_cam[seg_id] = (tf_cw_matrix @ pts_h.T).T[:, :3]
+
+                pred_grasps_new, scores_new, contact_pts_new, _ = self._estimator.predict_scene_grasps(
+                    pc_full_cam,
+                    pc_segments=pc_segments_cam,
+                    local_regions=local_regions,
+                    filter_grasps=filter_grasps,
+                    forward_passes=forward_passes,
+                )
+
+                tf_wc_matrix = tf_wc.as_matrix()
+                if segmap_id in pred_grasps_new and len(pred_grasps_new[segmap_id]) > 0:
+                    grasps_cam = pred_grasps_new[segmap_id]
+                    pred_grasps[segmap_id] = np.matmul(tf_wc_matrix, grasps_cam)
+                    pts_cam = contact_pts_new[segmap_id]
+                    pts_h = np.hstack([pts_cam, np.ones((pts_cam.shape[0], 1))])
+                    contact_pts[segmap_id] = (tf_wc_matrix @ pts_h.T).T[:, :3]
+                    scores[segmap_id] = scores_new[segmap_id]
+
+                current_retries += 1
+
+        return GraspNetResult(
+            grasps=np.asarray(pred_grasps.get(segmap_id, [])),
+            scores=np.asarray(scores.get(segmap_id, [])),
+            contact_points=np.asarray(contact_pts.get(segmap_id, [])),
         )
 
     def plan_point_clouds(

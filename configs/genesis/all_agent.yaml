@@ -31,7 +31,7 @@ profiling_options:
   show_FPS: false
 record_dir: ./outputs/genesis/all
 agents:
-- name: grasp
+- name: grasp_0
   config:
     type: grasp_agent
     max_retry: 5
@@ -55,104 +55,114 @@ agents:
       num_envs: 1
       box_fixed: false
       visualize_camera: true
+      robot_pos:
+      - 0.0
+      - -1.2
+      - 0.0
+      object_pos_offset:
+      - 0.0
+      - -1.2
+      - 0.0
       max_episode_steps: 1000000
     policies:
       runner:
         type: rsl_rl
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
         train_cfg_index: 3
+        ckpt: 299
       bc:
         type: genesis_behavior_cloning
         example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
         bc_cfg_index: 4
-- name: go
+- name: grasp_1
   config:
-    type: go2_agent
+    type: grasp_agent
     max_retry: 5
     reset_mode: never
     record_execute: true
-    policy: runner
+    stage: rl
     horizon: 1000
+    rl_policy: runner
+    bc_policy: bc
+    run_demo_after_episode: true
     robot:
-      type: genesis_go2_robot
+      type: genesis_grasp_robot
       video_fmt: mp4
-      seed: 7
-      reset_time: 0
-      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
-      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-      num_envs: 1
       image_keys:
-      - body_camera_image
-      camera_enabled: true
-      camera_res:
-      - 320
-      - 240
-      camera_fov: 70.0
-      camera_pos:
-      - -0.35
+      - hand_camera_image
+      seed: 11
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+      stage: rl
+      num_envs: 1
+      box_fixed: false
+      visualize_camera: true
+      robot_pos:
       - 0.0
-      - 0.3
-      camera_lookat:
-      - 0.45
       - 0.0
-      - 0.16
-      camera_near: 0.05
-      camera_far: 20.0
-      turn_action_scale: 0.35
+      - 0.0
+      object_pos_offset:
+      - 0.0
+      - 0.0
+      - 0.0
       max_episode_steps: 1000000
     policies:
       runner:
         type: rsl_rl
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-        ckpt: 100
-        train_cfg_index: 4
-- name: drone
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+        train_cfg_index: 3
+        ckpt: 299
+      bc:
+        type: genesis_behavior_cloning
+        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
+        bc_cfg_index: 4
+- name: grasp_2
   config:
-    type: drone_agent
+    type: grasp_agent
     max_retry: 5
     reset_mode: never
     record_execute: true
-    policy: runner
+    stage: rl
     horizon: 1000
+    rl_policy: runner
+    bc_policy: bc
+    run_demo_after_episode: true
     robot:
-      type: genesis_drone_hover_robot
+      type: genesis_grasp_robot
       video_fmt: mp4
+      image_keys:
+      - hand_camera_image
       seed: 7
       reset_time: 0
-      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone
-      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+      stage: rl
       num_envs: 1
-      visualize_target: true
-      visualize_camera: false
-      camera_enabled: true
-      camera_res:
-      - 320
-      - 240
-      camera_fov: 90.0
-      camera_pos:
-      - 0.12
+      box_fixed: false
+      visualize_camera: true
+      robot_pos:
       - 0.0
-      - -0.03
-      camera_lookat:
-      - 1.0
+      - 1.2
       - 0.0
-      - -0.03
-      camera_up:
+      object_pos_offset:
       - 0.0
+      - 1.2
       - 0.0
-      - 1.0
-      camera_near: 0.02
-      camera_far: 20.0
-      max_visualize_fps: 60
-      max_episode_steps: null
-      auto_reset: false
+      max_episode_steps: 1000000
     policies:
       runner:
         type: rsl_rl
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
-        ckpt: 100
-        train_cfg_index: 4
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+        train_cfg_index: 3
+        ckpt: 299
+      bc:
+        type: genesis_behavior_cloning
+        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
+        bc_cfg_index: 4
 server:
   cap_id: cap
   host: 127.0.0.1

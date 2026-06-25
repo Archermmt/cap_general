@@ -1,17 +1,16 @@
-"""Test a Genesis scene with Grasp, Go2, and Drone agents.
+"""Test a Genesis scene with three Grasp agents.
 
 Local mode:
-    python tests/genesis/test_all.py
+    python tests/genesis/test_agents.py
 
 Remote mode:
     capcmd server --config configs/genesis/all_agent.yaml
-    python tests/genesis/test_all.py --remote --config configs/genesis/all_agent.yaml
+    python tests/genesis/test_agents.py --remote --config configs/genesis/all_agent.yaml
 """
 
 from __future__ import annotations
 
 import asyncio
-import math
 import sys
 from pathlib import Path
 
@@ -22,22 +21,9 @@ if str(_REPO_ROOT) not in sys.path:
 from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
-_DEFAULT_TASK_NUM = 6
+_DEFAULT_TASK_NUM = 9
 _DEFAULT_CONFIG = "configs/genesis/all_agent.yaml"
-_AGENTS = ("grasp", "go", "drone")
-_ROUND_NUM = 10
-
-
-def _target_positions(task_num: int) -> list[list[float]]:
-    """Create deterministic drone target positions."""
-    base_targets = [
-        [0.5, 0.0, 1.0],
-        [0.5, 0.3, 1.1],
-        [0.0, 0.3, 1.2],
-        [-0.4, 0.0, 1.1],
-        [0.0, -0.3, 1.0],
-    ]
-    return [base_targets[idx % len(base_targets)] for idx in range(task_num)]
+_AGENTS = ("grasp_0", "grasp_1", "grasp_2")
 
 
 def _make_grasp_code(max_steps: int) -> str:
@@ -52,44 +38,6 @@ RESULT = {{
 """
 
 
-def _make_go_code(max_steps: int, task_idx: int) -> str:
-    turn_angle = 2.0 * math.pi * (task_idx % _ROUND_NUM) / _ROUND_NUM
-    return f"""\
-walk_result = walk_forward(max_steps={max_steps}, turn_angle={turn_angle!r})
-stand_result = stand_still(time_s=3.0)
-RESULT = {{
-    "success": True,
-    "steps": walk_result.get("steps"),
-    "turn_angle": walk_result.get("turn_angle"),
-    "stand_duration": stand_result.get("duration"),
-    "stand_steps": stand_result.get("steps"),
-    "mock": walk_result.get("mock", False) or stand_result.get("mock", False),
-}}
-"""
-
-
-def _make_drone_code(max_steps: int, target_pos: list[float]) -> str:
-    return f"""\
-follow_result = follow_target(target_pos={target_pos!r}, max_steps={max_steps})
-hover_result = hover(time_s=3.0)
-RESULT = {{
-    "success": True,
-    "target_pos": follow_result.get("target_pos"),
-    "hover_duration": hover_result.get("duration"),
-}}
-"""
-
-
-def _task(agent: str, task_idx: int, max_steps: int, drone_targets: list[list[float]]) -> str:
-    if agent == "grasp":
-        return _make_grasp_code(max_steps)
-    if agent == "go":
-        return _make_go_code(max_steps, task_idx)
-    if agent == "drone":
-        return _make_drone_code(max_steps, drone_targets[task_idx])
-    raise ValueError(f"Unsupported agent: {agent}")
-
-
 def _make_local_scene(config: str):
     import cap_general.frameworks.genesis  # noqa: F401
     from cap_general.core.scene import BaseScene
@@ -97,19 +45,20 @@ def _make_local_scene(config: str):
     return BaseScene.from_yaml(config)
 
 
-def _run_local(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
-    """Run round-robin Genesis agent tasks in-process."""
+async def _run_local(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
+    """Run three Genesis GraspAgent tasks in-process."""
     scene = _make_local_scene(config)
     for agent in _AGENTS:
         scene.reset(agent=agent, options={})
         print(f"[test] {agent} agent_doc {scene.agent_doc(agent=agent)}")
 
     records: dict[str, dict] = {}
-    drone_targets = _target_positions(task_num)
     for task_idx in range(task_num):
         agent = _AGENTS[task_idx % len(_AGENTS)]
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: agent={agent} ---")
-        result = scene.execute(agent=agent, code=_task(agent, task_idx, max_steps, drone_targets))
+        await scene.execute(agent=agent, code=_make_grasp_code(max_steps))
+        status = await scene.monitor(agent=agent, wait_finish=True)
+        result = status["result"]
         test_utils.print_execution_summary("[test]", result)
 
     for agent in _AGENTS:
@@ -120,7 +69,7 @@ def _run_local(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
 
 
 async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
-    """Run round-robin Genesis agent tasks through MCP."""
+    """Run three Genesis GraspAgent tasks through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -137,15 +86,16 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, d
                 agent_doc = await test_utils.call_tool(session, "agent_doc", {"agent": agent})
                 print(f"[mcp_test] {agent} agent_doc {agent_doc}")
 
-            drone_targets = _target_positions(task_num)
             for task_idx in range(task_num):
                 agent = _AGENTS[task_idx % len(_AGENTS)]
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: agent={agent} ---")
                 result = await test_utils.call_tool(
                     session,
                     "execute",
-                    {"agent": agent, "code": _task(agent, task_idx, max_steps, drone_targets)},
+                    {"agent": agent, "code": _make_grasp_code(max_steps)},
                 )
+                result = await test_utils.call_tool(session, "monitor", {"agent": agent, "wait_finish": True})
+                result = result["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
 
             records: dict[str, dict] = {}
@@ -156,23 +106,23 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, d
             return records
 
 
-def run_all_agent_test(
+def run_agents_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
 ) -> dict[str, dict]:
-    """Run Grasp, Go2, and Drone agents in round-robin order."""
+    """Run three Grasp agents in round-robin order."""
     if remote:
         if not config:
-            raise ValueError("Remote all-agent test requires --config")
+            raise ValueError("Remote agents test requires --config")
         return asyncio.run(_run_remote(config, max_steps, task_num))
-    return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
 
 
-def test_local_all_agent_scene() -> None:
-    """Smoke test: run a multi-agent Genesis scene in-process."""
-    result = run_all_agent_test(config=_DEFAULT_CONFIG)
+def test_local_agents_scene() -> None:
+    """Smoke test: run three Grasp agents in one Genesis scene."""
+    result = run_agents_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
     assert set(result) == set(_AGENTS)
 
@@ -180,14 +130,14 @@ def test_local_all_agent_scene() -> None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Genesis multi-agent scene evaluation - local or MCP")
+    parser = argparse.ArgumentParser(description="Genesis three-Grasp-agent scene evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
 
-    run_all_agent_test(
+    run_agents_test(
         config=args.config,
         max_steps=args.max_steps,
         task_num=args.task_num,

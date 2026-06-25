@@ -58,14 +58,16 @@ def _make_local_scene(config: str):
     return BaseScene.from_yaml(config)
 
 
-def _run_local(config: str, max_steps: int, task_num: int) -> dict:
+async def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     """Run DroneAgent hover tasks in-process."""
     scene = _make_local_scene(config)
     scene.reset(agent=_DEFAULT_AGENT, options={})
     print(f"[test] agent_doc {scene.agent_doc(agent=_DEFAULT_AGENT)}")
     for task_idx, target_pos in enumerate(_target_positions(task_num)):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
-        result = scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps, target_pos))
+        await scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps, target_pos))
+        status = await scene.monitor(agent=_DEFAULT_AGENT, wait_finish=True)
+        result = status["result"]
         test_utils.print_execution_summary("[test]", result)
     record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
     test_utils.print_record("[test]", record)
@@ -95,6 +97,8 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
                     "execute",
                     {"agent": _DEFAULT_AGENT, "code": _make_code(max_steps, target_pos)},
                 )
+                result = await test_utils.call_tool(session, "monitor", {"agent": _DEFAULT_AGENT, "wait_finish": True})
+                result = result["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
@@ -112,7 +116,7 @@ def run_drone_test(
         if not config:
             raise ValueError("Remote DroneAgent test requires --config")
         return asyncio.run(_run_remote(config, max_steps, task_num))
-    return _run_local(config or _DEFAULT_CONFIG, max_steps, task_num)
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
 
 
 def test_local_drone_agent() -> None:

@@ -258,7 +258,6 @@ class FrankaRobot(BaseRobot):
                 self.logger.warning("Genesis scene resource is not enabled or failed; FrankaRobot is running in mock mode")
                 self._genesis_unavailable_logged = True
             return
-        self._scene.add_entity(gs.morphs.Plane())
         if self._robot is None:
             self._robot = self._scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
 

@@ -14,7 +14,7 @@ The placeholder `{agent_name}` can be replaced by any available agent name or al
 
 - `get_state`: Read the current state with `{cap_id}_get_obs`, then display the returned `main_image` with the `media` image display tool. Use this for status/observation queries such as "what is {agent_name} doing?", "show me {agent_name}", "let me see {agent_name}", "current state", "current view", or "what does {agent_name} see?"
 - `reset_agent`: Reset the agent with `{cap_id}_reset`, then fetch and display the post-reset `main_image`.
-- `execute_task`: Decompose a robot manipulation task, execute subtasks with `{cap_id}_execute`, retry with `{cap_id}_retry`, update the plan, and record the final run.
+- `execute_task`: Decompose a robot manipulation task, execute subtasks with `{cap_id}_execute`, wait with `{cap_id}_monitor`, retry with `{cap_id}_retry`, update the plan, and record the final run.
 
 ## Mandatory Rules
 
@@ -22,7 +22,7 @@ The placeholder `{agent_name}` can be replaced by any available agent name or al
 2. **Read the relevant skill before agent-bound calls.** For any operation involving `{agent_name}`, read the matching skill first and follow its workflow. Do not directly call `{agent_name}` tools without reading the skill.
 3. **Use the skill-specific tool sequence.** For example, use `get_state` before calling `{cap_id}_get_obs`, `reset_agent` before calling `{cap_id}_reset`, and `execute_task` before calling `{cap_id}_execute` or `{cap_id}_retry`.
 4. **Respect exact tool names.** Replace `{agent_name}` with the active agent name and call only the MCP-registered tool names documented by the relevant skill.
-5. **Always route by `agent`.** All `{cap_id}_reset`, `{cap_id}_agent_doc`, `{cap_id}_execute`, `{cap_id}_retry`, `{cap_id}_get_obs`, `{cap_id}_update_plan`, and `{cap_id}_record` calls must include `agent="{agent_name}"`.
+5. **Always route by `agent`.** All `{cap_id}_reset`, `{cap_id}_agent_doc`, `{cap_id}_execute`, `{cap_id}_monitor`, `{cap_id}_retry`, `{cap_id}_get_obs`, `{cap_id}_update_plan`, and `{cap_id}_record` calls must include `agent="{agent_name}"`.
 6. **Do not use long-goal/long_task mode by default for robot tasks.** Unless the user explicitly says the robot task should run in the background, continue asynchronously, or be tracked as a sustained background objective, do not call `long_task` and do not enter long-goal mode for `{agent_name}` robot operations. Use the normal skill workflow instead.
 
 ## Routing

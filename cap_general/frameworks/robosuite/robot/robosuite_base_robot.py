@@ -69,7 +69,15 @@ class RobosuiteBaseRobot(BaseRobot):
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         raise NotImplementedError("Subclasses must implement _reset")
 
-    def _step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+    def _step(self, action: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        sliced = action[: self._ACTION_SLICE] if self._ACTION_SLICE != 0 else action
+        need_render = self._image_keys or hasattr(self, "viser_server")
+        if need_render:
+            self.robosuite_robot.step(sliced)
+        else:
+            self.robosuite_robot.step(sliced, skip_render_images=True)
+        self._refresh_gripper_pose()
+        self._sim_step_count += 1
         obs = self._get_robot_obs()
         return obs, 0.0, False, self._step_cnt >= self.max_steps, {}
 
@@ -78,7 +86,7 @@ class RobosuiteBaseRobot(BaseRobot):
 
     @property
     def step_cnt(self) -> int:
-        return len(self._frame_buffer)
+        return self._step_cnt
 
     def _init_robot_links(self) -> None:
         self.gripper_metric_length = 0.04
@@ -124,29 +132,14 @@ class RobosuiteBaseRobot(BaseRobot):
         action[-2:] = 1.0 - action[-2:] * 2.0
         return action
 
-    def _do_robosuite_step(self, action: np.ndarray) -> None:
-        sliced = action[: self._ACTION_SLICE] if self._ACTION_SLICE != 0 else action
-        need_render = (self._record_frames and self._sim_step_count % self._subsample_rate == 0) or hasattr(
-            self, "viser_server"
-        )
-        if need_render:
-            self.robosuite_robot.step(sliced)
-        else:
-            self.robosuite_robot.step(sliced, skip_render_images=True)
-
     def _step_once(self) -> None:
-        self._do_robosuite_step(self._build_action())
-        self._refresh_gripper_pose()
-        self._record_frame_if_needed()
-        self._sim_step_count += 1
+        self.step(self._build_action())
 
     def move_to_joints_non_blocking(self, joints: np.ndarray) -> None:
         target = np.asarray(joints, dtype=np.float64).reshape(7)
         action = np.concatenate([target, [self._gripper_fraction, self._gripper_fraction]])
         action[-2:] = 1.0 - action[-2:] * 2.0
-        self._do_robosuite_step(action)
-        self._record_frame_if_needed()
-        self._sim_step_count += 1
+        self.step(action)
 
     def move_to_joints_blocking(
         self,
@@ -164,9 +157,7 @@ class RobosuiteBaseRobot(BaseRobot):
                 break
             action = np.concatenate([target, [self._gripper_fraction, self._gripper_fraction]])
             action[-2:] = 1.0 - action[-2:] * 2.0
-            self._do_robosuite_step(action)
-            self._record_frame_if_needed()
-            self._sim_step_count += 1
+            self.step(action)
 
     def enable_video_capture(self, enabled: bool = True, *, clear: bool = True, wrist_camera: bool = False) -> None:
         self._record_frames = enabled
@@ -174,20 +165,24 @@ class RobosuiteBaseRobot(BaseRobot):
         if clear:
             self._frame_buffer.clear()
             self._wrist_frame_buffer.clear()
-        if enabled:
-            self._record_frame()
 
     def get_video_frames(self, *, clear: bool = False) -> list[np.ndarray]:
-        frames = [frame.copy() for frame in self._frame_buffer]
+        source = self._video_frames.get(self._image_keys[0], []) if self._image_keys else self._frame_buffer
+        frames = [frame.copy() for frame in source]
         if clear:
             self._frame_buffer.clear()
+            if self._image_keys:
+                self._video_frames[self._image_keys[0]] = []
         return frames
 
     def get_video_frame_count(self) -> int:
+        if self._image_keys:
+            return len(self._video_frames.get(self._image_keys[0], []))
         return len(self._frame_buffer)
 
     def get_video_frames_range(self, start: int, end: int) -> list[np.ndarray]:
-        return [frame.copy() for frame in self._frame_buffer[start:end]]
+        source = self._video_frames.get(self._image_keys[0], []) if self._image_keys else self._frame_buffer
+        return [frame.copy() for frame in source[start:end]]
 
     def get_wrist_video_frames(self, *, clear: bool = False) -> list[np.ndarray]:
         frames = [frame.copy() for frame in self._wrist_frame_buffer]
@@ -257,7 +252,9 @@ class RobosuiteBaseRobot(BaseRobot):
             camera_entry["pose_mat"] = cam_robot_tf.as_matrix()
             camera_entry["images"] = {}
             if f"{camera_name}_image" in robosuite_obs:
-                camera_entry["images"]["rgb"] = robosuite_obs[f"{camera_name}_image"][::-1]
+                flipped = robosuite_obs[f"{camera_name}_image"][::-1]
+                camera_entry["images"]["rgb"] = flipped
+                robosuite_obs[f"{camera_name}_image"] = flipped
             if f"{camera_name}_depth" in robosuite_obs:
                 camera_entry["images"]["depth"] = get_real_depth_map(
                     self.robosuite_robot.sim,
@@ -273,18 +270,6 @@ class RobosuiteBaseRobot(BaseRobot):
         eef_pos = robosuite_obs.get("robot0_eef_pos", np.zeros(3))
         eef_quat = robosuite_obs.get("robot0_eef_quat", np.array([1.0, 0.0, 0.0, 0.0]))
         robosuite_obs["robot_cartesian_pos"] = np.concatenate([eef_pos, eef_quat, [gripper[0] / gripper_metric_length]])
-
-    def _record_frame_if_needed(self) -> None:
-        if self._record_frames and self._sim_step_count % self._subsample_rate == 0:
-            self._record_frame()
-
-    def _record_frame(self) -> None:
-        if not self._record_frames:
-            return
-        frame = self.render()
-        self._frame_buffer.append(frame)
-        if self._record_wrist_camera:
-            self._wrist_frame_buffer.append(self.render_wrist())
 
     def _refresh_gripper_pose(self) -> None:
         if hasattr(self, "gripper_link_idx"):

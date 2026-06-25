@@ -53,7 +53,7 @@ RESULT = {{"success": success, "task": {task!r}}}
 """
 
 
-def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
+async def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
     from cap_general.frameworks.libero.agent import LiberoAgent  # noqa: F401
     from cap_general.core.scene import BaseScene
 
@@ -66,9 +66,13 @@ def _run_local(config: str, max_steps: int, trial_num: int) -> dict:
         for trial_idx in range(trial_num):
             print(f"[test] --- Trial {trial_idx + 1}/{trial_num} ---")
             if trial_idx == 0:
-                result = scene.execute(agent=_DEFAULT_AGENT, code=_make_code(current_task, max_steps))
+                await scene.execute(agent=_DEFAULT_AGENT, code=_make_code(current_task, max_steps))
+                status = await scene.monitor(agent=_DEFAULT_AGENT, wait_finish=True)
+                result = status["result"]
             else:
-                result = scene.retry(agent=_DEFAULT_AGENT)
+                await scene.retry(agent=_DEFAULT_AGENT)
+                status = await scene.monitor(agent=_DEFAULT_AGENT, wait_finish=True)
+                result = status["result"]
             test_utils.print_execution_summary("[test]", result)
     record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
     test_utils.print_record("[test]", record)
@@ -100,8 +104,16 @@ async def _run_remote(config: str, max_steps: int, trial_num: int) -> dict:
                             "execute",
                             {"agent": _DEFAULT_AGENT, "code": _make_code(current_task, max_steps)},
                         )
+                        result = await test_utils.call_tool(
+                            session, "monitor", {"agent": _DEFAULT_AGENT, "wait_finish": True}
+                        )
+                        result = result["result"]
                     else:
-                        result = await test_utils.call_tool(session, "retry", {"agent": _DEFAULT_AGENT})
+                        await test_utils.call_tool(session, "retry", {"agent": _DEFAULT_AGENT})
+                        result = await test_utils.call_tool(
+                            session, "monitor", {"agent": _DEFAULT_AGENT, "wait_finish": True}
+                        )
+                        result = result["result"]
                     test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
             test_utils.print_record("[mcp_test]", record)
@@ -117,7 +129,7 @@ def run_libero_test(
     """Run LIBERO VLA episodes in-process or through MCP."""
     if remote:
         return asyncio.run(_run_remote(config, max_steps, trial_num))
-    return _run_local(config, max_steps, trial_num)
+    return asyncio.run(_run_local(config, max_steps, trial_num))
 
 
 def test_local_libero(config: str = _DEFAULT_CONFIG) -> None:

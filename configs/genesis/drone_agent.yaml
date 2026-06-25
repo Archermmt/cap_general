@@ -20,7 +20,7 @@ vis_options:
 rigid_options:
   dt: 0.01
   constraint_solver: Newton
-  enable_collision: true
+  enable_collision: false
   enable_joint_limit: true
 record_dir: ./outputs/genesis
 agents:
@@ -64,13 +64,17 @@ agents:
       camera_near: 0.02
       camera_far: 20.0
       max_visualize_fps: 60
+      base_init_pos:
+      - 0.0
+      - 0.0
+      - 2.0
       max_episode_steps: null
       auto_reset: false
     policies:
       runner:
         type: rsl_rl
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
-        ckpt: 100
+        ckpt: 300
         train_cfg_index: 4
 server:
   cap_id: cap

@@ -6,6 +6,7 @@ import functools
 import inspect
 import logging
 import shutil
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -65,6 +66,9 @@ class BaseScene(RegisteredBase):
         self._logger = logger or self._build_logger(self._record_dir)
         self._agents: dict[str, BaseAgent] = {}
         self._agent_aliases: dict[str, str] = {}
+        self._agent_execute_tasks: dict[str, Any] = {}
+        self._agent_execute_status: dict[str, dict[str, Any]] = {}
+        self._background_event_task: Any | None = None
         self._before_build_agents()
         set_current_scene(self)
         try:
@@ -149,13 +153,103 @@ class BaseScene(RegisteredBase):
         """Return one agent's documentation."""
         return self._get_agent(agent).agent_doc()
 
-    def execute(self, agent: str | None = None, code: str = ""):
-        """Execute code on one agent by name or alias."""
-        return self._get_agent(agent).execute(code)
+    async def execute(self, agent: str | None = None, code: str = ""):
+        """Start executing code on one agent by name or alias.
 
-    def retry(self, agent: str | None = None):
-        """Retry the latest execution on one agent."""
-        return self._get_agent(agent).retry()
+        If the selected agent already has an unfinished execution, this returns
+        its running status and does not start a second execution.
+        """
+        return await self._start_agent_task(agent, "execute", code)
+
+    async def retry(self, agent: str | None = None):
+        """Start retrying the latest execution on one agent.
+
+        If the selected agent already has an unfinished execution or retry,
+        this returns its running status and does not start another retry.
+        """
+        return await self._start_agent_task(agent, "retry")
+
+    async def _start_agent_task(self, agent: str | None, method_name: str, *args: Any) -> dict[str, Any]:
+        import asyncio
+
+        canonical = self._resolve_agent_name(agent)
+        task = self._agent_execute_tasks.get(canonical)
+        if task is not None and not task.done():
+            return await self.monitor(agent=canonical, wait_finish=False)
+
+        started_at = time.time()
+        self._agent_execute_status[canonical] = {
+            "agent": canonical,
+            "method": method_name,
+            "running": True,
+            "started_at": started_at,
+            "finished_at": None,
+            "duration": None,
+            "result": None,
+            "error": None,
+        }
+
+        task = asyncio.create_task(self._run_agent_task(canonical, method_name, started_at, *args))
+        self._agent_execute_tasks[canonical] = task
+        self._ensure_background_event_pump()
+        return await self.monitor(agent=canonical, wait_finish=False)
+
+    async def monitor(self, agent: str | None = None, wait_finish: bool = False):
+        """Return the selected agent's current execution status.
+
+        Args:
+            agent: Agent name or alias to inspect.
+            wait_finish: If true, wait for the current execution to finish and
+                return its final result. If false, return immediately.
+        """
+        canonical = self._resolve_agent_name(agent)
+        task = self._agent_execute_tasks.get(canonical)
+        status = self._agent_execute_status.get(
+            canonical,
+            {
+                "agent": canonical,
+                "method": None,
+                "running": False,
+                "started_at": None,
+                "finished_at": None,
+                "duration": None,
+                "result": None,
+                "error": None,
+            },
+        )
+        if task is None:
+            return cap_utils.to_json_safe(status)
+        if wait_finish and not task.done():
+            self._ensure_background_event_pump()
+            status = await task
+        elif task.done():
+            status = self._agent_execute_status.get(canonical, status)
+        self._process_background_events()
+        return cap_utils.to_json_safe(status)
+
+    def _process_background_events(self) -> bool:
+        """Process subclass-owned main-thread events while agent tasks run."""
+        return False
+
+    def _has_running_agent_tasks(self) -> bool:
+        return any(task is not None and not task.done() for task in self._agent_execute_tasks.values())
+
+    def _ensure_background_event_pump(self) -> None:
+        import asyncio
+
+        if self._background_event_task is None or self._background_event_task.done():
+            self._background_event_task = asyncio.create_task(self._background_event_pump())
+
+    async def _background_event_pump(self) -> None:
+        import asyncio
+
+        try:
+            while self._has_running_agent_tasks():
+                processed = self._process_background_events()
+                await asyncio.sleep(0 if processed else 0.001)
+            self._process_background_events()
+        finally:
+            self._background_event_task = None
 
     def record(self, agent: str | None = None, step_idx: int = -1):
         """Record artifacts for one agent."""
@@ -179,18 +273,32 @@ class BaseScene(RegisteredBase):
         s_config = self._server_config
         self._copy_skills_for_server(s_config)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
-        for method_name in ("reset", "agent_doc", "execute", "retry", "record", "update_plan", "get_obs"):
+        for method_name in ("reset", "agent_doc", "execute", "monitor", "retry", "record", "update_plan", "get_obs"):
             method = getattr(self, method_name)
 
-            @functools.wraps(method)  # pylint: disable=cell-var-from-loop
-            def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                self._logger.info(
-                    "MCP scene tool call: %s args=%s kwargs=%s",
-                    _name,
-                    cap_utils.summarize_value(args),
-                    cap_utils.summarize_value(kwargs),
-                )
-                return _method(*args, **kwargs)
+            if inspect.iscoroutinefunction(method):
+
+                @functools.wraps(method)  # pylint: disable=cell-var-from-loop
+                async def _wrapped(*args, _method=method, _name=method_name, **kwargs):
+                    self._logger.info(
+                        "MCP scene tool call: %s args=%s kwargs=%s",
+                        _name,
+                        cap_utils.summarize_value(args),
+                        cap_utils.summarize_value(kwargs),
+                    )
+                    return await _method(*args, **kwargs)
+
+            else:
+
+                @functools.wraps(method)  # pylint: disable=cell-var-from-loop
+                def _wrapped(*args, _method=method, _name=method_name, **kwargs):
+                    self._logger.info(
+                        "MCP scene tool call: %s args=%s kwargs=%s",
+                        _name,
+                        cap_utils.summarize_value(args),
+                        cap_utils.summarize_value(kwargs),
+                    )
+                    return _method(*args, **kwargs)
 
             _wrapped.__doc__ = self._mcp_tool_doc(method_name, method)
             _wrapped.__signature__ = inspect.signature(method)  # type: ignore[attr-defined]
@@ -201,16 +309,49 @@ class BaseScene(RegisteredBase):
         )
         server.run(transport=transport)
 
+    async def _run_agent_task(self, canonical: str, method_name: str, started_at: float, *args: Any) -> dict[str, Any]:
+        import asyncio
+
+        try:
+            method = getattr(self._agents[canonical], method_name)
+            result = await asyncio.to_thread(method, *args)
+            error = None
+        except BaseException as exc:  # pragma: no cover - defensive task wrapper
+            result = {
+                "ok": False,
+                "error": type(exc).__name__,
+                "stderr": str(exc),
+            }
+            error = {"type": type(exc).__name__, "message": str(exc)}
+
+        finished_at = time.time()
+        status = {
+            "agent": canonical,
+            "method": method_name,
+            "running": False,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration": f"{finished_at - started_at:.2f}s",
+            "result": cap_utils.to_json_safe(result),
+            "error": error,
+        }
+        self._agent_execute_status[canonical] = status
+        return status
+
     def _get_agent(self, agent: str | None = None) -> BaseAgent:
         """Return an agent by name or alias."""
+        return self._agents[self._resolve_agent_name(agent)]
+
+    def _resolve_agent_name(self, agent: str | None = None) -> str:
+        """Return the canonical agent name for a name or alias."""
         if agent is None:
             if len(self._agents) == 1:
-                return next(iter(self._agents.values()))
+                return next(iter(self._agents))
             raise ValueError("agent is required when a scene has multiple agents")
         canonical = self._agent_aliases.get(agent)
         if canonical is None:
             raise KeyError(f"Unknown agent: {agent}")
-        return self._agents[canonical]
+        return canonical
 
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
         """Render scene-bound skills under ``skill_folder/cap_id``."""

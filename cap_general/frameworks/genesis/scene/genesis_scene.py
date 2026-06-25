@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import queue
+import threading
+from concurrent.futures import Future
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,6 +109,8 @@ class GenesisScene(BaseScene):
         self._scene_built = False
         self._build_kwargs: dict[str, Any] | None = None
         self._post_build_callbacks: list[Callable[[], None]] = []
+        self._step_owner_thread = threading.current_thread()
+        self._step_requests: queue.Queue[Future[None]] = queue.Queue()
         super().__init__(config=config, logger=logger)
 
     @staticmethod
@@ -118,7 +123,53 @@ class GenesisScene(BaseScene):
 
     def _before_build_agents(self) -> None:
         self._scene = self._create_scene()
+        self._step_owner_thread = threading.current_thread()
+        self._attach_thread_stepper()
+        self._add_default_ground_plane()
         self._defer_scene_build = True
+
+    def _attach_thread_stepper(self) -> None:
+        if self._scene is not None:
+            setattr(self._scene, "_cap_step_scene", self.step_scene)
+
+    def step_scene(self) -> None:
+        """Step Genesis on the scene owner thread, even when requested by a worker."""
+        if self._scene is None:
+            return
+        if threading.current_thread() is self._step_owner_thread:
+            self._scene.step()
+            return
+        future: Future[None] = Future()
+        self._step_requests.put(future)
+        future.result()
+
+    def _process_background_events(self) -> bool:
+        processed = False
+        while True:
+            try:
+                future = self._step_requests.get_nowait()
+            except queue.Empty:
+                break
+            if future.cancelled():
+                processed = True
+                continue
+            try:
+                if self._scene is not None:
+                    self._scene.step()
+                future.set_result(None)
+            except BaseException as exc:
+                future.set_exception(exc)
+            processed = True
+        return processed
+
+    def _add_default_ground_plane(self) -> None:
+        if self._scene is None:
+            return
+        try:
+            import genesis as gs
+        except ImportError:
+            return
+        self._scene.add_entity(gs.morphs.Plane())
 
     def _after_build_agents(self) -> None:
         self._defer_scene_build = False

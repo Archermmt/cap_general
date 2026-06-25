@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_execute_task
-description: Decompose and execute a robot manipulation task through the {agent_name} CAP agent MCP tools, using agent_doc, execute, retry, get_obs, update_plan, and record. agent_name can be any one of {available_names}.
+description: Decompose and execute a robot manipulation task through the {agent_name} CAP agent MCP tools, using agent_doc, execute, monitor, retry, get_obs, update_plan, and record. agent_name can be any one of {available_names}.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 
@@ -14,6 +14,7 @@ This skill uses the current CAP agent MCP interface:
 - `{cap_id}_reset`
 - `{cap_id}_agent_doc`
 - `{cap_id}_execute`
+- `{cap_id}_monitor`
 - `{cap_id}_retry`
 - `{cap_id}_get_obs`
 - `{cap_id}_update_plan`
@@ -141,7 +142,7 @@ Use `result["success"]` when available, and use visual inspection of `obs.main_i
 
 ### 5. Verify And Retry
 
-After each `execute` or `retry`, inspect `response["obs"]["main_image"]` if present.
+After each `execute` or `retry`, call `monitor(agent="{agent_name}", wait_finish=true)` and inspect the returned `response["result"]["obs"]["main_image"]` if present.
 
 If the subtask failed, call `retry`:
 
@@ -149,7 +150,7 @@ If the subtask failed, call `retry`:
 {"name": "{cap_id}_retry", "arguments": {"agent": "{agent_name}"}}
 ```
 
-Retry at most `max_retry` times after the first `execute` attempt. If `retry` returns `ok: false` with `error: "max_retry_exceeded"`, stop retrying that subtask.
+Retry at most `max_retry` times after the first `execute` attempt. After `retry`, call `monitor(wait_finish=true)`; if the monitored result returns `ok: false` with `error: "max_retry_exceeded"`, stop retrying that subtask.
 
 Display the returned `obs.main_image` so the user can see the verification frame:
 
@@ -255,7 +256,9 @@ message(content=f"Task: {user_task}\n\nSubtasks:\n{subtask_list}")
 
 for subtask in subtasks:
     code = make_code_from_function_doc(subtask, function_doc)
-    response = execute(agent="{agent_name}", code=code)
+    execute(agent="{agent_name}", code=code)
+    status = monitor(agent="{agent_name}", wait_finish=True)
+    response = status["result"]
 
     attempts = 0
     while True:
@@ -281,7 +284,9 @@ for subtask in subtasks:
         if attempts >= max_retry:
             break
         attempts += 1
-        response = retry(agent="{agent_name}")
+        retry(agent="{agent_name}")
+        status = monitor(agent="{agent_name}", wait_finish=True)
+        response = status["result"]
         if not response.get("ok", False):
             break
 
@@ -299,7 +304,7 @@ if record_result.get("main_video"):
 ## Important Rules
 
 1. Always call `{cap_id}_agent_doc` before writing `execute` code.
-2. Use `execute`, not `step`.
+2. Use `execute`, then `monitor(wait_finish=true)` to retrieve the execution result. Do not use `step`.
 3. Use `record(agent="{agent_name}", step_idx=-1)`, not `get_record(record_all=true)`.
 4. Use `update_plan(plan=...)`, not `update_report(info=...)`.
 5. After storing the plan with `update_plan`, call `message` immediately to send the main task and numbered subtask plan to the user.

@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.frameworks.genesis.utils import step_scene
 
 
 def _load_genesis_deps():
@@ -55,6 +56,8 @@ class GraspRobotConfig(BaseRobotConfig):
     camera_far: float = 5.0
     record_video: dict[str, str] | None = None
     max_episode_steps: int | None = 1_000_000
+    robot_pos: tuple[float, float, float] | None = None
+    object_pos_offset: tuple[float, float, float] | None = None
 
 
 @BaseRobot.register()
@@ -167,6 +170,10 @@ class GraspRobot(BaseRobot):
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * float(env_cfg["ctrl_dt"])
             if self._config.record_video:
                 env_cfg["record_video"] = self._config.record_video
+            if self._config.robot_pos is not None:
+                env_cfg["robot_pos"] = list(self._config.robot_pos)
+            if self._config.object_pos_offset is not None:
+                env_cfg["object_pos_offset"] = list(self._config.object_pos_offset)
             env_cfg["_scene"] = scene
             env_cfg["_scene_resource"] = scene_resource
             self._example_env = self._build_example_env_with_camera(
@@ -352,6 +359,11 @@ class _GenesisGraspCoreRobot:
         self.env_cfg = env_cfg
         self.reward_scales = reward_cfg
         self.action_scales = torch.tensor(env_cfg["action_scales"], device=self.device)
+        self.scene_offset = torch.tensor(
+            env_cfg.get("object_pos_offset", env_cfg.get("robot_pos", (0.0, 0.0, 0.0))),
+            device=self.device,
+            dtype=gs.tc_float,
+        )
         self._deferred_build = False
 
         # camera config
@@ -362,17 +374,14 @@ class _GenesisGraspCoreRobot:
         # == setup scene ==
         self.scene = env_cfg["_scene"]
 
-        # == add ground ==
-        self.scene.add_entity(
-            gs.morphs.Plane(),
-            # gs.morphs.URDF(file="urdf/plane/plane.urdf", fixed=True),
-        )
-
         # == add robot ==
+        robot_cfg_with_pos = dict(robot_cfg)
+        if "robot_pos" in env_cfg:
+            robot_cfg_with_pos["robot_pos"] = env_cfg["robot_pos"]
         self.robot = Manipulator(
             num_envs=self.num_envs,
             scene=self.scene,
-            args=robot_cfg,
+            args=robot_cfg_with_pos,
             device=gs.device,
         )
 
@@ -511,6 +520,7 @@ class _GenesisGraspCoreRobot:
         random_y = (torch.rand(self.num_envs, device=self.device) - 0.5) * 0.5
         random_z = torch.full((self.num_envs,), 0.025, device=self.device)
         random_pos = torch.stack([random_x, random_y, random_z], dim=-1)
+        random_pos = random_pos + self.scene_offset.reshape(1, 3)
 
         q_downward = torch.tensor([0.0, 1.0, 0.0, 0.0], device=self.device).expand(self.num_envs, -1)
         random_yaw = (torch.rand(self.num_envs, device=self.device) * 2 * math.pi - math.pi) * 0.25
@@ -566,7 +576,7 @@ class _GenesisGraspCoreRobot:
         # apply action
         actions = self.rescale_action(actions)
         self.robot.apply_action(actions, open_gripper=True)
-        self.scene.step()
+        step_scene(self.scene)
 
         # update time
         self.episode_length_buf += 1
@@ -684,11 +694,12 @@ class _GenesisGraspCoreRobot:
         lift_pose[:, 2] += lift_height
         # final pose (above the table)
         final_pose = goal_pose.clone()
-        final_pose[:, 0] = 0.3
-        final_pose[:, 1] = 0.0
+        final_pose[:, 0] = 0.3 + self.scene_offset[0]
+        final_pose[:, 1] = self.scene_offset[1]
         final_pose[:, 2] = 0.4
         # reset pose (home pose)
         reset_pose = torch.tensor([0.2, 0.0, 0.4, 0.0, 1.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
+        reset_pose[:, :3] += self.scene_offset.reshape(1, 3)
         for i in range(total_steps):
             if i < total_steps / 4:  # grasping
                 self.robot.go_to_goal(goal_pose, open_gripper=False)
@@ -698,7 +709,7 @@ class _GenesisGraspCoreRobot:
                 self.robot.go_to_goal(final_pose, open_gripper=False)
             else:  # reset
                 self.robot.go_to_goal(reset_pose, open_gripper=True)
-            self.scene.step()
+            step_scene(self.scene)
 
 
 ## ------------ robot ----------------
@@ -712,9 +723,10 @@ class Manipulator:
 
         # == Genesis configurations ==
         material: gs.materials.Rigid = gs.materials.Rigid()
+        robot_pos = tuple(args.get("robot_pos", (0.0, 0.0, 0.0))) if args.get("robot_pos") else (0.0, 0.0, 0.0)
         morph: gs.morphs.MJCF = gs.morphs.MJCF(
             file="xml/franka_emika_panda/panda.xml",
-            pos=(0.0, 0.0, 0.0),
+            pos=robot_pos,
             quat=(1.0, 0.0, 0.0, 0.0),
         )
         self._robot_entity: gs.Entity = scene.add_entity(material=material, morph=morph)

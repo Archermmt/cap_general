@@ -156,7 +156,7 @@ class RobosuiteAgent(BaseAgent):
             self._save_sam3_results(rgb, object_name, results, function_name="sample_grasp_pose")
         scores = [result.score for result in results]
         best_idx = int(np.argmax(scores))
-        segmentation = np.asarray(results[best_idx].mask, dtype=np.int32)
+        segmentation = results[best_idx].mask
         queried_instance_idx = 1
 
         grasps = self._run_policy(
