@@ -36,6 +36,7 @@ class GenesisSceneConfig(BaseSceneConfig):
     camera_fov: float = 45.0
     camera_near: float = 0.02
     camera_far: float = 20.0
+    lock_viewer_rotation: bool = True
 
 
 _SCENE: Any | None = None
@@ -145,11 +146,21 @@ class GenesisScene(BaseScene):
             veto_step = bool(callback()) or veto_step
         return veto_step
 
+    def _lock_viewer_rotation(self) -> None:
+        if not self._config.lock_viewer_rotation:
+            return
+        viewer = getattr(getattr(self._scene, "_visualizer", None), "_viewer", None)
+        pyrender_viewer = getattr(viewer, "_pyrender_viewer", None)
+        viewer_flags = getattr(pyrender_viewer, "viewer_flags", None)
+        if isinstance(viewer_flags, dict):
+            viewer_flags["rotate"] = False
+
     def step_scene(self) -> None:
         """Step Genesis on the scene owner thread, even when requested by a worker."""
         if self._scene is None:
             return
         if threading.current_thread() is self._step_owner_thread:
+            self._lock_viewer_rotation()
             if not self._run_pre_step_callbacks():
                 self._scene.step()
             return
@@ -169,6 +180,7 @@ class GenesisScene(BaseScene):
                 continue
             try:
                 if self._scene is not None and not self._run_pre_step_callbacks():
+                    self._lock_viewer_rotation()
                     self._scene.step()
                 future.set_result(None)
             except BaseException as exc:
@@ -194,6 +206,7 @@ class GenesisScene(BaseScene):
         self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
         self._scene.build(**self._build_kwargs)
         self._scene_built = True
+        self._lock_viewer_rotation()
         callbacks = list(self._post_build_callbacks)
         self._post_build_callbacks.clear()
         for callback in callbacks:

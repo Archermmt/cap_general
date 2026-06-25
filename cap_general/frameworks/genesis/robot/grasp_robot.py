@@ -787,6 +787,13 @@ class Manipulator:
             zero_velocity=True,
             skip_forward=skip_forward,
         )
+        # In a shared scene, inactive manipulators are still advanced by
+        # other agents' scene steps. Keep their PD target at the reset pose so
+        # they do not collapse while waiting for their turn.
+        try:
+            self._robot_entity.control_dofs_position(position=self._init_qpos, envs_idx=envs_idx)
+        except TypeError:
+            self._robot_entity.control_dofs_position(position=self._init_qpos)
 
     def apply_action(self, action: torch.Tensor, open_gripper: bool) -> None:
         """Apply the action to the robot."""

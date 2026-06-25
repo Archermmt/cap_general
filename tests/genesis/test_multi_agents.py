@@ -1,11 +1,11 @@
 """Test a Genesis scene with three Grasp agents.
 
 Local mode:
-    python tests/genesis/test_agents.py
+    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py
 
 Remote mode:
-    capcmd server --config configs/genesis/all_agent.yaml
-    python tests/genesis/test_agents.py --remote --config configs/genesis/all_agent.yaml
+    capcmd server --config configs/genesis/multi_agents.yaml
+    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --remote --config configs/genesis/multi_agents.yaml
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
 _DEFAULT_TASK_NUM = 9
-_DEFAULT_CONFIG = "configs/genesis/all_agent.yaml"
+_DEFAULT_CONFIG = "configs/genesis/multi_agents.yaml"
 _AGENTS = ("grasp_0", "grasp_1", "grasp_2")
 
 
@@ -106,7 +106,7 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, d
             return records
 
 
-def run_agents_test(
+def run_multi_agents_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
@@ -120,9 +120,9 @@ def run_agents_test(
     return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
 
 
-def test_local_agents_scene() -> None:
+def test_local_multi_agents_scene() -> None:
     """Smoke test: run three Grasp agents in one Genesis scene."""
-    result = run_agents_test(config=_DEFAULT_CONFIG)
+    result = run_multi_agents_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
     assert set(result) == set(_AGENTS)
 
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument("--remote", action="store_true", default=False)
     args = parser.parse_args()
 
-    run_agents_test(
+    run_multi_agents_test(
         config=args.config,
         max_steps=args.max_steps,
         task_num=args.task_num,
