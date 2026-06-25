@@ -109,6 +109,7 @@ class GenesisScene(BaseScene):
         self._scene_built = False
         self._build_kwargs: dict[str, Any] | None = None
         self._post_build_callbacks: list[Callable[[], None]] = []
+        self._pre_step_callbacks: list[Callable[[], bool | None]] = []
         self._step_owner_thread = threading.current_thread()
         self._step_requests: queue.Queue[Future[None]] = queue.Queue()
         super().__init__(config=config, logger=logger)
@@ -131,13 +132,26 @@ class GenesisScene(BaseScene):
     def _attach_thread_stepper(self) -> None:
         if self._scene is not None:
             setattr(self._scene, "_cap_step_scene", self.step_scene)
+            setattr(self._scene, "_cap_register_pre_step_callback", self.register_pre_step_callback)
+            setattr(self._scene, "register_pre_step_callback", self.register_pre_step_callback)
+
+    def register_pre_step_callback(self, callback: Callable[[], bool | None]) -> None:
+        """Register a callback to run on the scene owner thread before each step."""
+        self._pre_step_callbacks.append(callback)
+
+    def _run_pre_step_callbacks(self) -> bool:
+        veto_step = False
+        for callback in list(self._pre_step_callbacks):
+            veto_step = bool(callback()) or veto_step
+        return veto_step
 
     def step_scene(self) -> None:
         """Step Genesis on the scene owner thread, even when requested by a worker."""
         if self._scene is None:
             return
         if threading.current_thread() is self._step_owner_thread:
-            self._scene.step()
+            if not self._run_pre_step_callbacks():
+                self._scene.step()
             return
         future: Future[None] = Future()
         self._step_requests.put(future)
@@ -154,7 +168,7 @@ class GenesisScene(BaseScene):
                 processed = True
                 continue
             try:
-                if self._scene is not None:
+                if self._scene is not None and not self._run_pre_step_callbacks():
                     self._scene.step()
                 future.set_result(None)
             except BaseException as exc:

@@ -465,7 +465,13 @@ class _GenesisDroneHoverCoreRobot:
 
         self._being_stepped = False
         self._hover_rpm = torch.ones(self.num_envs, 4, device=gs.device) * 14468.429183500699
-        self.scene.register_pre_step_callback(self._pre_step_maintain_hover)
+        register_pre_step = getattr(
+            self.scene,
+            "register_pre_step_callback",
+            getattr(self.scene, "_cap_register_pre_step_callback", None),
+        )
+        if callable(register_pre_step):
+            register_pre_step(self._pre_step_maintain_hover)
 
         self.reset()
 
