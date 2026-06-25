@@ -28,8 +28,8 @@ class ResetNamespace:
         """Agent reset scope."""
 
         ROBOT = 0
-        ENV = 1
-        AGENT = 2
+        AGENT = 1
+        SCENE = 2
 
 
 Reset = ResetNamespace
