@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 import logging
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -145,37 +146,44 @@ class BaseScene(RegisteredBase):
                     continue
                 self._agent_aliases[alias] = spec.name
 
-    def reset(self, agent: str | None = None, options: dict[str, Any] | None = None):
-        """Reset one agent by name or alias."""
-        return self._get_agent(agent).reset(options=options)
+    def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Reset multiple agents from an agent-to-options mapping."""
+        requests = self._resolve_agent_mapping(agent_options)
+        return {
+            self._agent_mark(canonical): self._agents[canonical].reset(options=options)
+            for canonical, options in requests.items()
+        }
 
-    def agent_doc(self, agent: str | None = None) -> dict:
-        """Return one agent's documentation."""
-        return self._get_agent(agent).agent_doc()
+    def agent_doc(self, agents: list[str]) -> dict[str, dict]:
+        """Return documentation for the selected agents, or all agents if omitted."""
+        return {
+            self._agent_mark(canonical): self._agents[canonical].agent_doc()
+            for canonical in self._resolve_agent_names(agents)
+        }
 
-    async def execute(self, agent: str | None = None, code: str = ""):
-        """Start executing code on one agent by name or alias.
+    async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
+        """Start code execution concurrently from an agent-to-code mapping.
 
-        If the selected agent already has an unfinished execution, this returns
-        its running status and does not start a second execution.
+        An agent with an unfinished execution keeps running its current task and
+        does not start the newly supplied code.
         """
-        return await self._start_agent_task(agent, "execute", code)
+        requests = self._resolve_agent_mapping(agent_codes)
+        statuses = await asyncio.gather(
+            *(self._start_agent_task(agent, "execute", code) for agent, code in requests.items())
+        )
+        return self._format_agent_results(requests, statuses)
 
-    async def retry(self, agent: str | None = None):
-        """Start retrying the latest execution on one agent.
+    async def retry(self, agents: list[str]) -> dict[str, dict[str, Any]]:
+        """Start retrying the latest execution concurrently for selected agents."""
+        canonical_agents = self._resolve_agent_names(agents)
+        statuses = await asyncio.gather(*(self._start_agent_task(agent, "retry") for agent in canonical_agents))
+        return self._format_agent_results(canonical_agents, statuses)
 
-        If the selected agent already has an unfinished execution or retry,
-        this returns its running status and does not start another retry.
-        """
-        return await self._start_agent_task(agent, "retry")
-
-    async def _start_agent_task(self, agent: str | None, method_name: str, *args: Any) -> dict[str, Any]:
-        import asyncio
-
+    async def _start_agent_task(self, agent: str, method_name: str, *args: Any) -> dict[str, Any]:
         canonical = self._resolve_agent_name(agent)
         task = self._agent_execute_tasks.get(canonical)
         if task is not None and not task.done():
-            return await self.monitor(agent=canonical, wait_finish=False)
+            return await self._monitor_agent(canonical, wait_ms=0)
 
         started_at = time.time()
         self._agent_execute_status[canonical] = {
@@ -192,22 +200,37 @@ class BaseScene(RegisteredBase):
         task = asyncio.create_task(self._run_agent_task(canonical, method_name, started_at, *args))
         self._agent_execute_tasks[canonical] = task
         self._ensure_background_event_pump()
-        return await self.monitor(agent=canonical, wait_finish=False)
+        return await self._monitor_agent(canonical, wait_ms=0)
 
-    async def monitor(self, agent: str | None = None, wait_finish: bool = False):
-        """Return the selected agent's current execution status.
+    async def monitor(self, agents: list[str], wait_ms: int = -1) -> dict[str, dict[str, Any]]:
+        """Return selected agents' statuses after applying a shared wait policy.
 
         Args:
-            agent: Agent name or alias to inspect.
-            wait_finish: If true, wait for the current execution to finish and
-                return its final result. If false, return immediately.
+            agents: Agent names or aliases to inspect.
+            wait_ms: ``-1`` waits for completion, ``0`` returns immediately,
+                and a positive value waits that many milliseconds before
+                returning the latest status.
         """
-        canonical = self._resolve_agent_name(agent)
-        task = self._agent_execute_tasks.get(canonical)
+        if wait_ms < -1:
+            raise ValueError("wait_ms must be -1, 0, or a positive integer")
+        canonical_agents = self._resolve_agent_names(agents)
+        statuses = await asyncio.gather(
+            *(self._monitor_agent(agent, wait_ms) for agent in canonical_agents)
+        )
+        return self._format_agent_results(canonical_agents, statuses)
+
+    async def _monitor_agent(self, agent: str, wait_ms: int) -> dict[str, Any]:
+        """Return one canonical agent's current execution status.
+
+        Args:
+            agent: Canonical agent name to inspect.
+            wait_ms: Wait policy in milliseconds; see :meth:`monitor`.
+        """
+        task = self._agent_execute_tasks.get(agent)
         status = self._agent_execute_status.get(
-            canonical,
+            agent,
             {
-                "agent": canonical,
+                "agent": agent,
                 "method": None,
                 "running": False,
                 "started_at": None,
@@ -218,12 +241,19 @@ class BaseScene(RegisteredBase):
             },
         )
         if task is None:
+            if wait_ms > 0:
+                await asyncio.sleep(wait_ms / 1000)
             return cap_utils.to_json_safe(status)
-        if wait_finish and not task.done():
+        if wait_ms == -1 and not task.done():
             self._ensure_background_event_pump()
             status = await task
+        elif wait_ms > 0:
+            if not task.done():
+                self._ensure_background_event_pump()
+            await asyncio.sleep(wait_ms / 1000)
+            status = self._agent_execute_status.get(agent, status)
         elif task.done():
-            status = self._agent_execute_status.get(canonical, status)
+            status = self._agent_execute_status.get(agent, status)
         self._process_background_events()
         return cap_utils.to_json_safe(status)
 
@@ -235,14 +265,10 @@ class BaseScene(RegisteredBase):
         return any(task is not None and not task.done() for task in self._agent_execute_tasks.values())
 
     def _ensure_background_event_pump(self) -> None:
-        import asyncio
-
         if self._background_event_task is None or self._background_event_task.done():
             self._background_event_task = asyncio.create_task(self._background_event_pump())
 
     async def _background_event_pump(self) -> None:
-        import asyncio
-
         try:
             while self._has_running_agent_tasks():
                 processed = self._process_background_events()
@@ -251,17 +277,27 @@ class BaseScene(RegisteredBase):
         finally:
             self._background_event_task = None
 
-    def record(self, agent: str | None = None, step_idx: int = -1):
-        """Record artifacts for one agent."""
-        return self._get_agent(agent).record(step_idx=step_idx)
+    def record(self, agents: list[str]) -> dict[str, Any]:
+        """Record complete run artifacts for selected agents, or all agents if omitted."""
+        return {
+            self._agent_mark(canonical): self._agents[canonical].record(step_idx=-1)
+            for canonical in self._resolve_agent_names(agents)
+        }
 
-    def update_plan(self, agent: str | None = None, plan: dict[str, Any] | None = None):
-        """Update one agent's plan."""
-        return self._get_agent(agent).update_plan(plan or {})
+    def update_plan(self, agent_plans: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Update plans from an agent-to-plan mapping."""
+        requests = self._resolve_agent_mapping(agent_plans)
+        return {
+            self._agent_mark(canonical): self._agents[canonical].update_plan(plan)
+            for canonical, plan in requests.items()
+        }
 
-    def get_obs(self, agent: str | None = None):
-        """Return one agent's current observation."""
-        return self._get_agent(agent).get_obs()
+    def get_obs(self, agents: list[str]) -> dict[str, Any]:
+        """Return observations for the selected agents, or all agents if omitted."""
+        return {
+            self._agent_mark(canonical): self._agents[canonical].get_obs()
+            for canonical in self._resolve_agent_names(agents)
+        }
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
@@ -310,8 +346,6 @@ class BaseScene(RegisteredBase):
         server.run(transport=transport)
 
     async def _run_agent_task(self, canonical: str, method_name: str, started_at: float, *args: Any) -> dict[str, Any]:
-        import asyncio
-
         try:
             method = getattr(self._agents[canonical], method_name)
             result = await asyncio.to_thread(method, *args)
@@ -353,6 +387,38 @@ class BaseScene(RegisteredBase):
             raise KeyError(f"Unknown agent: {agent}")
         return canonical
 
+    def _resolve_agent_names(self, agents: list[str] | None = None) -> list[str]:
+        """Resolve names and aliases to unique canonical agent names."""
+        requested = list(self._agents) if agents is None else agents
+        canonical_agents: list[str] = []
+        for agent in requested:
+            canonical = self._resolve_agent_name(agent)
+            if canonical not in canonical_agents:
+                canonical_agents.append(canonical)
+        return canonical_agents
+
+    def _resolve_agent_mapping(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Resolve mapping keys to canonical names and reject alias collisions."""
+        resolved: dict[str, Any] = {}
+        for agent, value in values.items():
+            canonical = self._resolve_agent_name(agent)
+            if canonical in resolved:
+                raise ValueError(f"Duplicate agent mapping after alias resolution: {agent!r} -> {canonical!r}")
+            resolved[canonical] = value
+        return resolved
+
+    def _agent_mark(self, canonical: str) -> str:
+        """Return a human-readable agent mark such as ``alias(agent_name)``."""
+        alias = next(
+            (name for name, agent_name in self._agent_aliases.items() if agent_name == canonical and name != canonical),
+            None,
+        )
+        return f"{alias}({canonical})" if alias else canonical
+
+    def _format_agent_results(self, agents: Iterable[str], results: Iterable[Any]) -> dict[str, Any]:
+        """Key ordered agent results by their human-readable response names."""
+        return {self._agent_mark(canonical): result for canonical, result in zip(agents, results, strict=True)}
+
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
         """Render scene-bound skills under ``skill_folder/cap_id``."""
         source_dir = Path(__file__).resolve().parents[2] / "skills"
@@ -393,8 +459,7 @@ class BaseScene(RegisteredBase):
 
     @staticmethod
     def _mcp_tool_doc(method_name: str, method: Callable[..., Any]) -> str:
-        doc = inspect.getdoc(method) or ""
-        return f"{doc}\n\nArgs:\n    agent: Agent name or alias to route this call to."
+        return inspect.getdoc(method) or method_name
 
     @property
     def server_config(self) -> ServerConfig:

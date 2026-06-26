@@ -2,6 +2,7 @@
 
 Local mode:
     /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py
+    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --parallel
 
 Remote mode:
     capcmd server --config configs/genesis/multi_agents.yaml
@@ -45,30 +46,31 @@ def _make_local_scene(config: str):
     return BaseScene.from_yaml(config)
 
 
-async def _run_local(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
+async def _run_local(config: str, max_steps: int, task_num: int, parallel: bool = False) -> dict[str, dict]:
     """Run three Genesis GraspAgent tasks in-process."""
     scene = _make_local_scene(config)
-    for agent in _AGENTS:
-        scene.reset(agent=agent, options={})
-        print(f"[test] {agent} agent_doc {scene.agent_doc(agent=agent)}")
+    scene.reset({agent: {} for agent in _AGENTS})
+    agent_docs = scene.agent_doc(list(_AGENTS))
+    for response_key, agent_doc in agent_docs.items():
+        print(f"[test] {response_key} agent_doc {agent_doc}")
 
     records: dict[str, dict] = {}
     for task_idx in range(task_num):
-        agent = _AGENTS[task_idx % len(_AGENTS)]
-        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: agent={agent} ---")
-        await scene.execute(agent=agent, code=_make_grasp_code(max_steps))
-        status = await scene.monitor(agent=agent, wait_finish=True)
-        result = status["result"]
-        test_utils.print_execution_summary("[test]", result)
+        task_agents = _AGENTS if parallel else (_AGENTS[task_idx % len(_AGENTS)],)
+        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: agents={task_agents} ---")
+        await scene.execute({agent: _make_grasp_code(max_steps) for agent in task_agents})
+        statuses = await scene.monitor(list(task_agents))
+        for agent, status in statuses.items():
+            test_utils.print_execution_summary(f"[test][{agent}]", status["result"])
 
-    for agent in _AGENTS:
-        record = scene.record(agent=agent, step_idx=-1)
+    all_records = scene.record(list(_AGENTS))
+    for agent, record in all_records.items():
         test_utils.print_record(f"[test][{agent}]", record)
         records[agent] = record
     return records
 
 
-async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, dict]:
+async def _run_remote(config: str, max_steps: int, task_num: int, parallel: bool = False) -> dict[str, dict]:
     """Run three Genesis GraspAgent tasks through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -81,28 +83,34 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict[str, d
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            for agent in _AGENTS:
-                await test_utils.call_tool(session, "reset", {"agent": agent, "options": {}})
-                agent_doc = await test_utils.call_tool(session, "agent_doc", {"agent": agent})
-                print(f"[mcp_test] {agent} agent_doc {agent_doc}")
+            await test_utils.call_tool(
+                session, "reset", {"agent_options": {agent: {} for agent in _AGENTS}}
+            )
+            agent_docs = await test_utils.call_tool(session, "agent_doc", {"agents": list(_AGENTS)})
+            for response_key, agent_doc in agent_docs.items():
+                print(f"[mcp_test] {response_key} agent_doc {agent_doc}")
 
             for task_idx in range(task_num):
-                agent = _AGENTS[task_idx % len(_AGENTS)]
-                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: agent={agent} ---")
-                result = await test_utils.call_tool(
+                task_agents = _AGENTS if parallel else (_AGENTS[task_idx % len(_AGENTS)],)
+                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: agents={task_agents} ---")
+                await test_utils.call_tool(
                     session,
                     "execute",
-                    {"agent": agent, "code": _make_grasp_code(max_steps)},
+                    {"agent_codes": {agent: _make_grasp_code(max_steps) for agent in task_agents}},
                 )
-                result = await test_utils.call_tool(session, "monitor", {"agent": agent, "wait_finish": True})
-                result = result["result"]
-                test_utils.print_execution_summary("[mcp_test]", result)
+                statuses = await test_utils.call_tool(
+                    session,
+                    "monitor",
+                    {"agents": list(task_agents)},
+                )
+                for agent, status in statuses.items():
+                    test_utils.print_execution_summary(f"[mcp_test][{agent}]", status["result"])
 
-            records: dict[str, dict] = {}
-            for agent in _AGENTS:
-                record = await test_utils.call_tool(session, "record", {"agent": agent, "step_idx": -1})
+            records = await test_utils.call_tool(
+                session, "record", {"agents": list(_AGENTS)}
+            )
+            for agent, record in records.items():
                 test_utils.print_record(f"[mcp_test][{agent}]", record)
-                records[agent] = record
             return records
 
 
@@ -111,13 +119,14 @@ def run_multi_agents_test(
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
+    parallel: bool = False,
 ) -> dict[str, dict]:
-    """Run three Grasp agents in round-robin order."""
+    """Run Grasp agents round-robin, or all together when parallel is enabled."""
     if remote:
         if not config:
             raise ValueError("Remote agents test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, task_num))
-    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
+        return asyncio.run(_run_remote(config, max_steps, task_num, parallel=parallel))
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, parallel=parallel))
 
 
 def test_local_multi_agents_scene() -> None:
@@ -135,6 +144,12 @@ if __name__ == "__main__":
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
     parser.add_argument("--remote", action="store_true", default=False)
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        default=False,
+        help="Run all agents in every execute batch instead of round-robin execution",
+    )
     args = parser.parse_args()
 
     run_multi_agents_test(
@@ -142,5 +157,6 @@ if __name__ == "__main__":
         max_steps=args.max_steps,
         task_num=args.task_num,
         remote=args.remote,
+        parallel=args.parallel,
     )
     print("\n[PASS]")

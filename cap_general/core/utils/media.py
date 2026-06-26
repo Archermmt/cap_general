@@ -23,6 +23,8 @@ def frame_to_array(frame: Any):
     array = np.asarray(frame)
     if array.dtype != np.uint8:
         array = np.clip(array, 0, 255).astype(np.uint8)
+    if not array.flags["C_CONTIGUOUS"]:
+        array = np.ascontiguousarray(array)
     return array
 
 

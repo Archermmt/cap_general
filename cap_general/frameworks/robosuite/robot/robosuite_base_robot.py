@@ -252,13 +252,15 @@ class RobosuiteBaseRobot(BaseRobot):
             camera_entry["pose_mat"] = cam_robot_tf.as_matrix()
             camera_entry["images"] = {}
             if f"{camera_name}_image" in robosuite_obs:
-                flipped = robosuite_obs[f"{camera_name}_image"][::-1]
+                flipped = np.ascontiguousarray(robosuite_obs[f"{camera_name}_image"][::-1])
                 camera_entry["images"]["rgb"] = flipped
                 robosuite_obs[f"{camera_name}_image"] = flipped
             if f"{camera_name}_depth" in robosuite_obs:
+                raw_depth = robosuite_obs[f"{camera_name}_depth"][::-1]
+                raw_depth = np.where(np.isfinite(raw_depth), np.clip(raw_depth, 0.0, 1.0), 1.0)
                 camera_entry["images"]["depth"] = get_real_depth_map(
                     self.robosuite_robot.sim,
-                    robosuite_obs[f"{camera_name}_depth"][::-1],
+                    raw_depth,
                 )
 
     def _compute_gripper_obs(self, robosuite_obs: dict[str, Any]) -> None:

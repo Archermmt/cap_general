@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 from cap_general.core.agent import BaseAgent
 from cap_general.core.robot import BaseRobot
 from cap_general.core.scene import BaseScene
+
+_ALPHA_KEY = "a(alpha)"
+_BETA_KEY = "b(beta)"
 
 
 @BaseRobot.register()
@@ -47,7 +51,8 @@ class SceneDummyAgent(BaseAgent):
         return value
 
 
-def _scene_config(agent_name: str = "alpha") -> dict:
+def _scene_config(*agent_names: str) -> dict:
+    agent_names = agent_names or ("alpha",)
     return {
         "type": "scene",
         "server": {"cap_id": "scene_test", "port": 8899},
@@ -55,13 +60,14 @@ def _scene_config(agent_name: str = "alpha") -> dict:
         "agents": [
             {
                 "name": agent_name,
-                "alias": ["a"],
+                "alias": [agent_name[0]],
                 "config": {
                     "type": "scene_dummy_agent",
                     "robot": {"type": "scene_dummy_robot", "reset_time": 0},
                     "policies": {},
                 },
             }
+            for agent_name in agent_names
         ],
     }
 
@@ -72,18 +78,38 @@ def test_scene_routes_agent_methods_by_name_and_alias():
 
     assert agent._record_dir == Path("outputs/test_scene/alpha").resolve()
     assert agent._logger is scene._logger
-    assert scene.reset(agent="alpha", options={"x": 1})["ok"] is True
-    assert "echo" in scene.agent_doc(agent="a")["function_doc"]
+    assert scene.reset({"alpha": {"x": 1}})[_ALPHA_KEY]["ok"] is True
+    assert "echo" in scene.agent_doc(["a"])[_ALPHA_KEY]["function_doc"]
+    assert "folder" in scene.get_obs(["alpha"])[_ALPHA_KEY]
+
+
+def test_scene_batch_methods_route_multiple_agents():
+    scene = BaseScene.from_config(_scene_config("alpha", "beta"))
+
+    resets = scene.reset({"a": {"value": 1}, "beta": {"value": 2}})
+    docs = scene.agent_doc(["alpha", "beta"])
+    observations = scene.get_obs(["alpha", "beta"])
+    plans = scene.update_plan({"alpha": {"task": "first"}, "b": {"task": "second"}})
+    for agent in scene._agents.values():
+        agent.record = lambda step_idx: {"step_idx": step_idx}
+    records = scene.record(["alpha", "beta"])
+
+    assert set(resets) == {_ALPHA_KEY, _BETA_KEY}
+    assert set(docs) == {_ALPHA_KEY, _BETA_KEY}
+    assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
+    assert plans[_ALPHA_KEY]["task"] == "first"
+    assert plans[_BETA_KEY]["task"] == "second"
+    assert records == {_ALPHA_KEY: {"step_idx": -1}, _BETA_KEY: {"step_idx": -1}}
 
 
 def test_scene_execute_routes_to_selected_agent():
     scene = BaseScene.from_config(_scene_config())
 
     async def _run():
-        started = await scene.execute(agent="alpha", code='RESULT = {"value": echo("ok")}')
-        assert started["running"] is True
-        status = await scene.monitor(agent="alpha", wait_finish=True)
-        return status["result"]
+        started = await scene.execute({"alpha": 'RESULT = {"value": echo("ok")}'})
+        assert started[_ALPHA_KEY]["running"] is True
+        status = await scene.monitor(["alpha"])
+        return status[_ALPHA_KEY]["result"]
 
     result = asyncio.run(_run())
 
@@ -96,39 +122,67 @@ def test_scene_execute_reports_running_for_busy_agent():
 
     async def _run():
         first = await scene.execute(
-            agent="alpha",
-            code='import time\ntime.sleep(0.1)\nRESULT = {"value": "first"}',
+            {"alpha": 'import time\ntime.sleep(0.2)\nRESULT = {"value": "first"}'}
         )
-        second = await scene.execute(agent="alpha", code='RESULT = {"value": "second"}')
-        final = await scene.monitor(agent="alpha", wait_finish=True)
-        return first, second, final
+        immediate = await scene.monitor(["alpha"], wait_ms=0)
+        second = await scene.execute({"alpha": 'RESULT = {"value": "second"}'})
+        wait_started = time.perf_counter()
+        delayed = await scene.monitor(["alpha"], wait_ms=20)
+        wait_duration = time.perf_counter() - wait_started
+        final = await scene.monitor(["alpha"])
+        return first, immediate, second, delayed, wait_duration, final
 
-    first, second, final = asyncio.run(_run())
+    first, immediate, second, delayed, wait_duration, final = asyncio.run(_run())
 
-    assert first["running"] is True
-    assert second["running"] is True
-    assert final["running"] is False
-    assert final["result"]["result"] == {"value": "first"}
+    assert first[_ALPHA_KEY]["running"] is True
+    assert immediate[_ALPHA_KEY]["running"] is True
+    assert second[_ALPHA_KEY]["running"] is True
+    assert delayed[_ALPHA_KEY]["running"] is True
+    assert wait_duration >= 0.018
+    assert final[_ALPHA_KEY]["running"] is False
+    assert final[_ALPHA_KEY]["result"]["result"] == {"value": "first"}
+
+
+def test_scene_execute_starts_multiple_agents_together():
+    scene = BaseScene.from_config(_scene_config("alpha", "beta"))
+
+    async def _run():
+        started = await scene.execute(
+            {
+                "alpha": 'import time\ntime.sleep(0.1)\nRESULT = {"value": "alpha"}',
+                "beta": 'import time\ntime.sleep(0.1)\nRESULT = {"value": "beta"}',
+            }
+        )
+        finished = await scene.monitor(["alpha", "beta"])
+        return started, finished
+
+    started, finished = asyncio.run(_run())
+
+    assert set(started) == {_ALPHA_KEY, _BETA_KEY}
+    assert all(status["running"] for status in started.values())
+    assert finished[_ALPHA_KEY]["result"]["result"] == {"value": "alpha"}
+    assert finished[_BETA_KEY]["result"]["result"] == {"value": "beta"}
+    assert abs(finished[_ALPHA_KEY]["started_at"] - finished[_BETA_KEY]["started_at"]) < 0.05
 
 
 def test_scene_retry_reports_running_for_busy_agent():
     scene = BaseScene.from_config(_scene_config())
 
     async def _run():
-        await scene.execute(agent="alpha", code='RESULT = {"value": "first"}')
-        await scene.monitor(agent="alpha", wait_finish=True)
-        retry_started = await scene.retry(agent="alpha")
-        busy = await scene.retry(agent="alpha")
-        final = await scene.monitor(agent="alpha", wait_finish=True)
+        await scene.execute({"alpha": 'RESULT = {"value": "first"}'})
+        await scene.monitor(["alpha"])
+        retry_started = await scene.retry(["alpha"])
+        busy = await scene.retry(["alpha"])
+        final = await scene.monitor(["alpha"])
         return retry_started, busy, final
 
     retry_started, busy, final = asyncio.run(_run())
 
-    assert retry_started["running"] is True
-    assert busy["running"] is True
-    assert final["running"] is False
-    assert final["method"] == "retry"
-    assert final["result"]["result"] == {"value": "first"}
+    assert retry_started[_ALPHA_KEY]["running"] is True
+    assert busy[_ALPHA_KEY]["running"] is True
+    assert final[_ALPHA_KEY]["running"] is False
+    assert final[_ALPHA_KEY]["method"] == "retry"
+    assert final[_ALPHA_KEY]["result"]["result"] == {"value": "first"}
 
 
 def test_scene_from_yaml_loads_agents(tmp_path: Path):

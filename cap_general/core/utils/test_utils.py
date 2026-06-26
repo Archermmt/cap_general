@@ -25,6 +25,13 @@ def print_record(prefix: str, record: dict[str, Any]) -> None:
     )
 
 
+def single_agent_result(results: dict[str, Any]) -> Any:
+    """Return the only value from a single-agent scene response."""
+    if len(results) != 1:
+        raise ValueError(f"Expected one agent result, got {list(results)}")
+    return next(iter(results.values()))
+
+
 async def call_tool(session: Any, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     result = await session.call_tool(name, args or {})
     if not result.content:

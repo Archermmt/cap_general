@@ -114,7 +114,14 @@ class RobosuiteAgent(BaseAgent):
         o3d_points = o3d.geometry.PointCloud()
         o3d_points.points = o3d.utility.Vector3dVector(points[selected])
         o3d_points, _ = o3d_points.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-        obb = o3d_points.get_oriented_bounding_box()
+        try:
+            obb = o3d_points.get_oriented_bounding_box()
+        except RuntimeError:
+            # A nearly planar point cloud makes Qhull's 3-D OBB calculation fail.
+            points_3d = np.asarray(o3d_points.points).copy()
+            points_3d[:, 2] += np.linspace(-5e-4, 5e-4, len(points_3d))
+            o3d_points.points = o3d.utility.Vector3dVector(points_3d)
+            obb = o3d_points.get_oriented_bounding_box()
 
         cam_extr_tf = vtf.SE3.from_rotation_and_translation(
             rotation=vtf.SO3(wxyz=obs["robot0_robotview"]["pose"][3:]),
@@ -156,7 +163,7 @@ class RobosuiteAgent(BaseAgent):
             self._save_sam3_results(rgb, object_name, results, function_name="sample_grasp_pose")
         scores = [result.score for result in results]
         best_idx = int(np.argmax(scores))
-        segmentation = results[best_idx].mask
+        segmentation = np.asarray(results[best_idx].mask, dtype=bool)
         queried_instance_idx = 1
 
         grasps = self._run_policy(
@@ -190,12 +197,17 @@ class RobosuiteAgent(BaseAgent):
             quaternion_wxyz: Target orientation as WXYZ quaternion.
             z_approach: Optional approach offset before moving to the final pose.
         """
+        from scipy.spatial.transform import Rotation
+
         pos = np.asarray(position, dtype=np.float64).reshape(3)
-        quat = np.asarray(quaternion_wxyz, dtype=np.float64).reshape(4)
-        offset_pos = self._apply_tcp_offset(pos, quat)
+        quat_wxyz = np.asarray(quaternion_wxyz, dtype=np.float64).reshape(4)
+        quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
+        rotation = Rotation.from_quat(quat_xyzw)
+        offset_pos = pos + rotation.apply(self._tcp_offset)
         if z_approach:
-            self._goto_offset_pose(offset_pos + np.array([0.0, 0.0, -z_approach]), quat)
-        self._goto_offset_pose(offset_pos, quat)
+            approach_pos = offset_pos + rotation.apply(np.array([0.0, 0.0, -z_approach]))
+            self._goto_offset_pose(approach_pos, quat_wxyz)
+        self._goto_offset_pose(offset_pos, quat_wxyz)
 
     def open_gripper(self) -> None:
         """Open gripper fully."""
@@ -232,12 +244,12 @@ class RobosuiteAgent(BaseAgent):
         if self._pyroki_policy not in self._policies:
             joints = np.zeros(7, dtype=np.float64)
         else:
-            result = self._run_policy(
-                self._pyroki_policy,
-                method="solve_ik",
-                target_pose_wxyz_xyz=np.concatenate([quat_wxyz, offset_pos]),
-                prev_cfg=self._ik_cfg,
-            )
+            kwargs = {
+                "target_pose_wxyz_xyz": np.concatenate([quat_wxyz, offset_pos]),
+            }
+            if self._ik_cfg is not None:
+                kwargs["prev_cfg"] = self._ik_cfg
+            result = self._run_policy(self._pyroki_policy, method="solve_ik", **kwargs)
             joints = np.asarray(result.joint_positions, dtype=np.float64)
         self._ik_cfg = joints
         self._robot.move_to_joints_blocking(joints[:7])
@@ -366,12 +378,6 @@ class RobosuiteAgent(BaseAgent):
     @staticmethod
     def _safe_debug_name(value: str) -> str:
         return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value).strip("_") or "debug"
-
-    def _apply_tcp_offset(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
-        from scipy.spatial.transform import Rotation
-
-        quat_xyzw = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]])
-        return pos + Rotation.from_quat(quat_xyzw).apply(self._tcp_offset)
 
     @staticmethod
     def _matrix_to_wxyz(rot: np.ndarray) -> np.ndarray:

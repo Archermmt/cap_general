@@ -1,13 +1,13 @@
 ---
 name: {cap_id}_get_state
-description: Get and display the current state/observation/view of the {agent_name} agent by calling get_obs. agent_name can be any one of {available_names}. Use this when the user asks what {agent_name} is doing, wants to see {agent_name}, or asks for current status/state/view/observation.
+description: Get and display current observations for one or more agents from {available_names} with the batched get_obs tool.
 metadata: {"nanobot":{"emoji":"📍"}}
 ---
 
 # Get State Skill
 
-Get the current agent state by calling the `{cap_id}_get_obs` MCP tool with `agent="{agent_name}"`. This returns the latest observation saved by the agent environment, including image paths when image observations are available and normalized state fields when the environment provides them.
-The placeholder `{agent_name}` can be replaced by any available agent name or alias from this scene: `{available_names}`.
+Get current agent states by calling `{cap_id}_get_obs` with an `agents` list. Each result key uses `alias(agent_name)` when an alias exists, otherwise `agent_name`; each value contains that agent's latest observation.
+Selected names and aliases must come from `{available_names}`.
 
 Use this skill for present-state questions, including:
 
@@ -19,7 +19,7 @@ Use this skill for present-state questions, including:
 
 ## Features
 
-- Fetch the current observation from the active `{agent_name}` agent
+- Fetch current observations for one or more selected agents
 - Return saved observation image paths for visual state inspection
 - Display the primary returned image with the `media` tool when available
 - Return normalized non-image state fields when supported by the environment
@@ -29,13 +29,9 @@ Use this skill for present-state questions, including:
 
 The get state skill uses the `{cap_id}_get_obs` tool.
 
-### Required Parameters
-
-- `agent` (string): The target agent name or alias. Use `{agent_name}`; it must be one of `{available_names}`.
-
 ### Optional Parameters
 
-None.
+- `agents` (array of strings): Target agent names or aliases. Omit it to query all agents.
 
 ## Usage Examples
 
@@ -44,7 +40,7 @@ None.
 Get the latest observation from the agent:
 
 ```json
-{"name": "{cap_id}_get_obs", "arguments": {"agent": "{agent_name}"}}
+{"name": "{cap_id}_get_obs", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
 ### Inspect Returned Images
@@ -52,18 +48,19 @@ Get the latest observation from the agent:
 If the response contains an `images` object or `main_image`, use those paths for visual inspection. After calling `get_obs`, display the primary image with the `media` tool using `media_type="image"` and `mode="display"`.
 
 ```json
-{"name": "{cap_id}_get_obs", "arguments": {"agent": "{agent_name}"}}
+{"name": "{cap_id}_get_obs", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
 Example response shape:
 
 ```json
 {
-  "images": {
-    "agentview_image": "outputs/libero/step_1/trial_1/agentview_image_0.png"
-  },
-  "main_image": "outputs/libero/step_1/trial_1/agentview_image_0.png",
-  "robot0_eef_pos": [0.0, 0.0, 0.0]
+  "<alias>(<agent_name>)": {
+    "images": {
+      "agentview_image": "outputs/libero/step_1/trial_1/agentview_image_0.png"
+    },
+    "main_image": "outputs/libero/step_1/trial_1/agentview_image_0.png"
+  }
 }
 ```
 
@@ -79,8 +76,8 @@ If `main_image` is missing but `images` contains camera images, display the firs
 
 1. **ALWAYS use `{cap_id}_get_obs`** to get agent state. Do not call environment internals directly.
 2. **Use MCP-registered method names only**. The tool name must be exactly `{cap_id}_get_obs`.
-3. **Always pass `agent`**. Scene tools route by agent name or alias; use `{"agent": "{agent_name}"}`.
-4. **Display the returned primary image**. If `main_image` is present, call `media` with `media_type="image"`, `mode="display"`, and that image path.
+3. **Use the `agents` list** to select one or more agents, or omit it to query all agents. Do not pass a formatted `alias(agent_name)` response key back as an agent selector.
+4. **Display each returned primary image**. For each keyed observation with `main_image`, call `media` with `media_type="image"`, `mode="display"`, and that image path.
 5. **Use absolute paths for `media` display**. If `get_obs` returns a relative image path, convert it to an absolute local path before calling `media`.
 6. **Fallback to `images` when needed**. If `main_image` is missing, display the first available path from the returned `images` dict.
 7. **Treat returned image paths as local artifacts**. Use them for visual inspection when planning the next action.

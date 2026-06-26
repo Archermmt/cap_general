@@ -76,16 +76,16 @@ def _make_local_scene(config: str):
 async def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     """Run Go2Agent episodes in-process."""
     scene = _make_local_scene(config)
-    scene.reset(agent=_DEFAULT_AGENT, options={})
-    print(f"[test] agent_doc {scene.agent_doc(agent=_DEFAULT_AGENT)}")
+    scene.reset({_DEFAULT_AGENT: {}})
+    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     turn_angles = _random_turn_angles(task_num)
     for task_idx, turn_angle in enumerate(turn_angles):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
-        await scene.execute(agent=_DEFAULT_AGENT, code=_make_code(max_steps, turn_angle=turn_angle))
-        status = await scene.monitor(agent=_DEFAULT_AGENT, wait_finish=True)
-        result = status["result"]
+        await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, turn_angle=turn_angle)})
+        status = await scene.monitor([_DEFAULT_AGENT])
+        result = test_utils.single_agent_result(status)["result"]
         test_utils.print_execution_summary("[test]", result)
-    record = scene.record(agent=_DEFAULT_AGENT, step_idx=-1)
+    record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
     test_utils.print_record("[test]", record)
     return record
 
@@ -103,8 +103,9 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await test_utils.call_tool(session, "reset", {"agent": _DEFAULT_AGENT, "options": {}})
-            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agent": _DEFAULT_AGENT})
+            await test_utils.call_tool(session, "reset", {"agent_options": {_DEFAULT_AGENT: {}}})
+            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
+            agent_doc = test_utils.single_agent_result(agent_doc)
             print(f"[mcp_test] agent_doc {agent_doc}")
             turn_angles = _random_turn_angles(task_num)
             for task_idx, turn_angle in enumerate(turn_angles):
@@ -112,12 +113,17 @@ async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
                 result = await test_utils.call_tool(
                     session,
                     "execute",
-                    {"agent": _DEFAULT_AGENT, "code": _make_code(max_steps, turn_angle=turn_angle)},
+                    {"agent_codes": {_DEFAULT_AGENT: _make_code(max_steps, turn_angle=turn_angle)}},
                 )
-                result = await test_utils.call_tool(session, "monitor", {"agent": _DEFAULT_AGENT, "wait_finish": True})
-                result = result["result"]
+                result = await test_utils.call_tool(
+                    session, "monitor", {"agents": [_DEFAULT_AGENT]}
+                )
+                result = test_utils.single_agent_result(result)["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
-            record = await test_utils.call_tool(session, "record", {"agent": _DEFAULT_AGENT, "step_idx": -1})
+            record = await test_utils.call_tool(
+                session, "record", {"agents": [_DEFAULT_AGENT]}
+            )
+            record = test_utils.single_agent_result(record)
             test_utils.print_record("[mcp_test]", record)
             return record
 

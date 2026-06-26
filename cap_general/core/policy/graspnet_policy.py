@@ -166,6 +166,13 @@ class GraspNetPolicy(BasePolicy):
         except FileExistsError:
             pass
         self._estimator.model.float()
+        self._estimator.model.eval()
+
+        import torch
+
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     def plan(
         self,
