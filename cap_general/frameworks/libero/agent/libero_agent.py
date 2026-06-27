@@ -48,13 +48,16 @@ class LiberoAgent(BaseAgent):
             "when decomposing subtasks."
         )
 
-    def _reset_rules(self) -> str:
-        """Return reset option rules for LIBERO tasks."""
-        return (
-            f"{super()._reset_rules()}\n"
-            "  episode_idx: LIBERO initial state index to load when reset_level is "
+    def _options_doc(self, method_name: str) -> str:
+        """Return LIBERO-specific options docs for supported methods."""
+        if method_name != "reset":
+            return super()._options_doc(method_name)
+        base_doc = super()._options_doc(method_name)
+        extra_doc = (
+            "episode_idx: LIBERO initial state index to load when reset_level is "
             "1 or 2. Defaults to 0."
         )
+        return f"{base_doc}\n{extra_doc}" if base_doc else extra_doc
 
     def functions(self) -> dict[str, Callable[..., Any]]:
         """Return LIBERO functions exposed to generated code."""

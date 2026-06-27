@@ -54,7 +54,7 @@ class PyrokiPolicy(BasePolicy):
     def __init__(
         self,
         config: PyrokiPolicyConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._robot_urdf_name = config.robot_urdf_name

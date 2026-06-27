@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import queue
-import threading
-from concurrent.futures import Future
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,6 +93,7 @@ class GenesisScene(BaseScene):
 
     name = "Genesis Scene"
     config_cls = GenesisSceneConfig
+    _run_task_on_main_thread = True
 
     @classmethod
     def scene_type(cls) -> str:
@@ -111,8 +109,6 @@ class GenesisScene(BaseScene):
         self._build_kwargs: dict[str, Any] | None = None
         self._post_build_callbacks: list[Callable[[], None]] = []
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
-        self._step_owner_thread = threading.current_thread()
-        self._step_requests: queue.Queue[Future[None]] = queue.Queue()
         super().__init__(config=config, logger=logger)
 
     @staticmethod
@@ -125,19 +121,14 @@ class GenesisScene(BaseScene):
 
     def _before_build_agents(self) -> None:
         self._scene = self._create_scene()
-        self._step_owner_thread = threading.current_thread()
-        self._attach_thread_stepper()
+        if self._scene is not None:
+            self._scene._cap_step_scene = self.step_scene
+            self._scene._cap_register_pre_step_callback = self.register_pre_step_callback
         self._add_default_ground_plane()
         self._defer_scene_build = True
 
-    def _attach_thread_stepper(self) -> None:
-        if self._scene is not None:
-            setattr(self._scene, "_cap_step_scene", self.step_scene)
-            setattr(self._scene, "_cap_register_pre_step_callback", self.register_pre_step_callback)
-            setattr(self._scene, "register_pre_step_callback", self.register_pre_step_callback)
-
     def register_pre_step_callback(self, callback: Callable[[], bool | None]) -> None:
-        """Register a callback to run on the scene owner thread before each step."""
+        """Register a callback to run before each scene step."""
         self._pre_step_callbacks.append(callback)
 
     def _run_pre_step_callbacks(self) -> bool:
@@ -156,37 +147,12 @@ class GenesisScene(BaseScene):
             viewer_flags["rotate"] = False
 
     def step_scene(self) -> None:
-        """Step Genesis on the scene owner thread, even when requested by a worker."""
+        """Step the Genesis scene directly."""
         if self._scene is None:
             return
-        if threading.current_thread() is self._step_owner_thread:
-            self._lock_viewer_rotation()
-            if not self._run_pre_step_callbacks():
-                self._scene.step()
-            return
-        future: Future[None] = Future()
-        self._step_requests.put(future)
-        future.result()
-
-    def _process_background_events(self) -> bool:
-        processed = False
-        while True:
-            try:
-                future = self._step_requests.get_nowait()
-            except queue.Empty:
-                break
-            if future.cancelled():
-                processed = True
-                continue
-            try:
-                if self._scene is not None and not self._run_pre_step_callbacks():
-                    self._lock_viewer_rotation()
-                    self._scene.step()
-                future.set_result(None)
-            except BaseException as exc:
-                future.set_exception(exc)
-            processed = True
-        return processed
+        self._lock_viewer_rotation()
+        if not self._run_pre_step_callbacks():
+            self._scene.step()
 
     def _add_default_ground_plane(self) -> None:
         if self._scene is None:

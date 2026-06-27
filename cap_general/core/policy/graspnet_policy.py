@@ -113,7 +113,7 @@ class GraspNetPolicy(BasePolicy):
     def __init__(
         self,
         config: GraspNetPolicyConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._vendor_root = Path(config.vendor_root)

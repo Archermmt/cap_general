@@ -32,7 +32,7 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
     def __init__(
         self,
         config: RobosuiteCubeRobotConfig | None = None,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ) -> None:
         if config is None:
             config = RobosuiteCubeRobotConfig()

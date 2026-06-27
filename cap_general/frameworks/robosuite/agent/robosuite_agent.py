@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 PROMPT = """
 You are controlling a Franka Emika robot with the API described below.
@@ -43,7 +47,7 @@ class RobosuiteAgent(BaseAgent):
     name = "Robosuite Franka Agent"
     config_cls = RobosuiteAgentConfig
 
-    def __init__(self, config: RobosuiteAgentConfig, logger=None):
+    def __init__(self, config: RobosuiteAgentConfig, logger: Logger):
         self._sam3_policy = config.sam3_policy
         self._graspnet_policy = config.graspnet_policy
         self._pyroki_policy = config.pyroki_policy

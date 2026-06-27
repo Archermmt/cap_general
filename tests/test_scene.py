@@ -94,12 +94,12 @@ def test_scene_batch_methods_route_multiple_agents():
     observations = scene.get_obs(["alpha", "beta"])
     history_update = scene.update_history(
         {
-            "alpha": {"step_0_trail_0": [{"request": {"tool": "reset"}}]},
-            "b": {"step_0_trail_0": [{"request": {"tool": "agent_doc"}}]},
+            "alpha": {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "reset"}},
+            "b": {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}},
         }
     )
     scene.update_history(
-        {"alpha": {"step_0_trail_0": [{"response": {"ok": True}}]}}
+        {"alpha": {"role": _ALPHA_KEY, "mark": "step_0_trail_0", "response": {"ok": True}}}
     )
     full_record = scene._get_agent("alpha").record(step_idx=-1)
     for agent in scene._agents.values():
@@ -109,13 +109,14 @@ def test_scene_batch_methods_route_multiple_agents():
     assert set(resets) == {_ALPHA_KEY, _BETA_KEY}
     assert set(docs) == {_ALPHA_KEY, _BETA_KEY}
     assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
-    assert history_update[_ALPHA_KEY] == {"ok": True, "updated": {"step_0_trail_0": 1}}
-    assert full_record["info"]["history"]["step_0_trail_0"] == [
-        {"request": {"tool": "reset"}},
-        {"response": {"ok": True}},
+    assert scene._get_agent("alpha").mark == _ALPHA_KEY
+    assert history_update[_ALPHA_KEY] == {"ok": True, "updated": 1}
+    assert full_record["info"]["history"] == [
+        {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "reset"}},
+        {"role": _ALPHA_KEY, "mark": "step_0_trail_0", "response": {"ok": True}},
     ]
-    assert scene._get_agent("beta")._history["step_0_trail_0"] == [
-        {"request": {"tool": "agent_doc"}}
+    assert scene._get_agent("beta")._history == [
+        {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}}
     ]
     assert records == {_ALPHA_KEY: {"step_idx": -1}, _BETA_KEY: {"step_idx": -1}}
 

@@ -151,6 +151,7 @@ def test_local_go2_agent() -> None:
     """Smoke test: run a Go2Agent episode in-process."""
     result = run_go2_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
+    assert result.get("ok"), result
 
 
 if __name__ == "__main__":

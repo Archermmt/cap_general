@@ -5,10 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cap_general.core.policy import BasePolicy, BasePolicyConfig
 from cap_general.frameworks.genesis.utils import load_module_from_file
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 @dataclass
@@ -30,7 +33,7 @@ class BehaviorCloningPolicy(BasePolicy):
     name = "Genesis Behavior Cloning Policy"
     config_cls = BehaviorCloningPolicyConfig
 
-    def __init__(self, config: BehaviorCloningPolicyConfig, logger=None):
+    def __init__(self, config: BehaviorCloningPolicyConfig, logger: Logger):
         super().__init__(config=config, logger=logger)
         self._policy = None
         self._loaded_env_id: int | None = None

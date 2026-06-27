@@ -136,6 +136,7 @@ def test_local_franka_agent() -> None:
     """Smoke test: run a FrankaAgent episode in-process."""
     result = run_franka_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
+    assert result.get("ok"), f"FrankaAgent test failed: {result}"
 
 
 if __name__ == "__main__":

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 @dataclass
@@ -24,7 +28,7 @@ class FrankaAgent(BaseAgent):
     name = "Genesis Franka Agent"
     config_cls = FrankaAgentConfig
 
-    def __init__(self, config: FrankaAgentConfig, logger=None):
+    def __init__(self, config: FrankaAgentConfig, logger: Logger):
         self.horizon = int(config.horizon)
         super().__init__(config=config, logger=logger)
 

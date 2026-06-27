@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 @dataclass
@@ -25,7 +29,7 @@ class Go2Agent(BaseAgent):
     name = "Genesis GO2 Agent"
     config_cls = Go2AgentConfig
 
-    def __init__(self, config: Go2AgentConfig, logger=None):
+    def __init__(self, config: Go2AgentConfig, logger: Logger):
         self._policy_name = config.policy
         self.horizon = int(config.horizon)
         super().__init__(config=config, logger=logger)

@@ -39,7 +39,7 @@ class RobosuiteBaseRobot(BaseRobot):
     def __init__(
         self,
         config: RobosuiteBaseRobotConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ) -> None:
         super().__init__(config=config, logger=logger)
         controller_cfg = Path(config.controller_cfg).expanduser()

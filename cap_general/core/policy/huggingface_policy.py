@@ -52,7 +52,7 @@ class HuggingFacePolicy(BasePolicy):
     def __init__(
         self,
         config: HuggingFacePolicyConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         """Initialize a local Transformers model."""
         super().__init__(config=config, logger=logger)

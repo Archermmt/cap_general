@@ -1,8 +1,11 @@
 """Tests for BaseRobot behavior."""
 
+import logging
 from typing import Any, SupportsFloat
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
+
+LOGGER = logging.getLogger(__name__)
 
 
 @BaseRobot.register()
@@ -45,7 +48,7 @@ class RewardDummyRobot(DummyRobot):
 
 
 def test_robot_base_reset_returns_gymnasium_tuple():
-    robot = DummyRobot(config=BaseRobotConfig(seed=123))
+    robot = DummyRobot(config=BaseRobotConfig(seed=123), logger=LOGGER)
 
     obs, info = robot.reset(options={"difficulty": "easy"})
 
@@ -54,7 +57,7 @@ def test_robot_base_reset_returns_gymnasium_tuple():
 
 
 def test_robot_base_step_returns_gymnasium_tuple_and_tracks_step_count():
-    robot = DummyRobot(config=BaseRobotConfig())
+    robot = DummyRobot(config=BaseRobotConfig(), logger=LOGGER)
     robot.reset()
 
     obs, reward, terminated, truncated, info = robot.step({"move": 1})
@@ -68,7 +71,7 @@ def test_robot_base_step_returns_gymnasium_tuple_and_tracks_step_count():
 
 
 def test_robot_base_step_uses_compute_reward():
-    robot = RewardDummyRobot(config=BaseRobotConfig())
+    robot = RewardDummyRobot(config=BaseRobotConfig(), logger=LOGGER)
     robot.reset()
 
     _, reward, _, _, _ = robot.step({"move": 1})

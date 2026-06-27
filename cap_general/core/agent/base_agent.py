@@ -47,6 +47,8 @@ class BaseAgentConfig:
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
     record_execute: bool = True
     debug: bool = False
+    name: str | None = None
+    alias: str | None = None
 
 
 class BaseAgent(RegisteredBase):
@@ -61,21 +63,24 @@ class BaseAgent(RegisteredBase):
         """Return the registry key for this agent."""
         return "base_agent"
 
-    def __init__(self, config: BaseAgentConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
         """Initialize an agent from config."""
         self._config = config
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._logger = logger or cap_utils.build_file_logger(
-            self._record_dir,
-            logger_name="agent",
-        )
+        self._logger = logger
+        self._scene_name = self._config.name
+        self._scene_alias = self._config.alias
+        if self._scene_alias == self._config.name:
+            self._scene_alias = None
         self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
+        self._train_epoch = 0
         self._step_infos, self._step_codes = [], []
-        self._history, self._history_start = {}, 0
+        self._history: list[dict[str, Any]] = []
+        self._history_start = 0
         self._clear_record_dir_contents()
 
     @staticmethod
@@ -100,8 +105,7 @@ class BaseAgent(RegisteredBase):
         state, or when the robot needs to be restored.
 
         Args:
-            options: Optional reset options. See ``agent_doc()["reset_rules"]``
-                for supported keys.
+            options: [_options_doc()]
 
         Returns:
             A dict with ``ok`` so MCP clients can confirm the reset completed.
@@ -112,7 +116,7 @@ class BaseAgent(RegisteredBase):
         if reset_level >= cap_utils.ResetLevel.AGENT:
             self._exec_cnt, self._trial_cnt = 0, 0
             self._step_infos, self._step_codes = [], []
-            self._history, self._history_start = {}, time.time()
+            self._history, self._history_start = [], time.time()
             self._clear_record_dir_contents()
         return {"ok": True}
 
@@ -125,14 +129,11 @@ class BaseAgent(RegisteredBase):
 
         Returns:
             A dict with ``function_doc`` (str), ``policy_doc`` (dict),
-            ``reset_doc`` (str), ``reset_rules`` (str), ``execute_rules`` (str),
-            and ``max_retry`` (int).
+            ``execute_rules`` (str), and ``max_retry`` (int).
         """
         return {
             "function_doc": self._function_doc(),
             "policy_doc": self._policy_doc(),
-            "reset_doc": self._reset_doc(),
-            "reset_rules": self._reset_rules(),
             "execute_rules": self._execute_rules(),
             "max_retry": self._config.max_retry,
         }
@@ -143,7 +144,7 @@ class BaseAgent(RegisteredBase):
         The code runs in a persistent namespace containing the low-level
         robot as ``robot`` and all functions returned by ``functions()``.
         Use ``agent_doc`` first to inspect the available function signatures,
-        policy descriptions, reset rules, and execution rules.
+        policy descriptions, function-specific options, and execution rules.
 
         Args:
             code: Python source code to execute.
@@ -184,6 +185,47 @@ class BaseAgent(RegisteredBase):
         self._trial_cnt += 1
         return self._execute_once(self._step_codes[-1])
 
+    def train(self, policy_name: str, method: str = "train", options: dict[str, Any] | None = None):
+        """Train a configured policy.
+
+        Performs simple bookkeeping (logging and incrementing ``train_epoch``)
+        and delegates the actual training logic to :meth:`_train`, which
+        subclasses should override.
+
+        Args:
+            policy_name: Name of the policy to train, as configured in
+                ``policies``.
+            method: Training method/stage identifier, passed through to
+                ``_train`` (e.g. ``"rl"`` or ``"bc"``). Defaults to ``"train"``.
+            options: [_options_doc()]
+
+        Returns:
+            A dict with ``ok`` and the result of ``_train``, plus the updated
+            ``train_epoch`` count.
+        """
+        options = dict(options or {})
+        self._logger.info("Starting train: policy=%s method=%s options=%s", policy_name, method, options)
+        self._train_epoch += 1
+        try:
+            result = self._train(policy_name=policy_name, method=method, options=options)
+            return {"ok": True, "train_epoch": self._train_epoch, "result": result}
+        except Exception as exc:
+            self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
+            return {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
+
+    def _train(self, policy_name: str, method: str, options: dict[str, Any]) -> Any:
+        """Hook for subclasses to implement the actual training logic.
+
+        Args:
+            policy_name: Name of the policy to train.
+            method: Training method/stage identifier.
+            options: Training options/hyperparameters.
+
+        Returns:
+            Subclass-defined training result.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement _train")
+
     def record(self, step_idx: int = -1):
         """Persist execution artifacts and return their metadata.
 
@@ -217,24 +259,21 @@ class BaseAgent(RegisteredBase):
         cap_utils.write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
 
-    def update_history(self, history: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-        """Append request/response events to marked execution history entries.
+    def update_history(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Append one history message to the agent transcript.
 
         Args:
-            history: Mapping from a mark such as ``step_1_trail_1`` to an
-                ordered list of request/response event dictionaries.
+            message: One websocket-style transcript message with fields such
+                as ``role``, ``mark``, ``request``, or ``response``.
 
         Returns:
-            A compact acknowledgement with appended event counts. The complete
-            history is returned by :meth:`record`.
+            A compact acknowledgement with the appended message count. The
+            complete transcript is returned by :meth:`record`.
         """
-        updated: dict[str, int] = {}
-        for mark, events in history.items():
-            if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
-                raise TypeError(f"History entry {mark!r} must be a list of event dictionaries")
-            self._history.setdefault(mark, []).extend(events)
-            updated[mark] = len(events)
-        return {"ok": True, "updated": updated}
+        if not isinstance(message, dict):
+            raise TypeError("message must be a history message dictionary")
+        self._history.append(message)
+        return {"ok": True, "updated": 1}
 
     def get_obs(self) -> dict[str, Any]:
         """Return the current observation and save images under the active step directory.
@@ -320,15 +359,33 @@ class BaseAgent(RegisteredBase):
             name(signature)
               Summary: first line of function doc
               Doc: full function docstring (Google style recommended)
+
+        When a function docstring contains ``options: [_options_doc()]`` and the
+        agent provides a non-empty options description for that function, the
+        placeholder is replaced inline so callers see function-specific option
+        rules directly in ``function_doc``. If no options description is
+        available, the placeholder line is removed.
         """
-        # we need to discuss this design further down the line
         lines: list[str] = []
-        for name, fn in self.functions().items():
+        all_fns: dict[str, Callable] = {"reset": self.reset, "train": self.train, **self.functions()}
+        placeholder = "options: [_options_doc()]"
+        for name, fn in all_fns.items():
             try:
                 sig = str(inspect.signature(fn))
             except Exception:
                 sig = "(…)"
             doc = inspect.getdoc(fn) or ""
+            options_doc = self._options_doc(name).strip()
+            if placeholder in doc:
+                if options_doc:
+                    replacement = "options:\n        " + options_doc.replace(
+                        chr(10),
+                        chr(10) + "        ",
+                    )
+                    doc = doc.replace(placeholder, replacement)
+                else:
+                    doc = doc.replace(f"    {placeholder}\n", "")
+                    doc = doc.replace(placeholder, "")
             lines.append(f"{name}{sig}")
             if doc:
                 lines.append("  Doc:")
@@ -336,38 +393,23 @@ class BaseAgent(RegisteredBase):
             lines.append("")
         return "\n".join(lines).strip()
 
+    def _options_doc(self, method_name: str) -> str:
+        """Return function-specific options documentation for inline substitution."""
+        if method_name == "reset":
+            return (
+                "reset_level: 0 resets only the robot pose, 1 resets the robot "
+                "controller, and 2 resets the full agent state. Defaults to 2."
+            )
+        if method_name == "train":
+            return (
+                "Method-specific training options. Refer to the concrete agent's "
+                "training implementation for supported fields."
+            )
+        return ""
+
     def _policy_doc(self) -> dict[str, dict[str, str]]:
         """Return capability descriptions for configured policies."""
         return {name: policy.describe for name, policy in self._policies.items()}
-
-    def _reset_doc(self) -> str:
-        """Return reset documentation with agent-specific option rules."""
-        try:
-            sig = str(inspect.signature(self.reset))
-        except Exception:
-            sig = "(…)"
-        doc = inspect.getdoc(self.reset) or ""
-        old_options_doc = (
-            'options: Optional reset options. See ``agent_doc()["reset_rules"]``\n'
-            "        for supported keys."
-        )
-        reset_rules = self._reset_rules().strip()
-        options_doc = "options: Optional reset options."
-        if reset_rules:
-            options_doc = f"{options_doc}\n    {reset_rules.replace(chr(10), chr(10) + '    ')}"
-        doc = doc.replace(old_options_doc, options_doc)
-        return f"reset{sig}\n  Doc:\n" + "\n".join(f"    {line}" for line in doc.splitlines())
-
-    def _reset_rules(self) -> str:
-        """Return the rules for reset options."""
-        return (
-            "reset_level: 0 resets only the robot pose, 1 resets the robot controller, "
-            "and 2 resets the full agent state. Defaults to 2."
-        )
-
-    def _execute_rules(self) -> str:
-        """Return the rules for executing code."""
-        return ""
 
     def _get_step_record(self, step_idx: int) -> tuple[dict[str, Any], str]:
         if step_idx < 0 or step_idx >= len(self._step_infos):
@@ -401,29 +443,40 @@ class BaseAgent(RegisteredBase):
     def _format_duration(seconds: float) -> str:
         return f"{seconds:.2f}s"
 
+    def _execute_rules(self) -> str:
+        """Return generic execution guidance for agents without custom rules."""
+        return "Use only documented agent functions, robot methods, and configured policies."
+
     @abstractmethod
     def functions(self) -> dict[str, Callable[..., Any]]:
         """Return mapping of agent function name to callable."""
         raise NotImplementedError
 
-    @property
-    def step_dir(self) -> Path:
-        """Path to the current step directory."""
-        path = self._current_step_dir_path()
+    def _get_sub_dir(self, *parts: str | Path) -> Path:
+        path = self._record_dir.joinpath(*parts)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @property
-    def debug_dir(self) -> Path:
-        """Path to the debug directory for the current step."""
-        debug_path = self.step_dir / "debug"
-        debug_path.mkdir(parents=True, exist_ok=True)
-        return debug_path
+    def step_dir(self) -> Path:
+        """Path to the current step directory."""
+        return self._get_sub_dir(self._step_dir_name(self._exec_cnt, self._trial_cnt))
 
     @property
-    def robot(self):
-        """Low-level robot controller for direct interaction in code execution."""
-        return self._robot
+    def debug_dir(self) -> Path:
+        """Path to the debug directory for the current step."""
+        return self._get_sub_dir(self._step_dir_name(self._exec_cnt, self._trial_cnt), "debug")
+
+    @property
+    def train_dir(self) -> Path:
+        """Path to the train output directory."""
+        return self._get_sub_dir("train")
+
+    @property
+    def mark(self) -> str:
+        """Scene-visible mark such as ``alias(name)``."""
+        name = self._scene_name or self.name
+        return f"{self._scene_alias}({name})" if self._scene_alias else name
 
     @property
     def policies(self) -> dict[str, Any]:

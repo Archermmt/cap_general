@@ -58,7 +58,7 @@ class Go2Robot(BaseRobot):
     name = "Genesis GO2 Robot"
     config_cls = Go2RobotConfig
 
-    def __init__(self, config: Go2RobotConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: Go2RobotConfig, logger: logging.Logger):
         super().__init__(config=config, logger=logger)
         self._config = config
         self._example_env = None

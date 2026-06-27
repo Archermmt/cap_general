@@ -67,7 +67,7 @@ class GraspRobot(BaseRobot):
     name = "Genesis Grasp Robot"
     config_cls = GraspRobotConfig
 
-    def __init__(self, config: GraspRobotConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: GraspRobotConfig, logger: logging.Logger):
         if config.visualize_camera and "hand_camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "hand_camera_image"]
         super().__init__(config=config, logger=logger)

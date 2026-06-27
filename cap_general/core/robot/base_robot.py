@@ -45,8 +45,8 @@ class BaseRobot(RegisteredBase, GymEnv):
         """Return the registry key for this robot controller."""
         return "base_robot"
 
-    def __init__(self, config: BaseRobotConfig, logger: logging.Logger | None = None):
-        self._logger = logger or logging.getLogger(__name__)
+    def __init__(self, config: BaseRobotConfig, logger: logging.Logger):
+        self._logger = logger
         self._seed = config.seed
         self._reset_time = config.reset_time
         self._video_fmt = config.video_fmt

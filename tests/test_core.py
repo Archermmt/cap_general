@@ -1,5 +1,7 @@
 """Tests for core CAP agent, robot, and policy primitives."""
 
+import logging
+
 import pytest
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
@@ -10,6 +12,8 @@ from cap_general.core.policy import (
     PyrokiPolicy,
     SAM3Policy,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @BaseRobot.register()
@@ -61,7 +65,7 @@ class SimpleAgent(BaseAgent):
 
 def test_agent__function_doc():
     """Test that _function_doc extracts method signatures and docstrings."""
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}))
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
     doc = agent._function_doc()
 
     assert "add" in doc
@@ -72,15 +76,14 @@ def test_agent__function_doc():
     assert "b: int" in doc or "b:int" in doc
 
 
-def test_agent_doc_reset_options_use_reset_rules():
-    """Test that agent_doc embeds reset rules in reset documentation."""
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}))
+def test_agent_doc_embeds_reset_options_in_function_doc():
+    """Test that agent_doc exposes reset options through function_doc."""
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
     doc = agent.agent_doc()
 
-    assert "reset_rules" in doc
-    assert "reset_doc" in doc
-    assert doc["reset_rules"] in doc["reset_doc"]
-    assert 'agent_doc()["reset_rules"]' not in doc["reset_doc"]
+    assert "function_doc" in doc
+    assert "reset_level: 0 resets only the robot pose" in doc["function_doc"]
+    assert '[_options_doc()]' not in doc["function_doc"]
 
 
 def test_policy_base_cannot_instantiate():

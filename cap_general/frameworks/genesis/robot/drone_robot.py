@@ -60,7 +60,7 @@ class DroneHoverRobot(BaseRobot):
     name = "Genesis Drone Hover Robot"
     config_cls = DroneHoverRobotConfig
 
-    def __init__(self, config: DroneHoverRobotConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: DroneHoverRobotConfig, logger: logging.Logger):
         if config.camera_enabled and "camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)

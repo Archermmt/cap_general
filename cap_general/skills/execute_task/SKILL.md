@@ -21,13 +21,36 @@ Available agent names and aliases: `{available_names}`.
 - `{cap_id}_update_history`
 - `{cap_id}_record`
 
-Selector tools use an `agents` list. Tools with per-agent values use mappings keyed by agent name. Response keys use `alias(agent_name)` when an alias exists, otherwise `agent_name`. Never pass a formatted response key back as an agent selector.
+Selector tools use an `agents` list. Tools with per-agent values use mappings keyed by agent name. Response keys use each agent's scene-visible `mark` (typically `alias(agent_name)` when an alias exists, otherwise `agent_name`). Never pass a formatted response key back as an agent selector.
 
 ## Mandatory History Protocol
 
 Every non-`update_history` CAP tool request and response MUST be recorded. Calls to `update_history` itself are excluded to avoid infinite recursion.
 
-History is grouped by an exact mark:
+History is append-only. Each `update_history` call sends a mapping from agent selector to one transcript message:
+
+```json
+{
+  "agent_messages": {
+    "{agent_name}": {
+      "role": "llm",
+      "mark": "step_1_trail_1",
+      "request": {
+        "tool": "{cap_id}_execute",
+        "arguments": {"agent_codes": {"{agent_name}": "<code>"}}
+      }
+    }
+  }
+}
+```
+
+Each message must include:
+
+- `role`: `llm` for planner/tool-caller events, or the agent response key (`agent.mark`) for agent-side responses.
+- `mark`: the exact execution mark for that event.
+- exactly one of `request` or `response`.
+
+History marks still use this exact spelling:
 
 ```text
 step_{exec_cnt}_trail_{trial_cnt}
@@ -47,16 +70,14 @@ Before calling a CAP tool, append its request:
 {
   "name": "{cap_id}_update_history",
   "arguments": {
-    "agent_histories": {
+    "agent_messages": {
       "{agent_name}": {
-        "step_1_trail_1": [
-          {
-            "request": {
-              "tool": "{cap_id}_execute",
-              "arguments": {"agent_codes": {"{agent_name}": "<code>"}}
-            }
-          }
-        ]
+        "role": "llm",
+        "mark": "step_1_trail_1",
+        "request": {
+          "tool": "{cap_id}_execute",
+          "arguments": {"agent_codes": {"{agent_name}": "<code>"}}
+        }
       }
     }
   }
@@ -69,16 +90,14 @@ After the tool returns, append its response to the same mark:
 {
   "name": "{cap_id}_update_history",
   "arguments": {
-    "agent_histories": {
+    "agent_messages": {
       "{agent_name}": {
-        "step_1_trail_1": [
-          {
-            "response": {
-              "tool": "{cap_id}_execute",
-              "data": "<complete returned response>"
-            }
-          }
-        ]
+        "role": "<agent_mark>",
+        "mark": "step_1_trail_1",
+        "response": {
+          "tool": "{cap_id}_execute",
+          "data": "<complete returned response>"
+        }
       }
     }
   }
@@ -119,19 +138,17 @@ Build ordered atomic subtasks. Append the plan as a history event under `step_0_
 
 ```json
 {
-  "agent_histories": {
+  "agent_messages": {
     "{agent_name}": {
-      "step_0_trail_0": [
-        {
-          "response": {
-            "tool": "planning",
-            "data": {
-              "main_task": "<original task>",
-              "sub_tasks": ["<subtask 1>", "<subtask 2>"]
-            }
-          }
+      "role": "llm",
+      "mark": "step_0_trail_0",
+      "response": {
+        "tool": "planning",
+        "data": {
+          "main_task": "<original task>",
+          "sub_tasks": ["<subtask 1>", "<subtask 2>"]
         }
-      ]
+      }
     }
   }
 }
@@ -170,6 +187,8 @@ Inspect each result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt
 
 ```json
 {
+  "role": "<agent_mark>",
+  "mark": "step_1_trail_1",
   "response": {
     "tool": "verification",
     "data": {
@@ -207,47 +226,47 @@ The complete record contains `info.history`, `info.executes`, `code`, `main_vide
 ## Conceptual Pseudo-Code
 
 ```python
-def call_cap_with_history(agent, mark, tool_name, arguments):
+def call_cap_with_history(agent, agent_mark, mark, tool_name, arguments):
     # update_history calls are deliberately not logged.
-    update_history(agent_histories={
-        agent: {mark: [{"request": {"tool": tool_name, "arguments": arguments}}]}
+    update_history(agent_messages={
+        agent: {"role": "llm", "mark": mark, "request": {"tool": tool_name, "arguments": arguments}}
     })
     response = call_cap_tool(tool_name, arguments)
-    update_history(agent_histories={
-        agent: {mark: [{"response": {"tool": tool_name, "data": response}}]}
+    update_history(agent_messages={
+        agent: {"role": agent_mark, "mark": mark, "response": {"tool": tool_name, "data": response}}
     })
     return response
 
 setup_mark = "step_0_trail_0"
 reset_result = call_cap_with_history(
-    agent, setup_mark, "{cap_id}_reset", {"agent_options": {agent: {}}}
+    agent, agent_mark, setup_mark, "{cap_id}_reset", {"agent_options": {agent: {}}}
 )
 doc_result = call_cap_with_history(
-    agent, setup_mark, "{cap_id}_agent_doc", {"agents": [agent]}
+    agent, agent_mark, setup_mark, "{cap_id}_agent_doc", {"agents": [agent]}
 )
 obs_result = call_cap_with_history(
-    agent, setup_mark, "{cap_id}_get_obs", {"agents": [agent]}
+    agent, agent_mark, setup_mark, "{cap_id}_get_obs", {"agents": [agent]}
 )
 
 for step_cnt, subtask in enumerate(subtasks, start=1):
     trail_cnt = 1
     mark = f"step_{step_cnt}_trail_{trail_cnt}"
     call_cap_with_history(
-        agent, mark, "{cap_id}_execute", {"agent_codes": {agent: make_code(subtask)}}
+        agent, agent_mark, mark, "{cap_id}_execute", {"agent_codes": {agent: make_code(subtask)}}
     )
     status = call_cap_with_history(
-        agent, mark, "{cap_id}_monitor", {"agents": [agent], "wait_ms": -1}
+        agent, agent_mark, mark, "{cap_id}_monitor", {"agents": [agent], "wait_ms": -1}
     )
     while not verify(status) and trail_cnt <= max_retry:
         trail_cnt += 1
         mark = f"step_{step_cnt}_trail_{trail_cnt}"
-        call_cap_with_history(agent, mark, "{cap_id}_retry", {"agents": [agent]})
+        call_cap_with_history(agent, agent_mark, mark, "{cap_id}_retry", {"agents": [agent]})
         status = call_cap_with_history(
-            agent, mark, "{cap_id}_monitor", {"agents": [agent], "wait_ms": -1}
+            agent, agent_mark, mark, "{cap_id}_monitor", {"agents": [agent], "wait_ms": -1}
         )
 
 record_result = call_cap_with_history(
-    agent, mark, "{cap_id}_record", {"agents": [agent]}
+    agent, agent_mark, mark, "{cap_id}_record", {"agents": [agent]}
 )
 ```
 

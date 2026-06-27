@@ -5,9 +5,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cap_general.core.policy.base_policy import BasePolicy, BasePolicyConfig
+
+if TYPE_CHECKING:
+    from logging import Logger
 
 
 @dataclass
@@ -29,7 +32,7 @@ class RslRlPolicy(BasePolicy):
     name = "RSL-RL Policy"
     config_cls = RslRlPolicyConfig
 
-    def __init__(self, config: RslRlPolicyConfig, logger=None):
+    def __init__(self, config: RslRlPolicyConfig, logger: Logger):
         super().__init__(config=config, logger=logger)
         self._policy = None
         self._loaded_env_id: int | None = None

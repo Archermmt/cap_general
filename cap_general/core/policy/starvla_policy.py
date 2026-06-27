@@ -41,7 +41,7 @@ class StarVLAPolicy(BasePolicy):
     def __init__(
         self,
         config: StarVLAPolicyConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._ckpt_path = config.ckpt_path

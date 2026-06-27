@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import threading
 from pathlib import Path
 from types import ModuleType
 
@@ -25,17 +24,9 @@ def load_module_from_file(module_name: str, file_path: str | Path) -> ModuleType
 
 
 def step_scene(scene) -> None:
-    """Step a Genesis scene through its CAP thread-aware dispatcher when present.
-
-    On macOS Genesis runs the interactive viewer in the main thread. CAP agent
-    code can run in a worker thread, so GenesisScene installs ``_cap_step_scene``
-    on the raw scene to send step requests back to the viewer-owning thread.
-    """
-    stepper = getattr(scene, "_cap_step_scene", None)
-    if callable(stepper):
-        stepper()
+    """Step a Genesis scene directly."""
+    bridge = getattr(scene, "_cap_step_scene", None)
+    if callable(bridge):
+        bridge()
         return
-    if threading.current_thread() is threading.main_thread():
-        scene.step()
-    else:
-        scene.step(refresh_visualizer=False)
+    scene.step()

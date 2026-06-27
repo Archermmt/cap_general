@@ -55,7 +55,7 @@ class SAM3Policy(BasePolicy):
     def __init__(
         self,
         config: SAM3PolicyConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._device = config.device

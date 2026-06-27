@@ -55,6 +55,7 @@ class BaseScene(RegisteredBase):
     _registry: ClassVar[dict[str, type["BaseScene"]]] = {}
     config_cls: ClassVar[type[BaseSceneConfig]] = BaseSceneConfig
     registry_key_method: ClassVar[str] = "scene_type"
+    _run_task_on_main_thread: ClassVar[bool] = False
 
     @classmethod
     def scene_type(cls) -> str:
@@ -68,9 +69,9 @@ class BaseScene(RegisteredBase):
         self._logger = logger or self._build_logger(self._record_dir)
         self._agents: dict[str, BaseAgent] = {}
         self._agent_aliases: dict[str, str] = {}
-        self._agent_execute_tasks: dict[str, Any] = {}
         self._agent_execute_status: dict[str, dict[str, Any]] = {}
-        self._background_event_task: Any | None = None
+        self._agent_execute_tasks: dict[str, asyncio.Future[Any] | asyncio.Task[Any]] = {}
+        self._task_lock: asyncio.Lock | None = None
         self._before_build_agents()
         set_current_scene(self)
         try:
@@ -125,10 +126,12 @@ class BaseScene(RegisteredBase):
                 raise ValueError(f"Duplicate agent name in scene: {spec.name}")
             agent_config = dict(spec.config)
             agent_config["record_dir"] = self._record_dir / spec.name
+            aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
+            agent_config["name"] = spec.name
+            agent_config["alias"] = aliases[0] if aliases else None
             agent = BaseAgent.from_config(agent_config, logger=self._logger)
             self._agents[spec.name] = agent
             self._agent_aliases[spec.name] = spec.name
-            aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
             for alias in aliases:
                 existing = self._agent_aliases.get(alias)
                 if existing is not None and existing != spec.name:
@@ -140,158 +143,158 @@ class BaseScene(RegisteredBase):
 
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""
-        requests = self._resolve_agent_mapping(agent_options)
-        return {
-            self._agent_mark(canonical): self._agents[canonical].reset(options=options)
-            for canonical, options in requests.items()
-        }
+        requests = self._resolve_kwargs(agent_options)
+        results: dict[str, Any] = {}
+        for canonical, options in requests.items():
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.reset(options=options)
+        return results
 
     def agent_doc(self, agents: list[str]) -> dict[str, dict]:
         """Return documentation for the selected agents, or all agents if omitted."""
-        return {
-            self._agent_mark(canonical): self._agents[canonical].agent_doc()
-            for canonical in self._resolve_agent_names(agents)
-        }
+        results: dict[str, dict[str, Any]] = {}
+        for canonical in self._resolve_names(agents):
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.agent_doc()
+        return results
 
     async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
-        """Start code execution concurrently from an agent-to-code mapping.
+        """Start code execution tasks for each selected agent."""
+        requests = self._resolve_kwargs(agent_codes)
+        results = [await self._start_task(agent, "execute", code) for agent, code in requests.items()]
+        return self._format_results(requests, results)
 
-        An agent with an unfinished execution keeps running its current task and
-        does not start the newly supplied code.
-        """
-        requests = self._resolve_agent_mapping(agent_codes)
-        statuses = await asyncio.gather(
-            *(self._start_agent_task(agent, "execute", code) for agent, code in requests.items())
-        )
-        return self._format_agent_results(requests, statuses)
+    async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Start train tasks for selected agents from an agent-to-options mapping."""
+        requests = self._resolve_kwargs(agent_options)
+        results = []
+        for agent, train_request in requests.items():
+            train_request = dict(train_request or {})
+            policy_name = train_request.pop("policy_name")
+            method = train_request.pop("method", "train")
+            options = train_request.pop("options", train_request)
+            results.append(await self._start_task(agent, "train", policy_name, method, options))
+        return self._format_results(requests, results)
 
     async def retry(self, agents: list[str]) -> dict[str, dict[str, Any]]:
-        """Start retrying the latest execution concurrently for selected agents."""
-        canonical_agents = self._resolve_agent_names(agents)
-        statuses = await asyncio.gather(*(self._start_agent_task(agent, "retry") for agent in canonical_agents))
-        return self._format_agent_results(canonical_agents, statuses)
+        """Start retry tasks for selected agents."""
+        canonical_agents = self._resolve_names(agents)
+        results = [await self._start_task(agent, "retry") for agent in canonical_agents]
+        return self._format_results(canonical_agents, results)
 
-    async def _start_agent_task(self, agent: str, method_name: str, *args: Any) -> dict[str, Any]:
-        canonical = self._resolve_agent_name(agent)
-        task = self._agent_execute_tasks.get(canonical)
-        if task is not None and not task.done():
-            return await self._monitor_agent(canonical, wait_ms=0)
+    async def monitor(self, agents: list[str], wait_ms: int = -1) -> dict[str, dict[str, Any]]:
+        """Return selected agents' execution statuses, optionally waiting for completion."""
+        canonical_agents = self._resolve_names(agents)
+        if wait_ms != 0:
+            await asyncio.gather(*(self._wait_task(agent, wait_ms) for agent in canonical_agents))
+        return self._format_results(
+            canonical_agents,
+            [
+                cap_utils.to_json_safe(self._agent_execute_status.get(agent, self._get_status(agent)))
+                for agent in canonical_agents
+            ],
+        )
 
-        started_at = time.time()
-        self._agent_execute_status[canonical] = {
+    def _get_status(self, canonical: str, **kwargs: Any) -> dict[str, Any]:
+        status = {
             "agent": canonical,
-            "method": method_name,
-            "running": True,
-            "started_at": started_at,
+            "method": None,
+            "running": False,
+            "started_at": None,
             "finished_at": None,
             "duration": None,
             "result": None,
             "error": None,
         }
+        status.update(kwargs)
+        return status
 
-        task = asyncio.create_task(self._run_agent_task(canonical, method_name, started_at, *args))
-        self._agent_execute_tasks[canonical] = task
-        self._ensure_background_event_pump()
-        return await self._monitor_agent(canonical, wait_ms=0)
-
-    async def monitor(self, agents: list[str], wait_ms: int = -1) -> dict[str, dict[str, Any]]:
-        """Return selected agents' statuses after applying a shared wait policy.
-
-        Args:
-            agents: Agent names or aliases to inspect.
-            wait_ms: ``-1`` waits for completion, ``0`` returns immediately,
-                and a positive value waits that many milliseconds before
-                returning the latest status.
-        """
-        if wait_ms < -1:
-            raise ValueError("wait_ms must be -1, 0, or a positive integer")
-        canonical_agents = self._resolve_agent_names(agents)
-        statuses = await asyncio.gather(
-            *(self._monitor_agent(agent, wait_ms) for agent in canonical_agents)
+    async def _start_task(self, canonical: str, method_name: str, *args: Any) -> dict[str, Any]:
+        task = self._agent_execute_tasks.get(canonical)
+        if task is not None and not task.done():
+            return cap_utils.to_json_safe(self._agent_execute_status.get(canonical, self._get_status(canonical)))
+        started_at = time.time()
+        self._agent_execute_status[canonical] = self._get_status(
+            canonical,
+            method=method_name,
+            running=True,
+            started_at=started_at,
         )
-        return self._format_agent_results(canonical_agents, statuses)
+        agent = self._get_agent(canonical)
+        method = getattr(agent, method_name)
 
-    async def _monitor_agent(self, agent: str, wait_ms: int) -> dict[str, Any]:
-        """Return one canonical agent's current execution status.
+        async def _run() -> dict[str, Any]:
+            try:
+                if self._run_task_on_main_thread:
+                    if self._task_lock is None:
+                        self._task_lock = asyncio.Lock()
+                    async with self._task_lock:
+                        result = method(*args)
+                else:
+                    result = await asyncio.to_thread(method, *args)
+                error = None
+            except BaseException as exc:
+                self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
+                result = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                    "stderr": str(exc),
+                }
+                error = {"type": type(exc).__name__, "message": str(exc)}
+            finished_at = time.time()
+            status = self._get_status(
+                canonical,
+                method=method_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration=f"{finished_at - started_at:.2f}s",
+                result=cap_utils.to_json_safe(result),
+                error=error,
+            )
+            self._agent_execute_status[canonical] = status
+            return status
 
-        Args:
-            agent: Canonical agent name to inspect.
-            wait_ms: Wait policy in milliseconds; see :meth:`monitor`.
-        """
-        task = self._agent_execute_tasks.get(agent)
-        status = self._agent_execute_status.get(
-            agent,
-            {
-                "agent": agent,
-                "method": None,
-                "running": False,
-                "started_at": None,
-                "finished_at": None,
-                "duration": None,
-                "result": None,
-                "error": None,
-            },
-        )
-        if task is None:
-            if wait_ms > 0:
-                await asyncio.sleep(wait_ms / 1000)
-            return cap_utils.to_json_safe(status)
-        if wait_ms == -1 and not task.done():
-            self._ensure_background_event_pump()
-            status = await task
-        elif wait_ms > 0:
-            if not task.done():
-                self._ensure_background_event_pump()
-            await asyncio.sleep(wait_ms / 1000)
-            status = self._agent_execute_status.get(agent, status)
-        elif task.done():
-            status = self._agent_execute_status.get(agent, status)
-        self._process_background_events()
-        return cap_utils.to_json_safe(status)
+        self._agent_execute_tasks[canonical] = asyncio.create_task(_run())
+        return cap_utils.to_json_safe(self._agent_execute_status.get(canonical, self._get_status(canonical)))
 
-    def _process_background_events(self) -> bool:
-        """Process subclass-owned main-thread events while agent tasks run."""
-        return False
-
-    def _has_running_agent_tasks(self) -> bool:
-        return any(task is not None and not task.done() for task in self._agent_execute_tasks.values())
-
-    def _ensure_background_event_pump(self) -> None:
-        if self._background_event_task is None or self._background_event_task.done():
-            self._background_event_task = asyncio.create_task(self._background_event_pump())
-
-    async def _background_event_pump(self) -> None:
+    async def _wait_task(self, canonical: str, wait_ms: int) -> None:
+        task = self._agent_execute_tasks.get(canonical)
+        if task is None or task.done():
+            return
+        if wait_ms < 0:
+            await asyncio.shield(task)
+            return
+        if wait_ms == 0:
+            return
         try:
-            while self._has_running_agent_tasks():
-                processed = self._process_background_events()
-                await asyncio.sleep(0 if processed else 0.001)
-            self._process_background_events()
-        finally:
-            self._background_event_task = None
+            await asyncio.wait_for(asyncio.shield(task), timeout=max(wait_ms, 0) / 1000.0)
+        except asyncio.TimeoutError:
+            return
 
     def record(self, agents: list[str]) -> dict[str, Any]:
         """Record complete run artifacts for selected agents, or all agents if omitted."""
-        return {
-            self._agent_mark(canonical): self._agents[canonical].record(step_idx=-1)
-            for canonical in self._resolve_agent_names(agents)
-        }
+        results: dict[str, Any] = {}
+        for canonical in self._resolve_names(agents):
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.record(step_idx=-1)
+        return results
 
-    def update_history(
-        self, agent_histories: dict[str, dict[str, list[dict[str, Any]]]]
-    ) -> dict[str, Any]:
-        """Append marked request/response events to selected agents' histories."""
-        requests = self._resolve_agent_mapping(agent_histories)
-        return {
-            self._agent_mark(canonical): self._agents[canonical].update_history(history)
-            for canonical, history in requests.items()
-        }
+    def update_history(self, agent_messages: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Append one history message to each selected agent transcript."""
+        requests = self._resolve_kwargs(agent_messages)
+        results: dict[str, Any] = {}
+        for canonical, message in requests.items():
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.update_history(message)
+        return results
 
     def get_obs(self, agents: list[str]) -> dict[str, Any]:
         """Return observations for the selected agents, or all agents if omitted."""
-        return {
-            self._agent_mark(canonical): self._agents[canonical].get_obs()
-            for canonical in self._resolve_agent_names(agents)
-        }
+        results: dict[str, Any] = {}
+        for canonical in self._resolve_names(agents):
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.get_obs()
+        return results
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
@@ -307,6 +310,7 @@ class BaseScene(RegisteredBase):
             "reset",
             "agent_doc",
             "execute",
+            "train",
             "monitor",
             "retry",
             "record",
@@ -315,29 +319,18 @@ class BaseScene(RegisteredBase):
         ):
             method = getattr(self, method_name)
 
-            if inspect.iscoroutinefunction(method):
-
-                @functools.wraps(method)  # pylint: disable=cell-var-from-loop
-                async def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                    self._logger.info(
-                        "MCP scene tool call: %s args=%s kwargs=%s",
-                        _name,
-                        cap_utils.summarize_value(args),
-                        cap_utils.summarize_value(kwargs),
-                    )
-                    return await _method(*args, **kwargs)
-
-            else:
-
-                @functools.wraps(method)  # pylint: disable=cell-var-from-loop
-                def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                    self._logger.info(
-                        "MCP scene tool call: %s args=%s kwargs=%s",
-                        _name,
-                        cap_utils.summarize_value(args),
-                        cap_utils.summarize_value(kwargs),
-                    )
-                    return _method(*args, **kwargs)
+            @functools.wraps(method)  # pylint: disable=cell-var-from-loop
+            async def _wrapped(*args, _method=method, _name=method_name, **kwargs):
+                self._logger.info(
+                    "MCP scene tool call: %s args=%s kwargs=%s",
+                    _name,
+                    cap_utils.summarize_value(args),
+                    cap_utils.summarize_value(kwargs),
+                )
+                result = _method(*args, **kwargs)
+                if inspect.isawaitable(result):
+                    return await result
+                return result
 
             _wrapped.__doc__ = self._mcp_tool_doc(method_name, method)
             _wrapped.__signature__ = inspect.signature(method)  # type: ignore[attr-defined]
@@ -348,38 +341,11 @@ class BaseScene(RegisteredBase):
         )
         server.run(transport=transport)
 
-    async def _run_agent_task(self, canonical: str, method_name: str, started_at: float, *args: Any) -> dict[str, Any]:
-        try:
-            method = getattr(self._agents[canonical], method_name)
-            result = await asyncio.to_thread(method, *args)
-            error = None
-        except BaseException as exc:  # pragma: no cover - defensive task wrapper
-            result = {
-                "ok": False,
-                "error": type(exc).__name__,
-                "stderr": str(exc),
-            }
-            error = {"type": type(exc).__name__, "message": str(exc)}
-
-        finished_at = time.time()
-        status = {
-            "agent": canonical,
-            "method": method_name,
-            "running": False,
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "duration": f"{finished_at - started_at:.2f}s",
-            "result": cap_utils.to_json_safe(result),
-            "error": error,
-        }
-        self._agent_execute_status[canonical] = status
-        return status
-
     def _get_agent(self, agent: str | None = None) -> BaseAgent:
         """Return an agent by name or alias."""
-        return self._agents[self._resolve_agent_name(agent)]
+        return self._agents[self._resolve_name(agent)]
 
-    def _resolve_agent_name(self, agent: str | None = None) -> str:
+    def _resolve_name(self, agent: str | None = None) -> str:
         """Return the canonical agent name for a name or alias."""
         if agent is None:
             if len(self._agents) == 1:
@@ -390,37 +356,33 @@ class BaseScene(RegisteredBase):
             raise KeyError(f"Unknown agent: {agent}")
         return canonical
 
-    def _resolve_agent_names(self, agents: list[str] | None = None) -> list[str]:
+    def _resolve_names(self, agents: list[str] | None = None) -> list[str]:
         """Resolve names and aliases to unique canonical agent names."""
         requested = list(self._agents) if agents is None else agents
         canonical_agents: list[str] = []
         for agent in requested:
-            canonical = self._resolve_agent_name(agent)
+            canonical = self._resolve_name(agent)
             if canonical not in canonical_agents:
                 canonical_agents.append(canonical)
         return canonical_agents
 
-    def _resolve_agent_mapping(self, values: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_kwargs(self, values: dict[str, Any]) -> dict[str, Any]:
         """Resolve mapping keys to canonical names and reject alias collisions."""
         resolved: dict[str, Any] = {}
         for agent, value in values.items():
-            canonical = self._resolve_agent_name(agent)
+            canonical = self._resolve_name(agent)
             if canonical in resolved:
                 raise ValueError(f"Duplicate agent mapping after alias resolution: {agent!r} -> {canonical!r}")
             resolved[canonical] = value
         return resolved
 
-    def _agent_mark(self, canonical: str) -> str:
-        """Return a human-readable agent mark such as ``alias(agent_name)``."""
-        alias = next(
-            (name for name, agent_name in self._agent_aliases.items() if agent_name == canonical and name != canonical),
-            None,
-        )
-        return f"{alias}({canonical})" if alias else canonical
-
-    def _format_agent_results(self, agents: Iterable[str], results: Iterable[Any]) -> dict[str, Any]:
+    def _format_results(self, agents: Iterable[str], results: Iterable[Any]) -> dict[str, Any]:
         """Key ordered agent results by their human-readable response names."""
-        return {self._agent_mark(canonical): result for canonical, result in zip(agents, results, strict=True)}
+        formatted: dict[str, Any] = {}
+        for canonical, result in zip(agents, results, strict=True):
+            agent = self._get_agent(canonical)
+            formatted[agent.mark] = result
+        return formatted
 
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
         """Render scene-bound skills under ``skill_folder/cap_id``."""

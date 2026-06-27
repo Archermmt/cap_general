@@ -134,6 +134,7 @@ def test_local_drone_agent() -> None:
     """Smoke test: run a DroneAgent hover task in-process."""
     result = run_drone_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
+    assert result.get("ok"), f"DroneAgent test failed: {result}"
 
 
 if __name__ == "__main__":

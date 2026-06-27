@@ -59,9 +59,9 @@ class BasePolicy(RegisteredBase):
     config_cls: ClassVar[type[BasePolicyConfig]] = BasePolicyConfig
     registry_key_method: ClassVar[str] = "policy_type"
 
-    def __init__(self, config: BasePolicyConfig, logger: logging.Logger | None = None):
+    def __init__(self, config: BasePolicyConfig, logger: logging.Logger):
         self._config = config
-        self._logger = logger or logging.getLogger(__name__)
+        self._logger = logger
 
     @classmethod
     def policy_type(cls) -> str:

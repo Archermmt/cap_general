@@ -121,7 +121,7 @@ class LiberoRobot(BaseRobot):
     def __init__(
         self,
         config: LiberoRobotConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._task_suite_name = config.task_suite_name

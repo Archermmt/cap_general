@@ -10,6 +10,7 @@ from typing import Any, SupportsFloat
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.frameworks.genesis.utils import step_scene
 
 _DEFAULT_COLORS = [
     (0.95, 0.12, 0.14, 1.0),
@@ -66,7 +67,7 @@ class FrankaRobot(BaseRobot):
     def __init__(
         self,
         config: FrankaRobotConfig,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
         self._config = config
@@ -234,7 +235,7 @@ class FrankaRobot(BaseRobot):
     def step_simulation(self) -> None:
         """Advance the Genesis simulation by one timestep."""
         if self._scene is not None:
-            self._scene.step()
+            step_scene(self._scene)
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Return the latest robot and object state."""
