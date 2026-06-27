@@ -86,9 +86,7 @@ class BaseScene(RegisteredBase):
         return cls.from_config(cls._load_yaml_config(config_path, overrides=overrides))
 
     @staticmethod
-    def _load_yaml_config(
-        config_path: str | Path, overrides: list[str] | None = None
-    ) -> dict[str, Any]:
+    def _load_yaml_config(config_path: str | Path, overrides: list[str] | None = None) -> dict[str, Any]:
         """Load a scene YAML config and apply recursive overrides."""
         return load_yaml_config(config_path, overrides=overrides)
 
@@ -131,7 +129,6 @@ class BaseScene(RegisteredBase):
             agent_config["alias"] = aliases[0] if aliases else None
             agent = BaseAgent.from_config(agent_config, logger=self._logger)
             self._agents[spec.name] = agent
-            self._agent_aliases[spec.name] = spec.name
             for alias in aliases:
                 existing = self._agent_aliases.get(alias)
                 if existing is not None and existing != spec.name:
@@ -351,8 +348,8 @@ class BaseScene(RegisteredBase):
             if len(self._agents) == 1:
                 return next(iter(self._agents))
             raise ValueError("agent is required when a scene has multiple agents")
-        canonical = self._agent_aliases.get(agent)
-        if canonical is None:
+        canonical = self._agent_aliases.get(agent, agent)
+        if canonical not in self._agents:
             raise KeyError(f"Unknown agent: {agent}")
         return canonical
 
