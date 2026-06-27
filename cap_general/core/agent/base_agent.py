@@ -185,7 +185,13 @@ class BaseAgent(RegisteredBase):
         self._trial_cnt += 1
         return self._execute_once(self._step_codes[-1])
 
-    def train(self, policy_name: str, method: str = "train", options: dict[str, Any] | None = None):
+    def train(
+        self,
+        policy_name: str,
+        epoch: int,
+        method: str = "train",
+        options: dict[str, Any] | None = None,
+    ):
         """Train a configured policy.
 
         Performs simple bookkeeping (logging and incrementing ``train_epoch``)
@@ -195,6 +201,7 @@ class BaseAgent(RegisteredBase):
         Args:
             policy_name: Name of the policy to train, as configured in
                 ``policies``.
+            epoch: Number of training epochs to run. Must be positive.
             method: Training method/stage identifier, passed through to
                 ``_train`` (e.g. ``"rl"`` or ``"bc"``). Defaults to ``"train"``.
             options: [_options_doc()]
@@ -203,21 +210,30 @@ class BaseAgent(RegisteredBase):
             A dict with ``ok`` and the result of ``_train``, plus the updated
             ``train_epoch`` count.
         """
+        if epoch <= 0:
+            raise ValueError("epoch must be a positive integer")
         options = dict(options or {})
-        self._logger.info("Starting train: policy=%s method=%s options=%s", policy_name, method, options)
-        self._train_epoch += 1
+        self._logger.info(
+            "Starting train: policy=%s epoch=%s method=%s options=%s",
+            policy_name,
+            epoch,
+            method,
+            options,
+        )
+        self._train_epoch += epoch
         try:
-            result = self._train(policy_name=policy_name, method=method, options=options)
+            result = self._train(policy_name=policy_name, epoch=epoch, method=method, options=options)
             return {"ok": True, "train_epoch": self._train_epoch, "result": result}
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
             return {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
 
-    def _train(self, policy_name: str, method: str, options: dict[str, Any]) -> Any:
+    def _train(self, policy_name: str, epoch: int, method: str, options: dict[str, Any]) -> Any:
         """Hook for subclasses to implement the actual training logic.
 
         Args:
             policy_name: Name of the policy to train.
+            epoch: Number of training epochs to run.
             method: Training method/stage identifier.
             options: Training options/hyperparameters.
 
@@ -347,6 +363,10 @@ class BaseAgent(RegisteredBase):
             self._logger.warning("Policy %r has no callable method %r", policy_name, method)
             return None
         return policy_method(**kwargs)
+
+    def _update_policy(self, policy_name: str, **kwargs: Any) -> Any:
+        """Update a configured policy by name."""
+        return self._run_policy(policy_name, method="update", **kwargs)
 
     def _compute_reward(self) -> float:
         """Compute the current reward."""

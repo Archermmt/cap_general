@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pickle
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -101,15 +100,11 @@ class GraspAgent(BaseAgent):
             return super()._options_doc(method_name)
         return (
             "num_envs: Number of parallel environments. Must match the existing robot env (default 1).\n"
-            "max_iterations: Training iterations (default 10001).\n"
             "seed: Random seed metadata for the training run (default 1).\n"
-            "env_cfg: Dict of overrides for the GraspEnv environment config.\n"
-            "reward_scales: Dict of overrides for reward scales.\n"
-            "train_cfg: Dict of overrides for the RL or BC training config.\n"
-            "robot_cfg: Dict of overrides for the Franka robot config."
+            "train_cfg: Dict of overrides for the RL or BC training config."
         )
 
-    def _train(self, policy_name: str, method: str, options: dict) -> dict:
+    def _train(self, policy_name: str, epoch: int, method: str, options: dict) -> dict:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
 
         try:
@@ -122,43 +117,18 @@ class GraspAgent(BaseAgent):
             raise ValueError(f"Unsupported grasp train method: {method!r}")
         method = "rl" if method == "train" else method
 
-        env = self._robot.example_env
-        if env is None:
-            raise RuntimeError("Grasp training requires a live Genesis example_env on the agent robot")
-        if getattr(env, "_deferred_build", False):
-            raise RuntimeError("Grasp training requires the Genesis scene to be fully built before training")
+        env = self._robot
 
         log_dir = self.train_dir / f"{policy_name}_{method}"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         seed = int(options.get("seed", 1))
-        max_iterations = int(options.get("max_iterations", 10001))
         configured_num_envs = int(getattr(env, "num_envs", 1))
         num_envs = int(options.get("num_envs", configured_num_envs))
         if num_envs != configured_num_envs:
             raise ValueError(
                 f"train num_envs={num_envs} does not match existing robot env num_envs={configured_num_envs}"
             )
-
-        env_cfg = {
-            key: value
-            for key, value in dict(getattr(env, "env_cfg", {})).items()
-            if not str(key).startswith("_")
-        }
-        reward_scales = dict(getattr(env, "reward_scales", {}))
-        robot_cfg = {
-            "ee_link_name": "hand",
-            "gripper_link_names": ["left_finger", "right_finger"],
-            "default_arm_dof": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
-            "default_gripper_dof": [0.04, 0.04],
-            "ik_method": "dls_ik",
-        }
-        robot_cfg.update(options.get("robot_cfg", {}))
-
-        env_cfg.update(options.get("env_cfg", {}))
-        reward_scales.update(options.get("reward_scales", {}))
-        env_cfg["num_envs"] = configured_num_envs
-        env_cfg["visualize_camera"] = False
 
         rl_cfg: dict = {
             "algorithm": {
@@ -225,15 +195,7 @@ class GraspAgent(BaseAgent):
         else:
             bc_cfg.update(options.get("train_cfg", {}))
 
-        with (log_dir / "cfgs.pkl").open("wb") as file:
-            pickle.dump((env_cfg, reward_scales, robot_cfg, rl_cfg, bc_cfg), file)
-
         if method == "bc":
-            try:
-                from behavior_cloning import BehaviorCloning
-            except ImportError as exc:
-                raise ImportError("behavior_cloning package is required for BC training.") from exc
-
             rl_log_dir = self.train_dir / f"{policy_name}_rl"
             if not rl_log_dir.exists():
                 raise FileNotFoundError(f"RL log directory {rl_log_dir} does not exist — train RL first.")
@@ -245,17 +207,32 @@ class GraspAgent(BaseAgent):
             rl_runner.load(last_ckpt)
             teacher_policy = rl_runner.get_inference_policy(device=env.device)
 
-            runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
-            runner.learn(num_learning_iterations=max_iterations, log_dir=log_dir)
+            update_result = self._update_policy(
+                self._bc_policy_name,
+                env=env,
+                train_cfg=bc_cfg,
+                teacher_policy=teacher_policy,
+                log_dir=log_dir,
+                epoch=epoch,
+                device=env.device,
+            )
         else:
-            runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
-            runner.learn(num_learning_iterations=max_iterations, init_at_random_ep_len=True)
+            update_result = self._update_policy(
+                self._rl_policy_name,
+                env=env,
+                train_cfg=rl_cfg,
+                log_dir=log_dir,
+                epoch=epoch,
+                device=env.device,
+                init_at_random_ep_len=True,
+            )
 
         return {
             "policy_name": policy_name,
             "method": method,
             "train_dir": str(log_dir),
-            "iterations": max_iterations,
+            "epoch": epoch,
             "num_envs": configured_num_envs,
             "seed": seed,
+            "update": update_result,
         }

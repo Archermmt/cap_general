@@ -178,11 +178,9 @@ class RobosuiteAgent(BaseAgent):
             segmap=segmentation,
             segmap_id=queried_instance_idx,
         )
-        grasp_scores = np.asarray(grasps.scores)
-        grasp_poses = grasps.grasps
 
         grasp_sample_tf = vtf.SE3.from_matrix(
-            np.asarray(grasp_poses[grasp_scores.argmax()], dtype=np.float64)
+            np.asarray(grasps.grasps[np.asarray(grasps.scores).argmax()], dtype=np.float64)
         ) @ vtf.SE3.from_translation(np.array([0, 0, 0.12]))
 
         cam_extr_tf = vtf.SE3.from_rotation_and_translation(
@@ -190,8 +188,9 @@ class RobosuiteAgent(BaseAgent):
             translation=obs["robot0_robotview"]["pose"][:3],
         )
         grasp_sample_tf_world = cam_extr_tf @ grasp_sample_tf
-
-        return grasp_sample_tf_world.wxyz_xyz[-3:], grasp_sample_tf_world.wxyz_xyz[:4]
+        pick_pos = np.asarray(grasp_sample_tf_world.wxyz_xyz[-3:], dtype=np.float64)
+        pick_quat = np.asarray(grasp_sample_tf_world.wxyz_xyz[:4], dtype=np.float64)
+        return pick_pos, pick_quat
 
     def goto_pose(self, position: np.ndarray, quaternion_wxyz: np.ndarray, z_approach: float = 0.0) -> None:
         """Move to a Cartesian pose using the configured PyRoKi policy.
@@ -268,33 +267,6 @@ class RobosuiteAgent(BaseAgent):
         if rgb.size == 0 or depth.size == 0 or intrinsics.size == 0:
             raise ValueError("Robosuite observation does not contain robot0_robotview rgb/depth/intrinsics")
         return rgb, depth, intrinsics
-
-    @staticmethod
-    def _pose_from_mask_obb(
-        depth_2d: np.ndarray, intrinsics: np.ndarray, mask: np.ndarray, obs: dict
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        import open3d as o3d
-        from scipy.spatial.transform import Rotation
-
-        ys, xs = np.where(mask)
-        if len(xs) == 0:
-            raise ValueError("Empty segmentation mask after NaN filtering")
-        z = depth_2d[ys, xs]
-        fx, fy = intrinsics[0, 0], intrinsics[1, 1]
-        cx, cy = intrinsics[0, 2], intrinsics[1, 2]
-        points = np.column_stack(((xs - cx) * z / fx, (ys - cy) * z / fy, z))
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-        obb = pcd.get_oriented_bounding_box()
-
-        cam_pose = obs["robot0_robotview"]["pose"]
-        cam_rot = Rotation.from_quat([cam_pose[4], cam_pose[5], cam_pose[6], cam_pose[3]])
-        center_world = np.asarray(cam_pose[:3], dtype=np.float64) + cam_rot.apply(obb.center)
-        rot_world = cam_rot * Rotation.from_matrix(obb.R)
-        xyzw = rot_world.as_quat()
-        wxyz = np.array([xyzw[3], xyzw[0], xyzw[1], xyzw[2]], dtype=np.float64)
-        return center_world, wxyz, np.asarray(obb.extent, dtype=np.float64)
 
     def _save_rgbd(self, rgb: np.ndarray, depth: np.ndarray) -> None:
         """Save RGBD debug images under the current step directory."""
@@ -382,10 +354,3 @@ class RobosuiteAgent(BaseAgent):
     @staticmethod
     def _safe_debug_name(value: str) -> str:
         return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value).strip("_") or "debug"
-
-    @staticmethod
-    def _matrix_to_wxyz(rot: np.ndarray) -> np.ndarray:
-        from scipy.spatial.transform import Rotation
-
-        xyzw = Rotation.from_matrix(rot).as_quat()
-        return np.array([xyzw[3], xyzw[0], xyzw[1], xyzw[2]], dtype=np.float64)

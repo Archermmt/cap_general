@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,6 @@ import numpy as np
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 
-from cap_general.core import utils as cap_utils
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 _DEFAULT_CONTROLLER_CFG = str(Path(__file__).resolve().parent / "controllers" / "panda_joint_ctrl.json")
@@ -65,11 +65,46 @@ class RobosuiteBaseRobot(BaseRobot):
         self._subsample_rate = self._SUBSAMPLE_RATE
         self._current_joints = np.zeros(7, dtype=np.float64)
         self._gripper_fraction = 1.0
+        self._sim_executor: ThreadPoolExecutor | None = None
+        self._sim_thread_id: int | None = None
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         raise NotImplementedError("Subclasses must implement _reset")
 
+    def _init_sim_executor(self) -> None:
+        """Create a dedicated single-thread executor that owns the EGL context.
+
+        MuJoCo's EGL OpenGL context is thread-local and cannot be migrated
+        between threads (eglMakeCurrent raises EGL_BAD_ACCESS when called from
+        a thread that did not create the context). Call this before initialising
+        the robosuite env so the env (and its GL context) are created on the
+        dedicated thread.
+        """
+        import threading
+
+        if self._sim_executor is not None:
+            self._sim_executor.shutdown(wait=False)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sim_gl")
+        id_future: Future[int] = executor.submit(threading.get_ident)
+        self._sim_thread_id = id_future.result()
+        self._sim_executor = executor
+
+    def _run_on_sim_thread(self, fn, *args, **kwargs):
+        """Run *fn* on the sim-dedicated thread and return its result.
+
+        If already running on the sim thread (e.g. during reset), call directly.
+        """
+        import threading
+
+        if self._sim_executor is None or threading.get_ident() == self._sim_thread_id:
+            return fn(*args, **kwargs)
+        future: Future = self._sim_executor.submit(fn, *args, **kwargs)
+        return future.result()
+
     def _step(self, action: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        return self._run_on_sim_thread(self._step_on_sim_thread, action)
+
+    def _step_on_sim_thread(self, action: np.ndarray) -> tuple[Any, float, bool, bool, dict[str, Any]]:
         sliced = action[: self._ACTION_SLICE] if self._ACTION_SLICE != 0 else action
         need_render = self._image_keys or hasattr(self, "viser_server")
         if need_render:
@@ -151,7 +186,7 @@ class RobosuiteBaseRobot(BaseRobot):
         target = np.asarray(joints, dtype=np.float64).reshape(7)
         self._current_joints = target
         for _ in range(max_steps):
-            robosuite_obs = self.robosuite_robot._get_observations()
+            robosuite_obs = self._run_on_sim_thread(self.robosuite_robot._get_observations)
             current = np.asarray(robosuite_obs["robot0_joint_pos"], dtype=np.float64)
             if np.linalg.norm(current - target) < tolerance:
                 break
@@ -252,7 +287,10 @@ class RobosuiteBaseRobot(BaseRobot):
             camera_entry["pose_mat"] = cam_robot_tf.as_matrix()
             camera_entry["images"] = {}
             if f"{camera_name}_image" in robosuite_obs:
-                flipped = np.ascontiguousarray(robosuite_obs[f"{camera_name}_image"][::-1])
+                raw_img = robosuite_obs[f"{camera_name}_image"][::-1]
+                if raw_img.dtype != np.uint8:
+                    raw_img = (np.clip(raw_img, 0.0, 1.0) * 255).astype(np.uint8)
+                flipped = np.ascontiguousarray(raw_img)
                 camera_entry["images"]["rgb"] = flipped
                 robosuite_obs[f"{camera_name}_image"] = flipped
             if f"{camera_name}_depth" in robosuite_obs:

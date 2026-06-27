@@ -52,6 +52,47 @@ class BehaviorCloningPolicy(BasePolicy):
         self._ensure_loaded(env)
         return self._policy(rgb_obs, ee_pose)
 
+    def update(self, **kwargs: Any) -> dict[str, Any]:
+        """Train the behavior-cloning policy and retain the updated model."""
+        env = kwargs["env"]
+        log_dir = Path(kwargs.get("log_dir", self._config.log_dir)).expanduser()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        epoch = int(kwargs["epoch"])
+
+        try:
+            import genesis as gs
+        except ImportError as exc:
+            raise ImportError("BehaviorCloningPolicy requires genesis") from exc
+
+        import pickle
+
+        example_root = Path(self._config.example_root).expanduser()
+        module = load_module_from_file(
+            "cap_general_genesis_behavior_cloning",
+            example_root / "behavior_cloning.py",
+        )
+        bc_cfg = kwargs.get("train_cfg")
+        if bc_cfg is None:
+            with (log_dir / self._config.cfgs_filename).open("rb") as file:
+                cfgs = pickle.load(file)
+            bc_cfg = cfgs[self._config.bc_cfg_index]
+        runner_device = kwargs.get("device") or self._config.device or gs.device
+        runner = module.BehaviorCloning(
+            env,
+            bc_cfg,
+            kwargs.get("teacher_policy"),
+            device=runner_device,
+        )
+        runner.learn(num_learning_iterations=epoch, log_dir=log_dir)
+        self._policy = runner._policy
+        self._policy.eval()
+        self._loaded_env_id = id(env)
+        return {
+            "train_dir": str(log_dir),
+            "epoch": epoch,
+            "device": str(runner_device),
+        }
+
     def _ensure_loaded(self, env: Any) -> None:
         if self._policy is not None and self._loaded_env_id == id(env):
             return

@@ -16,6 +16,8 @@ agents:
         seed: 7
         reset_time: 0
         video_fmt: mp4
+        image_keys:
+          - robot0_robotview_image
         privileged: false
         enable_render: true
         viser_debug: false

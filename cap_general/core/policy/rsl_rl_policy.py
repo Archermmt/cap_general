@@ -55,6 +55,36 @@ class RslRlPolicy(BasePolicy):
         self._ensure_loaded(env)
         return self._policy(obs)
 
+    def update(self, **kwargs: Any) -> dict[str, Any]:
+        """Train the policy and retain the updated inference callable."""
+        env = kwargs["env"]
+        log_dir = Path(kwargs.get("log_dir", self._config.log_dir)).expanduser()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        train_cfg = kwargs.get("train_cfg") or self._load_train_cfg(log_dir)
+        epoch = int(kwargs["epoch"])
+        init_at_random_ep_len = bool(kwargs.get("init_at_random_ep_len", True))
+
+        try:
+            import genesis as gs
+            from rsl_rl.runners import OnPolicyRunner
+        except ImportError as exc:
+            raise ImportError("RslRlPolicy requires genesis and rsl-rl-lib") from exc
+
+        runner_device = kwargs.get("device") or self._config.device or gs.device
+        runner = OnPolicyRunner(env, train_cfg, str(log_dir), device=runner_device)
+        runner.learn(
+            num_learning_iterations=epoch,
+            init_at_random_ep_len=init_at_random_ep_len,
+        )
+        self._policy = runner.get_inference_policy(device=runner_device)
+        self._loaded_env_id = id(env)
+        self._train_cfg = train_cfg
+        return {
+            "train_dir": str(log_dir),
+            "epoch": epoch,
+            "device": str(runner_device),
+        }
+
     def _ensure_loaded(self, env: Any) -> None:
         if self._policy is not None and self._loaded_env_id == id(env):
             return

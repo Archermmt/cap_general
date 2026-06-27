@@ -168,9 +168,10 @@ class BaseScene(RegisteredBase):
         for agent, train_request in requests.items():
             train_request = dict(train_request or {})
             policy_name = train_request.pop("policy_name")
+            epoch = train_request.pop("epoch")
             method = train_request.pop("method", "train")
             options = train_request.pop("options", train_request)
-            results.append(await self._start_task(agent, "train", policy_name, method, options))
+            results.append(await self._start_task(agent, "train", policy_name, epoch, method, options))
         return self._format_results(requests, results)
 
     async def retry(self, agents: list[str]) -> dict[str, dict[str, Any]]:

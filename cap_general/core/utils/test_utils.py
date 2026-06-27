@@ -17,6 +17,17 @@ def print_execution_summary(prefix: str, result: dict[str, Any]) -> None:
     )
 
 
+def print_train_summary(prefix: str, result: dict[str, Any]) -> None:
+    train_result = result.get("result", {})
+    print(
+        f"{prefix} Train summary: "
+        f"epoch: {result.get('train_epoch')}, "
+        f"method: {train_result.get('method')}, "
+        f"epoch: {train_result.get('epoch')}, "
+        f"dir: {train_result.get('train_dir')}"
+    )
+
+
 def print_record(prefix: str, record: dict[str, Any]) -> None:
     info = record.get("info", {})
     print(

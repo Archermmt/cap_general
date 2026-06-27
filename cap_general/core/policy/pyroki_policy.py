@@ -1,5 +1,6 @@
 """Local PyRoKi motion planning model implementation."""
 
+import os
 import json
 import logging
 from dataclasses import dataclass, field
@@ -38,8 +39,7 @@ class PyrokiPolicyConfig(BasePolicyConfig):
     min_distance_from_limits: float = 0.15
     describe: str = field(
         default=(
-            "Solves robot inverse kinematics and plans simple Cartesian "
-            "interpolation trajectories with PyRoKi."
+            "Solves robot inverse kinematics and plans simple Cartesian " "interpolation trajectories with PyRoKi."
         ),
         kw_only=True,
     )
@@ -75,14 +75,15 @@ class PyrokiPolicy(BasePolicy):
         if self._robot is not None:
             return
 
+        os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
         try:
             import capx.integrations.motion.pyroki_snippets as pks
             import pyroki as pk
             from robot_descriptions.loaders.yourdfpy import load_robot_description
         except ImportError as exc:
             raise ImportError(
-                "PyrokiPolicy requires pyroki, robot_descriptions, and "
-                "capx.integrations.motion.pyroki_snippets."
+                "PyrokiPolicy requires pyroki, robot_descriptions, and " "capx.integrations.motion.pyroki_snippets."
             ) from exc
 
         urdf = load_robot_description(self._robot_urdf_name)
@@ -91,6 +92,7 @@ class PyrokiPolicy(BasePolicy):
         self._robot_collision = self._build_robot_collision(pk, urdf)
         self._pk = pk
         self._pks = pks
+        logging.getLogger("jaxls").setLevel(logging.WARNING)
 
     def _build_robot_collision(self, pk, urdf):
         if self._sphere_decomposition_path is None:
@@ -189,9 +191,7 @@ class PyrokiPolicy(BasePolicy):
         r_end = Rotation.from_quat([q_end[1], q_end[2], q_end[3], q_end[0]])
         slerp = Slerp([0, 1], Rotation.concatenate([r_start, r_end]))
         quats_xyzw = slerp(np.linspace(0, 1, num_steps)).as_quat()
-        return np.column_stack(
-            [quats_xyzw[:, 3], quats_xyzw[:, 0], quats_xyzw[:, 1], quats_xyzw[:, 2]]
-        )
+        return np.column_stack([quats_xyzw[:, 3], quats_xyzw[:, 0], quats_xyzw[:, 1], quats_xyzw[:, 2]])
 
     def inference(self, mode: str = "ik", **kwargs: Any) -> PyrokiIkResult | PyrokiPlanResult:
         """Run local PyRoKi inference."""

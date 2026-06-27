@@ -1,5 +1,7 @@
 """Local Contact-GraspNet model implementation."""
 
+import os
+import yaml
 import logging
 import sys
 from dataclasses import dataclass, field
@@ -37,7 +39,6 @@ def load_contact_graspnet_config(
     arg_configs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Load Contact-GraspNet YAML config locally."""
-    import yaml
 
     config_path = Path(checkpoint_root) / "config.yaml"
     with config_path.open() as file:
@@ -123,9 +124,7 @@ class GraspNetPolicy(BasePolicy):
             else self._vendor_root / "checkpoints" / "contact_graspnet"
         )
         self._checkpoint_dir = (
-            Path(config.checkpoint_dir)
-            if config.checkpoint_dir is not None
-            else self._checkpoint_root / "checkpoints"
+            Path(config.checkpoint_dir) if config.checkpoint_dir is not None else self._checkpoint_root / "checkpoints"
         )
         self._checkpoint_name = config.checkpoint_name
         self._device = config.device
@@ -151,8 +150,7 @@ class GraspNetPolicy(BasePolicy):
             from contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
         except ImportError as exc:
             raise ImportError(
-                "GraspNetPolicy requires contact_graspnet_pytorch. "
-                f"Checked vendor_root={self._vendor_root}"
+                "GraspNetPolicy requires contact_graspnet_pytorch. " f"Checked vendor_root={self._vendor_root}"
             ) from exc
 
         config = load_contact_graspnet_config(self._checkpoint_root)
@@ -170,6 +168,7 @@ class GraspNetPolicy(BasePolicy):
 
         import torch
 
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(True, warn_only=True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False

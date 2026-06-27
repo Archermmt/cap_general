@@ -29,21 +29,25 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
     def robot_type(cls) -> str:
         return "robosuite_robot"
 
-    def __init__(
-        self,
-        config: RobosuiteCubeRobotConfig | None = None,
-        logger: logging.Logger,
-    ) -> None:
+    def __init__(self, config: RobosuiteCubeRobotConfig, logger: logging.Logger) -> None:
         if config is None:
             config = RobosuiteCubeRobotConfig()
         super().__init__(config=config, logger=logger)
+        self._init_sim_executor()
         try:
-            self._init_robosuite_stack()
+            self._run_on_sim_thread(self._init_robosuite_stack)
         except Exception as exc:
             raise RuntimeError(f"Failed to initialize RobosuiteCubeRobot: {exc}") from exc
 
     def _init_robosuite_stack(self) -> None:
+        import logging
+
+        _rs_log = logging.getLogger("robosuite")
+        _rs_level = _rs_log.level
+        _rs_log.setLevel(logging.ERROR)
         import robosuite as suite
+
+        _rs_log.setLevel(_rs_level)
         from robosuite.controllers.composite.composite_controller_factory import (
             load_composite_controller_config,
         )
@@ -105,6 +109,9 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
         return BaseRobot.reset(self, options=options)
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        return self._run_on_sim_thread(self._reset_on_sim_thread, options)
+
+    def _reset_on_sim_thread(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if self._seed is not None:
             self.robosuite_robot.rng = np.random.default_rng(self._seed)
             self.robosuite_robot.placement_initializer.rng = self.robosuite_robot.rng
@@ -153,9 +160,12 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
         return pose_dict
 
     def compute_reward(self) -> float:
-        return float(self.robosuite_robot.reward(action=None))
+        return float(self._run_on_sim_thread(self.robosuite_robot.reward, action=None))
 
     def _get_robot_obs(self) -> dict[str, Any]:
+        return self._run_on_sim_thread(self._get_robot_obs_on_sim_thread)
+
+    def _get_robot_obs_on_sim_thread(self) -> dict[str, Any]:
         robosuite_obs = self.robosuite_robot._get_observations()
         pose_dict = self._cube_pose_dict(robosuite_obs)
         robosuite_obs["cube_poses"] = {key: np.asarray(value, dtype=np.float32) for key, value in pose_dict.items()}
