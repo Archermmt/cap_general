@@ -75,7 +75,7 @@ class BaseAgent(RegisteredBase):
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
-        self._plan, self._plan_start = {}, 0
+        self._history, self._history_start = {}, 0
         self._clear_record_dir_contents()
 
     @staticmethod
@@ -112,7 +112,7 @@ class BaseAgent(RegisteredBase):
         if reset_level >= cap_utils.ResetLevel.AGENT:
             self._exec_cnt, self._trial_cnt = 0, 0
             self._step_infos, self._step_codes = [], []
-            self._plan, self._plan_start = {}, time.time()
+            self._history, self._history_start = {}, time.time()
             self._clear_record_dir_contents()
         return {"ok": True}
 
@@ -189,7 +189,7 @@ class BaseAgent(RegisteredBase):
 
         Args:
             step_idx: Step record index to save. ``-1`` saves the full run,
-                including the accumulated plan. Non-negative values save a
+                including the accumulated history. Non-negative values save a
                 single recorded step/trial.
 
         Returns:
@@ -198,11 +198,11 @@ class BaseAgent(RegisteredBase):
         """
         if step_idx == -1:
             info = {
-                "plan": self._plan,
+                "history": self._history,
                 "executes": self._step_infos,
                 "total_execute": len(self._step_infos),
                 "total_step": self._robot.step_cnt,
-                "total_duration": self._format_duration(time.time() - self._plan_start),
+                "total_duration": self._format_duration(time.time() - self._history_start),
             }
             code = self._join_codes()
             start_frm, end_frm = 0, self._robot.step_cnt
@@ -217,18 +217,24 @@ class BaseAgent(RegisteredBase):
         cap_utils.write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
 
-    def update_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
-        """Merge key-value pairs into the run plan.
+    def update_history(self, history: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+        """Append request/response events to marked execution history entries.
 
         Args:
-            plan: Dict of plan fields to merge into the current plan using
-                a shallow ``dict.update``.
+            history: Mapping from a mark such as ``step_1_trail_1`` to an
+                ordered list of request/response event dictionaries.
 
         Returns:
-            The full accumulated plan after the update.
+            A compact acknowledgement with appended event counts. The complete
+            history is returned by :meth:`record`.
         """
-        self._plan.update(plan)
-        return self._plan
+        updated: dict[str, int] = {}
+        for mark, events in history.items():
+            if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+                raise TypeError(f"History entry {mark!r} must be a list of event dictionaries")
+            self._history.setdefault(mark, []).extend(events)
+            updated[mark] = len(events)
+        return {"ok": True, "updated": updated}
 
     def get_obs(self) -> dict[str, Any]:
         """Return the current observation and save images under the active step directory.

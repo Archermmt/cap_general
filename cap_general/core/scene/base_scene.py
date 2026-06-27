@@ -276,12 +276,14 @@ class BaseScene(RegisteredBase):
             for canonical in self._resolve_agent_names(agents)
         }
 
-    def update_plan(self, agent_plans: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        """Update plans from an agent-to-plan mapping."""
-        requests = self._resolve_agent_mapping(agent_plans)
+    def update_history(
+        self, agent_histories: dict[str, dict[str, list[dict[str, Any]]]]
+    ) -> dict[str, Any]:
+        """Append marked request/response events to selected agents' histories."""
+        requests = self._resolve_agent_mapping(agent_histories)
         return {
-            self._agent_mark(canonical): self._agents[canonical].update_plan(plan)
-            for canonical, plan in requests.items()
+            self._agent_mark(canonical): self._agents[canonical].update_history(history)
+            for canonical, history in requests.items()
         }
 
     def get_obs(self, agents: list[str]) -> dict[str, Any]:
@@ -301,7 +303,16 @@ class BaseScene(RegisteredBase):
         s_config = self._server_config
         self._copy_skills_for_server(s_config)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
-        for method_name in ("reset", "agent_doc", "execute", "monitor", "retry", "record", "update_plan", "get_obs"):
+        for method_name in (
+            "reset",
+            "agent_doc",
+            "execute",
+            "monitor",
+            "retry",
+            "record",
+            "update_history",
+            "get_obs",
+        ):
             method = getattr(self, method_name)
 
             if inspect.iscoroutinefunction(method):
