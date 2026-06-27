@@ -39,16 +39,22 @@ RESULT = {{
 """
 
 
-def _make_local_scene(config: str):
+def _make_local_scene(config: str, config_overrides: list[str] | None = None):
     import cap_general.frameworks.genesis  # noqa: F401
     from cap_general.core.scene import BaseScene
 
-    return BaseScene.from_yaml(config)
+    return BaseScene.from_yaml(config, overrides=config_overrides)
 
 
-async def _run_local(config: str, max_steps: int, task_num: int, parallel: bool = False) -> dict[str, dict]:
+async def _run_local(
+    config: str,
+    max_steps: int,
+    task_num: int,
+    parallel: bool = False,
+    config_overrides: list[str] | None = None,
+) -> dict[str, dict]:
     """Run three Genesis GraspAgent tasks in-process."""
-    scene = _make_local_scene(config)
+    scene = _make_local_scene(config, config_overrides)
     scene.reset({agent: {} for agent in _AGENTS})
     agent_docs = scene.agent_doc(list(_AGENTS))
     for response_key, agent_doc in agent_docs.items():
@@ -70,14 +76,20 @@ async def _run_local(config: str, max_steps: int, task_num: int, parallel: bool 
     return records
 
 
-async def _run_remote(config: str, max_steps: int, task_num: int, parallel: bool = False) -> dict[str, dict]:
+async def _run_remote(
+    config: str,
+    max_steps: int,
+    task_num: int,
+    parallel: bool = False,
+    config_overrides: list[str] | None = None,
+) -> dict[str, dict]:
     """Run three Genesis GraspAgent tasks through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
     from cap_general.core.scene import BaseScene
 
-    url = BaseScene.get_server_url(config)
+    url = BaseScene.get_server_url(config, overrides=config_overrides)
     async with streamablehttp_client(url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -120,13 +132,24 @@ def run_multi_agents_test(
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
     parallel: bool = False,
+    config_overrides: list[str] | None = None,
 ) -> dict[str, dict]:
     """Run Grasp agents round-robin, or all together when parallel is enabled."""
     if remote:
         if not config:
             raise ValueError("Remote agents test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, task_num, parallel=parallel))
-    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, parallel=parallel))
+        return asyncio.run(
+            _run_remote(config, max_steps, task_num, parallel=parallel, config_overrides=config_overrides)
+        )
+    return asyncio.run(
+        _run_local(
+            config or _DEFAULT_CONFIG,
+            max_steps,
+            task_num,
+            parallel=parallel,
+            config_overrides=config_overrides,
+        )
+    )
 
 
 def test_local_multi_agents_scene() -> None:
@@ -150,7 +173,7 @@ if __name__ == "__main__":
         default=False,
         help="Run all agents in every execute batch instead of round-robin execution",
     )
-    args = parser.parse_args()
+    args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
 
     run_multi_agents_test(
         config=args.config,
@@ -158,5 +181,6 @@ if __name__ == "__main__":
         task_num=args.task_num,
         remote=args.remote,
         parallel=args.parallel,
+        config_overrides=config_overrides,
     )
     print("\n[PASS]")

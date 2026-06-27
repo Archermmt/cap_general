@@ -17,6 +17,7 @@ from cap_general.core import utils as cap_utils
 from cap_general.core.agent import BaseAgent
 from cap_general.core.base import RegisteredBase
 from cap_general.core.scene.context import set_current_scene
+from cap_general.core.utils.config import load_yaml_config
 
 
 @dataclass
@@ -79,30 +80,21 @@ class BaseScene(RegisteredBase):
             set_current_scene(None)
 
     @classmethod
-    def from_yaml(cls, config_path: str | Path) -> "BaseScene":
-        """Initialize a scene from a YAML config file."""
-        return cls.from_config(cls._load_yaml_config(config_path))
+    def from_yaml(cls, config_path: str | Path, overrides: list[str] | None = None) -> "BaseScene":
+        """Initialize a scene from YAML with optional OmegaConf overrides."""
+        return cls.from_config(cls._load_yaml_config(config_path, overrides=overrides))
 
     @staticmethod
-    def _load_yaml_config(config_path: str | Path) -> dict[str, Any]:
-        """Load a scene YAML config."""
-        try:
-            import yaml
-        except ImportError as exc:
-            raise ImportError("PyYAML is required to load scene yaml configs") from exc
-
-        path = Path(config_path)
-        with path.open() as file:
-            data = yaml.safe_load(file) or {}
-        if not isinstance(data, dict):
-            raise TypeError("Scene yaml config must contain a mapping at the top level")
-        data.setdefault("type", "scene")
-        return data
+    def _load_yaml_config(
+        config_path: str | Path, overrides: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Load a scene YAML config and apply recursive overrides."""
+        return load_yaml_config(config_path, overrides=overrides)
 
     @classmethod
-    def get_server_url(cls, config_path: str | Path) -> str:
+    def get_server_url(cls, config_path: str | Path, overrides: list[str] | None = None) -> str:
         """Return the MCP server URL configured by a scene YAML file."""
-        config_data = cls._load_yaml_config(config_path)
+        config_data = cls._load_yaml_config(config_path, overrides=overrides)
         scene_type = config_data.pop("type")
         scene_cls = cls.get_registered_class(scene_type)
         if scene_cls is None:

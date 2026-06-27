@@ -6,9 +6,12 @@ import asyncio
 import time
 from pathlib import Path
 
+import pytest
+
 from cap_general.core.agent import BaseAgent
 from cap_general.core.robot import BaseRobot
 from cap_general.core.scene import BaseScene
+from cap_general.core.utils.config import parse_cli_overrides
 
 _ALPHA_KEY = "a(alpha)"
 _BETA_KEY = "b(beta)"
@@ -208,7 +211,31 @@ agents:
         encoding="utf-8",
     )
 
-    scene = BaseScene.from_yaml(config_path)
+    overrides = parse_cli_overrides(
+        [
+            "--server.port",
+            "9001",
+            "--agents[0].alias=[renamed]",
+            "--agents[0].config.robot.reset_time",
+            "0.01",
+        ]
+    )
+    scene = BaseScene.from_yaml(config_path, overrides=overrides)
 
     assert scene.server_config.cap_id == "scene_test"
-    assert scene._get_agent("a") is scene._get_agent("alpha")
+    assert scene.server_config.port == 9001
+    assert scene._get_agent("renamed") is scene._get_agent("alpha")
+    assert scene._get_agent("alpha")._robot._reset_time == 0.01
+    assert BaseScene.get_server_url(config_path, overrides=overrides) == "http://127.0.0.1:9001/mcp"
+
+    with pytest.raises(Exception, match="unknown"):
+        BaseScene.from_yaml(config_path, overrides=["server.unknown=1"])
+
+
+def test_parse_cli_overrides_rejects_missing_values():
+    assert parse_cli_overrides(["--server.port=9001", "--server.host", "0.0.0.0"]) == [
+        "server.port=9001",
+        "server.host=0.0.0.0",
+    ]
+    with pytest.raises(ValueError, match="Missing value"):
+        parse_cli_overrides(["--server.port"])

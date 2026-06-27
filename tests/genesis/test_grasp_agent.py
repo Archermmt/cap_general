@@ -39,16 +39,18 @@ RESULT = {{
 """
 
 
-def _make_local_scene(config: str):
+def _make_local_scene(config: str, config_overrides: list[str] | None = None):
     import cap_general.frameworks.genesis  # noqa: F401
     from cap_general.core.scene import BaseScene
 
-    return BaseScene.from_yaml(config)
+    return BaseScene.from_yaml(config, overrides=config_overrides)
 
 
-async def _run_local(config: str, max_steps: int, task_num: int) -> dict:
+async def _run_local(
+    config: str, max_steps: int, task_num: int, config_overrides: list[str] | None = None
+) -> dict:
     """Run GraspAgent episodes in-process."""
-    scene = _make_local_scene(config)
+    scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
     print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     for task_idx in range(task_num):
@@ -62,14 +64,16 @@ async def _run_local(config: str, max_steps: int, task_num: int) -> dict:
     return record
 
 
-async def _run_remote(config: str, max_steps: int, task_num: int) -> dict:
+async def _run_remote(
+    config: str, max_steps: int, task_num: int, config_overrides: list[str] | None = None
+) -> dict:
     """Run GraspAgent episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
     from cap_general.core.scene import BaseScene
 
-    url = BaseScene.get_server_url(config)
+    url = BaseScene.get_server_url(config, overrides=config_overrides)
     async with streamablehttp_client(url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -104,13 +108,14 @@ def run_grasp_test(
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
+    config_overrides: list[str] | None = None,
 ) -> dict:
     """Run GraspAgent episodes in-process or through MCP."""
     if remote:
         if not config:
             raise ValueError("Remote GraspAgent test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, task_num))
-    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num))
+        return asyncio.run(_run_remote(config, max_steps, task_num, config_overrides))
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, config_overrides))
 
 
 def test_local_grasp_agent() -> None:
@@ -128,7 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
     parser.add_argument("--trial-num", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--remote", action="store_true", default=False)
-    args = parser.parse_args()
+    args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
     task_num = args.trial_num if args.trial_num is not None else args.task_num
 
     result = run_grasp_test(
@@ -136,5 +141,6 @@ if __name__ == "__main__":
         max_steps=args.max_steps,
         task_num=task_num,
         remote=args.remote,
+        config_overrides=config_overrides,
     )
     print("\n[PASS]")

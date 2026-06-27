@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from cap_general.core.utils.config import parse_cli_overrides
+
 
 def print_execution_summary(prefix: str, result: dict[str, Any]) -> None:
     print(
@@ -30,6 +32,12 @@ def single_agent_result(results: dict[str, Any]) -> Any:
     if len(results) != 1:
         raise ValueError(f"Expected one agent result, got {list(results)}")
     return next(iter(results.values()))
+
+
+def parse_args_with_config_overrides(parser: Any) -> tuple[Any, list[str]]:
+    """Parse known test arguments and return remaining config overrides."""
+    args, override_args = parser.parse_known_args()
+    return args, parse_cli_overrides(override_args)
 
 
 async def call_tool(session: Any, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
