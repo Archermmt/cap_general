@@ -81,6 +81,7 @@ class BaseAgent(RegisteredBase):
         self._step_infos, self._step_codes = [], []
         self._history: list[dict[str, Any]] = []
         self._history_start = 0
+        self._auto_trace = False
         self._clear_record_dir_contents()
 
     @staticmethod
@@ -158,7 +159,9 @@ class BaseAgent(RegisteredBase):
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         self._exec_cnt += 1
         self._trial_cnt = 1
-        return self._execute_once(code)
+        result = self._execute_once(code)
+        self._trace_result("execute", result)
+        return result
 
     def retry(self):
         """Retry the most recent ``execute`` call.
@@ -174,7 +177,7 @@ class BaseAgent(RegisteredBase):
         """
         max_retry = self._config.max_retry
         if self._trial_cnt - 1 >= max_retry:
-            return {
+            result = {
                 "ok": False,
                 "error": "max_retry_exceeded",
                 "stderr": f"Exceeded max_retry={max_retry}",
@@ -182,8 +185,12 @@ class BaseAgent(RegisteredBase):
                 "trial_cnt": self._trial_cnt,
                 "max_retry": max_retry,
             }
+            self._trace_result("retry", result)
+            return result
         self._trial_cnt += 1
-        return self._execute_once(self._step_codes[-1])
+        result = self._execute_once(self._step_codes[-1])
+        self._trace_result("retry", result)
+        return result
 
     def train(
         self,
@@ -223,10 +230,12 @@ class BaseAgent(RegisteredBase):
         self._train_epoch += epoch
         try:
             result = self._train(policy_name=policy_name, epoch=epoch, method=method, options=options)
-            return {"ok": True, "train_epoch": self._train_epoch, "result": result}
+            response = {"ok": True, "train_epoch": self._train_epoch, "result": result}
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
-            return {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
+            response = {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
+        self._trace_result("train", response)
+        return response
 
     def _train(self, policy_name: str, epoch: int, method: str, options: dict[str, Any]) -> Any:
         """Hook for subclasses to implement the actual training logic.
@@ -290,6 +299,24 @@ class BaseAgent(RegisteredBase):
             raise TypeError("message must be a history message dictionary")
         self._history.append(message)
         return {"ok": True, "updated": 1}
+
+    def enable_trace(self, enabled: bool = True) -> None:
+        """Enable or disable automatic task-result history recording."""
+        self._auto_trace = enabled
+
+    def _trace_result(self, method_name: str, result: dict[str, Any]) -> None:
+        if not self._auto_trace:
+            return
+        self.update_history(
+            {
+                "role": self.mark,
+                "mark": f"step_{self._exec_cnt}_trail_{self._trial_cnt}",
+                "response": {
+                    "tool": method_name,
+                    "data": cap_utils.to_json_safe(result),
+                },
+            }
+        )
 
     def get_obs(self) -> dict[str, Any]:
         """Return the current observation and save images under the active step directory.

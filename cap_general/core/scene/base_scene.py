@@ -294,6 +294,11 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.get_obs()
         return results
 
+    def enable_trace(self, enabled: bool = True) -> None:
+        """Enable or disable automatic history recording for all agents."""
+        for agent in self._agents.values():
+            agent.enable_trace(enabled)
+
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
         try:
@@ -302,6 +307,7 @@ class BaseScene(RegisteredBase):
             raise ImportError("Serving a scene over MCP requires the mcp package") from exc
 
         s_config = self._server_config
+        self.enable_trace()
         self._copy_skills_for_server(s_config)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
         for method_name in (

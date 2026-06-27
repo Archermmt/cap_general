@@ -196,6 +196,7 @@ class GraspAgent(BaseAgent):
             bc_cfg.update(options.get("train_cfg", {}))
 
         if method == "bc":
+            runner_env = env.example_env
             rl_log_dir = self.train_dir / f"{policy_name}_rl"
             if not rl_log_dir.exists():
                 raise FileNotFoundError(f"RL log directory {rl_log_dir} does not exist — train RL first.")
@@ -203,9 +204,9 @@ class GraspAgent(BaseAgent):
             if not ckpt_files:
                 raise FileNotFoundError(f"No RL checkpoints found in {rl_log_dir}")
             last_ckpt = max(ckpt_files, key=lambda path: int(re.search(r"\d+", path.stem).group()))
-            rl_runner = OnPolicyRunner(env, rl_cfg, rl_log_dir, device=env.device)
+            rl_runner = OnPolicyRunner(runner_env, rl_cfg, rl_log_dir, device=runner_env.device)
             rl_runner.load(last_ckpt)
-            teacher_policy = rl_runner.get_inference_policy(device=env.device)
+            teacher_policy = rl_runner.get_inference_policy(device=runner_env.device)
 
             update_result = self._update_policy(
                 self._bc_policy_name,
@@ -214,7 +215,6 @@ class GraspAgent(BaseAgent):
                 teacher_policy=teacher_policy,
                 log_dir=log_dir,
                 epoch=epoch,
-                device=env.device,
             )
         else:
             update_result = self._update_policy(
@@ -223,7 +223,6 @@ class GraspAgent(BaseAgent):
                 train_cfg=rl_cfg,
                 log_dir=log_dir,
                 epoch=epoch,
-                device=env.device,
                 init_at_random_ep_len=True,
             )
 

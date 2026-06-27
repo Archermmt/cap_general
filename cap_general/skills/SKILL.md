@@ -14,7 +14,7 @@ The tools support batches: selector-only methods use an `agents` list, while met
 - `get_state`: Read the current state with `{cap_id}_get_obs`, then display the returned `main_image` with the `media` image display tool. Use this for status/observation queries such as "what is {agent_name} doing?", "show me {agent_name}", "let me see {agent_name}", "current state", "current view", or "what does {agent_name} see?"
 - `reset_agent`: Reset the agent with `{cap_id}_reset`, then fetch and display the post-reset `main_image`.
 - `train-agent`: Train one or more agents for a requested number of epochs, poll status every five seconds, and report every result with `message`.
-- `execute_task`: Decompose a robot manipulation task, record request/response history with `{cap_id}_update_history`, execute subtasks, verify results, retry failures, and record the final run.
+- `execute_task`: Decompose a robot manipulation task, record LLM plans and result judgments, execute subtasks with automatic Agent result tracing, retry failures, and record the final run.
 
 ## Mandatory Rules
 

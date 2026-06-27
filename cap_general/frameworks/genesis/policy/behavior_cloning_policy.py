@@ -55,6 +55,9 @@ class BehaviorCloningPolicy(BasePolicy):
     def update(self, **kwargs: Any) -> dict[str, Any]:
         """Train the behavior-cloning policy and retain the updated model."""
         env = kwargs["env"]
+        runner_env = getattr(env, "example_env", env)
+        if runner_env is None:
+            raise RuntimeError("BehaviorCloningPolicy requires a live training environment")
         log_dir = Path(kwargs.get("log_dir", self._config.log_dir)).expanduser()
         log_dir.mkdir(parents=True, exist_ok=True)
         epoch = int(kwargs["epoch"])
@@ -76,9 +79,9 @@ class BehaviorCloningPolicy(BasePolicy):
             with (log_dir / self._config.cfgs_filename).open("rb") as file:
                 cfgs = pickle.load(file)
             bc_cfg = cfgs[self._config.bc_cfg_index]
-        runner_device = kwargs.get("device") or self._config.device or gs.device
+        runner_device = kwargs.get("device") or self._config.device or getattr(runner_env, "device", gs.device)
         runner = module.BehaviorCloning(
-            env,
+            runner_env,
             bc_cfg,
             kwargs.get("teacher_policy"),
             device=runner_device,
@@ -86,7 +89,7 @@ class BehaviorCloningPolicy(BasePolicy):
         runner.learn(num_learning_iterations=epoch, log_dir=log_dir)
         self._policy = runner._policy
         self._policy.eval()
-        self._loaded_env_id = id(env)
+        self._loaded_env_id = id(runner_env)
         return {
             "train_dir": str(log_dir),
             "epoch": epoch,

@@ -53,6 +53,14 @@ class SceneDummyAgent(BaseAgent):
     def echo(self, value: str) -> str:
         return value
 
+    def _train(self, policy_name, epoch, method, options):
+        return {
+            "policy_name": policy_name,
+            "epoch": epoch,
+            "method": method,
+            "options": options,
+        }
+
 
 def _scene_config(*agent_names: str) -> dict:
     agent_names = agent_names or ("alpha",)
@@ -202,6 +210,44 @@ def test_scene_retry_reports_running_for_busy_agent():
     assert final[_ALPHA_KEY]["running"] is False
     assert final[_ALPHA_KEY]["method"] == "retry"
     assert final[_ALPHA_KEY]["result"]["result"] == {"value": "first"}
+
+
+def test_scene_auto_trace_records_task_results_only_when_enabled():
+    scene = BaseScene.from_config(_scene_config())
+    agent = scene._get_agent("alpha")
+
+    async def _run():
+        await scene.execute({"alpha": 'RESULT = {"value": "disabled"}'})
+        await scene.monitor(["alpha"])
+        disabled_history = list(agent._history)
+
+        scene.enable_trace()
+        await scene.execute({"alpha": 'RESULT = {"value": "enabled"}'})
+        await scene.monitor(["alpha"])
+        await scene.retry(["alpha"])
+        await scene.monitor(["alpha"])
+        await scene.train(
+            {
+                "alpha": {
+                    "policy_name": "test",
+                    "epoch": 2,
+                    "method": "train",
+                    "options": {},
+                }
+            }
+        )
+        await scene.monitor(["alpha"])
+        return disabled_history, list(agent._history)
+
+    disabled_history, traced_history = asyncio.run(_run())
+
+    assert disabled_history == []
+    assert [message["response"]["tool"] for message in traced_history] == ["execute", "retry", "train"]
+    assert traced_history[0]["role"] == _ALPHA_KEY
+    assert traced_history[0]["mark"] == "step_2_trail_1"
+    assert traced_history[0]["response"]["data"]["result"] == {"value": "enabled"}
+    assert traced_history[1]["mark"] == "step_2_trail_2"
+    assert traced_history[2]["response"]["data"]["train_epoch"] == 2
 
 
 def test_scene_from_yaml_loads_agents(tmp_path: Path):
