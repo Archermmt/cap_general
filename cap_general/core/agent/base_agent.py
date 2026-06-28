@@ -45,7 +45,7 @@ class BaseAgentConfig:
     max_steps: int = 5000
     max_retry: int = 5
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
-    record_execute: bool = True
+    trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
     debug: bool = False
     name: str | None = None
     alias: str | None = None
@@ -68,20 +68,16 @@ class BaseAgent(RegisteredBase):
         self._config = config
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
         self._logger = logger
-        self._scene_name = self._config.name
-        self._scene_alias = self._config.alias
-        if self._scene_alias == self._config.name:
-            self._scene_alias = None
         self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
-        self._train_epoch = 0
         self._step_infos, self._step_codes = [], []
+        self._task_start = 0
         self._history: list[dict[str, Any]] = []
-        self._history_start = 0
-        self._auto_trace = False
+        self._train_epoch = 0
+        self._trace_level = cap_utils.TraceLevel(self._config.trace_level)
         self._clear_record_dir_contents()
 
     @staticmethod
@@ -117,7 +113,7 @@ class BaseAgent(RegisteredBase):
         if reset_level >= cap_utils.ResetLevel.AGENT:
             self._exec_cnt, self._trial_cnt = 0, 0
             self._step_infos, self._step_codes = [], []
-            self._history, self._history_start = [], time.time()
+            self._task_start = time.time()
             self._clear_record_dir_contents()
         return {"ok": True}
 
@@ -160,7 +156,7 @@ class BaseAgent(RegisteredBase):
         self._exec_cnt += 1
         self._trial_cnt = 1
         result = self._execute_once(code)
-        self._trace_result("execute", result)
+        self._trace_result("execute", result, args={"code": code})
         return result
 
     def retry(self):
@@ -185,11 +181,11 @@ class BaseAgent(RegisteredBase):
                 "trial_cnt": self._trial_cnt,
                 "max_retry": max_retry,
             }
-            self._trace_result("retry", result)
+            self._trace_result("retry", result, args={})
             return result
         self._trial_cnt += 1
         result = self._execute_once(self._step_codes[-1])
-        self._trace_result("retry", result)
+        self._trace_result("retry", result, args={})
         return result
 
     def train(
@@ -221,11 +217,7 @@ class BaseAgent(RegisteredBase):
             raise ValueError("epoch must be a positive integer")
         options = dict(options or {})
         self._logger.info(
-            "Starting train: policy=%s epoch=%s method=%s options=%s",
-            policy_name,
-            epoch,
-            method,
-            options,
+            "Starting train: policy=%s epoch=%s method=%s options=%s", policy_name, epoch, method, options
         )
         self._train_epoch += epoch
         try:
@@ -234,7 +226,11 @@ class BaseAgent(RegisteredBase):
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
             response = {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
-        self._trace_result("train", response)
+        self._trace_result(
+            "train",
+            response,
+            args={"policy_name": policy_name, "epoch": epoch, "method": method, "options": options},
+        )
         return response
 
     def _train(self, policy_name: str, epoch: int, method: str, options: dict[str, Any]) -> Any:
@@ -255,21 +251,20 @@ class BaseAgent(RegisteredBase):
         """Persist execution artifacts and return their metadata.
 
         Args:
-            step_idx: Step record index to save. ``-1`` saves the full run,
-                including the accumulated history. Non-negative values save a
-                single recorded step/trial.
+            step_idx: Step record index to save. ``-1`` saves the full run.
+                Non-negative values save a single recorded step/trial.
 
         Returns:
             A dict containing saved media paths from the robot plus
-            ``info`` and ``code`` for the requested scope.
+            ``info`` and ``code`` for the requested scope. History is
+            persisted separately in ``record_dir/history.jsonl``.
         """
         if step_idx == -1:
             info = {
-                "history": self._history,
                 "executes": self._step_infos,
                 "total_execute": len(self._step_infos),
                 "total_step": self._robot.step_cnt,
-                "total_duration": self._format_duration(time.time() - self._history_start),
+                "total_duration": self._format_duration(time.time() - self._task_start),
             }
             code = self._join_codes()
             start_frm, end_frm = 0, self._robot.step_cnt
@@ -285,32 +280,58 @@ class BaseAgent(RegisteredBase):
         return {**record, "info": info, "code": code}
 
     def update_history(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Append one history message to the agent transcript.
+        """Append one history message to the agent transcript and persist it.
+
+        Each message is appended to ``record_dir/history.jsonl`` immediately so
+        the transcript survives crashes without needing an explicit :meth:`record`
+        call.
 
         Args:
             message: One websocket-style transcript message with fields such
                 as ``role``, ``mark``, ``request``, or ``response``.
 
         Returns:
-            A compact acknowledgement with the appended message count. The
-            complete transcript is returned by :meth:`record`.
+            A compact acknowledgement with the appended message count.
         """
         if not isinstance(message, dict):
             raise TypeError("message must be a history message dictionary")
         self._history.append(message)
-        return {"ok": True, "updated": 1}
+        import json as _json
+
+        history_path = self._record_dir / "history.jsonl"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with history_path.open("a", encoding="utf-8") as f:
+            f.write(_json.dumps(cap_utils.to_json_safe(message), ensure_ascii=False) + "\n")
+        return {"ok": True, "updated": len(self._history)}
 
     def enable_trace(self, enabled: bool = True) -> None:
-        """Enable or disable automatic task-result history recording."""
-        self._auto_trace = enabled
+        """Enable or disable full trace recording (sets trace_level to ALL or NEVER)."""
+        self._trace_level = cap_utils.TraceLevel.ALL if enabled else cap_utils.TraceLevel.NEVER
 
-    def _trace_result(self, method_name: str, result: dict[str, Any]) -> None:
-        if not self._auto_trace:
+    def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
+        """Set the trace recording level."""
+        self._trace_level = cap_utils.TraceLevel(level)
+
+    def _trace_result(self, method_name: str, result: dict[str, Any], args: dict[str, Any] | None = None) -> None:
+        level = self._trace_level
+        if level is cap_utils.TraceLevel.NEVER:
             return
+        mark = f"step_{self._exec_cnt}_trail_{self._trial_cnt}"
+        if level is cap_utils.TraceLevel.ALL and args is not None:
+            self.update_history(
+                {
+                    "role": "llm",
+                    "mark": mark,
+                    "request": {
+                        "tool": method_name,
+                        "args": cap_utils.to_json_safe(args),
+                    },
+                }
+            )
         self.update_history(
             {
                 "role": self.mark,
-                "mark": f"step_{self._exec_cnt}_trail_{self._trial_cnt}",
+                "mark": mark,
                 "response": {
                     "tool": method_name,
                     "data": cap_utils.to_json_safe(result),
@@ -349,8 +370,7 @@ class BaseAgent(RegisteredBase):
         }
         self._step_infos.append(info)
         self._step_codes.append(code)
-        if self._config.record_execute:
-            self.record(len(self._step_infos) - 1)
+        self.record(len(self._step_infos) - 1)
         return info
 
     def _execute_code(self, code: str) -> dict[str, Any]:
@@ -522,8 +542,12 @@ class BaseAgent(RegisteredBase):
     @property
     def mark(self) -> str:
         """Scene-visible mark such as ``alias(name)``."""
-        name = self._scene_name or self.name
-        return f"{self._scene_alias}({name})" if self._scene_alias else name
+        cfg_name = self._config.name
+        cfg_alias = self._config.alias
+        if cfg_alias and cfg_alias == cfg_name:
+            cfg_alias = None
+        name = cfg_name or self.name
+        return f"{cfg_alias}({name})" if cfg_alias else name
 
     @property
     def policies(self) -> dict[str, Any]:

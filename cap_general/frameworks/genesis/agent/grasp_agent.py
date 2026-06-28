@@ -99,36 +99,36 @@ class GraspAgent(BaseAgent):
         if method_name != "train":
             return super()._options_doc(method_name)
         return (
-            "num_envs: Number of parallel environments. Must match the existing robot env (default 1).\n"
             "seed: Random seed metadata for the training run (default 1).\n"
             "train_cfg: Dict of overrides for the RL or BC training config."
         )
 
     def _train(self, policy_name: str, epoch: int, method: str, options: dict) -> dict:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
+        import sys
 
         try:
             from rsl_rl.runners import OnPolicyRunner
         except ImportError as exc:
             raise ImportError("rsl-rl-lib>=5.0.0 is required for RL training.") from exc
 
-        method = str(method).lower()
-        if method not in {"rl", "bc", "train"}:
-            raise ValueError(f"Unsupported grasp train method: {method!r}")
-        method = "rl" if method == "train" else method
+        stage = self._stage
+        if stage not in {"rl", "bc"}:
+            raise ValueError(f"Unsupported grasp stage for training: {stage!r}")
 
-        env = self._robot
+        example_root = str(self._robot._config.example_root)
+        if example_root not in sys.path:
+            sys.path.insert(0, example_root)
+        from behavior_cloning import BehaviorCloning  # type: ignore[import]  # noqa: PLC0415
 
-        log_dir = self.train_dir / f"{policy_name}_{method}"
+        env = self._robot.example_env
+        if env is None:
+            raise RuntimeError("Grasp env is in mock mode — cannot train without a live Genesis env.")
+
+        log_dir = self.train_dir / f"{policy_name}_{stage}"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         seed = int(options.get("seed", 1))
-        configured_num_envs = int(getattr(env, "num_envs", 1))
-        num_envs = int(options.get("num_envs", configured_num_envs))
-        if num_envs != configured_num_envs:
-            raise ValueError(
-                f"train num_envs={num_envs} does not match existing robot env num_envs={configured_num_envs}"
-            )
 
         rl_cfg: dict = {
             "algorithm": {
@@ -190,48 +190,35 @@ class GraspAgent(BaseAgent):
             "save_freq": 50,
             "eval_freq": 50,
         }
-        if method == "rl":
+        if stage == "rl":
             rl_cfg.update(options.get("train_cfg", {}))
         else:
             bc_cfg.update(options.get("train_cfg", {}))
 
-        if method == "bc":
-            runner_env = env.example_env
+        if stage == "bc":
             rl_log_dir = self.train_dir / f"{policy_name}_rl"
             if not rl_log_dir.exists():
                 raise FileNotFoundError(f"RL log directory {rl_log_dir} does not exist — train RL first.")
-            ckpt_files = [path for path in rl_log_dir.iterdir() if re.match(r"model_\d+\.pt", path.name)]
+            ckpt_files = [p for p in rl_log_dir.iterdir() if re.match(r"model_\d+\.pt", p.name)]
             if not ckpt_files:
                 raise FileNotFoundError(f"No RL checkpoints found in {rl_log_dir}")
-            last_ckpt = max(ckpt_files, key=lambda path: int(re.search(r"\d+", path.stem).group()))
-            rl_runner = OnPolicyRunner(runner_env, rl_cfg, rl_log_dir, device=runner_env.device)
+            last_ckpt = max(ckpt_files, key=lambda p: int(re.search(r"\d+", p.stem).group()))
+            rl_runner = OnPolicyRunner(env, rl_cfg, rl_log_dir, device=env.device)
             rl_runner.load(last_ckpt)
-            teacher_policy = rl_runner.get_inference_policy(device=runner_env.device)
-
-            update_result = self._update_policy(
-                self._bc_policy_name,
-                env=env,
-                train_cfg=bc_cfg,
-                teacher_policy=teacher_policy,
-                log_dir=log_dir,
-                epoch=epoch,
-            )
+            teacher_policy = rl_runner.get_inference_policy(device=env.device)
+            runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
+            runner.learn(num_learning_iterations=epoch, log_dir=log_dir)
+            self._update_policy(self._bc_policy_name, env=env, runner=runner)
         else:
-            update_result = self._update_policy(
-                self._rl_policy_name,
-                env=env,
-                train_cfg=rl_cfg,
-                log_dir=log_dir,
-                epoch=epoch,
-                init_at_random_ep_len=True,
-            )
+            runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
+            runner.learn(num_learning_iterations=epoch, init_at_random_ep_len=True)
+            self._update_policy(self._rl_policy_name, env=env, runner=runner)
 
         return {
             "policy_name": policy_name,
+            "stage": stage,
             "method": method,
             "train_dir": str(log_dir),
             "epoch": epoch,
-            "num_envs": configured_num_envs,
             "seed": seed,
-            "update": update_result,
         }

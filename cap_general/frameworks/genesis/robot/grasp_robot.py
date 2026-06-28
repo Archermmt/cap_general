@@ -399,17 +399,6 @@ class _GenesisGraspCoreRobot:
             ),
         )
 
-        # == visualization camera (debug only, uses scene camera API) ==
-        if self.env_cfg.get("visualize_camera", False):
-            self.vis_cam = self.scene.add_camera(
-                res=(1280, 960),
-                pos=(3.5, 0.0, 2.5),
-                lookat=(1.2, 1.0, 0.0),
-                fov=52,
-                GUI=False,
-                debug=True,
-            )
-
         # == stereo camera sensors (lazy rendering — zero cost until read()) ==
         if _ENABLE_MADRONA and gs.backend == gs.cuda:
             CameraOptions = BatchRendererCameraOptions
@@ -446,17 +435,6 @@ class _GenesisGraspCoreRobot:
 
         def _read_sensor_cam(cam):
             return cam.read(envs_idx=0).rgb
-
-        # Debug live preview of sensor cameras
-        if self.env_cfg.get("visualize_camera", False):
-            self.scene.start_recording(
-                data_func=partial(_read_sensor_cam, self.left_cam),
-                rec_options=gs.recorders.MPLImagePlot(title="Left Camera"),
-            )
-            self.scene.start_recording(
-                data_func=partial(_read_sensor_cam, self.right_cam),
-                rec_options=gs.recorders.MPLImagePlot(title="Right Camera"),
-            )
 
         # == set up video recording (must be before build) ==
 

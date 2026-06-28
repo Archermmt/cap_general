@@ -3,7 +3,6 @@
 from cap_general.core.agent import (
     BaseAgent,
     BaseAgentConfig,
-    ResetFrequency,
     ResetLevel,
     ResetMode,
     Tee,
@@ -24,7 +23,6 @@ from cap_general.core.policy import (
     SAM3PolicyConfig,
 )
 from cap_general.core.scene import AgentSpec, BaseScene, BaseSceneConfig, ServerConfig
-from cap_general.core.utils import Reset, ResetNamespace
 
 __all__ = [
     "RegisteredBase",
@@ -35,10 +33,7 @@ __all__ = [
     "BaseSceneConfig",
     "ServerConfig",
     "ResetMode",
-    "ResetFrequency",
     "ResetLevel",
-    "Reset",
-    "ResetNamespace",
     "Tee",
     "PolicyResult",
     "BasePolicy",

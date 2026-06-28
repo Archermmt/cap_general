@@ -62,7 +62,7 @@ class SceneDummyAgent(BaseAgent):
         }
 
 
-def _scene_config(*agent_names: str) -> dict:
+def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
     agent_names = agent_names or ("alpha",)
     return {
         "type": "scene",
@@ -76,6 +76,7 @@ def _scene_config(*agent_names: str) -> dict:
                     "type": "scene_dummy_agent",
                     "robot": {"type": "scene_dummy_robot", "reset_time": 0},
                     "policies": {},
+                    "trace_level": trace_level,
                 },
             }
             for agent_name in agent_names
@@ -102,13 +103,11 @@ def test_scene_batch_methods_route_multiple_agents():
     observations = scene.get_obs(["alpha", "beta"])
     history_update = scene.update_history(
         {
-            "alpha": {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "reset"}},
-            "b": {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}},
+            "alpha": {"role": "user", "mark": "step_0_trail_0", "request": {"tool": "reset"}},
+            "b": {"role": "user", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}},
         }
     )
-    scene.update_history(
-        {"alpha": {"role": _ALPHA_KEY, "mark": "step_0_trail_0", "response": {"ok": True}}}
-    )
+    scene.update_history({"alpha": {"role": _ALPHA_KEY, "mark": "step_0_trail_0", "response": {"ok": True}}})
     full_record = scene._get_agent("alpha").record(step_idx=-1)
     for agent in scene._agents.values():
         agent.record = lambda step_idx: {"step_idx": step_idx}
@@ -119,12 +118,10 @@ def test_scene_batch_methods_route_multiple_agents():
     assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
     assert scene._get_agent("alpha").mark == _ALPHA_KEY
     assert history_update[_ALPHA_KEY] == {"ok": True, "updated": 1}
-    assert full_record["info"]["history"] == [
-        {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "reset"}},
-        {"role": _ALPHA_KEY, "mark": "step_0_trail_0", "response": {"ok": True}},
-    ]
+    # history is persisted to history.jsonl; record() info no longer embeds it
+    assert "executes" in full_record["info"]
     assert scene._get_agent("beta")._history == [
-        {"role": "llm", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}}
+        {"role": "user", "mark": "step_0_trail_0", "request": {"tool": "agent_doc"}}
     ]
     assert records == {_ALPHA_KEY: {"step_idx": -1}, _BETA_KEY: {"step_idx": -1}}
 
@@ -148,9 +145,7 @@ def test_scene_execute_reports_running_for_busy_agent():
     scene = BaseScene.from_config(_scene_config())
 
     async def _run():
-        first = await scene.execute(
-            {"alpha": 'import time\ntime.sleep(0.2)\nRESULT = {"value": "first"}'}
-        )
+        first = await scene.execute({"alpha": 'import time\ntime.sleep(0.2)\nRESULT = {"value": "first"}'})
         immediate = await scene.monitor(["alpha"], wait_ms=0)
         second = await scene.execute({"alpha": 'RESULT = {"value": "second"}'})
         wait_started = time.perf_counter()
@@ -213,7 +208,7 @@ def test_scene_retry_reports_running_for_busy_agent():
 
 
 def test_scene_auto_trace_records_task_results_only_when_enabled():
-    scene = BaseScene.from_config(_scene_config())
+    scene = BaseScene.from_config(_scene_config(trace_level="never"))
     agent = scene._get_agent("alpha")
 
     async def _run():
@@ -242,12 +237,13 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     disabled_history, traced_history = asyncio.run(_run())
 
     assert disabled_history == []
-    assert [message["response"]["tool"] for message in traced_history] == ["execute", "retry", "train"]
-    assert traced_history[0]["role"] == _ALPHA_KEY
-    assert traced_history[0]["mark"] == "step_2_trail_1"
-    assert traced_history[0]["response"]["data"]["result"] == {"value": "enabled"}
-    assert traced_history[1]["mark"] == "step_2_trail_2"
-    assert traced_history[2]["response"]["data"]["train_epoch"] == 2
+    response_messages = [m for m in traced_history if "response" in m]
+    assert [m["response"]["tool"] for m in response_messages] == ["execute", "retry", "train"]
+    assert response_messages[0]["role"] == _ALPHA_KEY
+    assert response_messages[0]["mark"] == "step_2_trail_1"
+    assert response_messages[0]["response"]["data"]["result"] == {"value": "enabled"}
+    assert response_messages[1]["mark"] == "step_2_trail_2"
+    assert response_messages[2]["response"]["data"]["train_epoch"] == 2
 
 
 def test_scene_from_yaml_loads_agents(tmp_path: Path):

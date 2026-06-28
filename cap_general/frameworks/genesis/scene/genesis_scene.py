@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.scene import BaseScene, BaseSceneConfig
+from cap_general.core import utils as cap_utils
 from cap_general.core.utils import save_image
 
 
@@ -34,15 +38,15 @@ class GenesisSceneConfig(BaseSceneConfig):
     camera_near: float = 0.02
     camera_far: float = 20.0
     lock_viewer_rotation: bool = True
+    idle_render_fps: float = 30.0
 
 
 _SCENE: Any | None = None
-_SCENE_CONFIG: GenesisSceneConfig | None = None
 
 
 def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
     """Create or return the process-global Genesis scene."""
-    global _SCENE, _SCENE_CONFIG
+    global _SCENE
 
     if _SCENE is not None:
         return _SCENE
@@ -50,7 +54,6 @@ def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
         import genesis as gs
 
     _SCENE = create_scene_from_config(config, gs=gs)
-    _SCENE_CONFIG = config
     return _SCENE
 
 
@@ -75,9 +78,8 @@ def create_scene_from_config(config: GenesisSceneConfig, *, gs: Any | None = Non
 
 def reset_scene() -> None:
     """Forget the process-global scene reference."""
-    global _SCENE, _SCENE_CONFIG
+    global _SCENE
     _SCENE = None
-    _SCENE_CONFIG = None
 
 
 def _resolve_options(options: dict[str, Any], gs: Any) -> dict[str, Any]:
@@ -109,6 +111,9 @@ class GenesisScene(BaseScene):
         self._build_kwargs: dict[str, Any] | None = None
         self._post_build_callbacks: list[Callable[[], None]] = []
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
+        self._idle_render_task: asyncio.Task | None = None
+        self._step_lock = threading.Lock()
+        self._agent_locks: dict[str, asyncio.Lock] = {}
         super().__init__(config=config, logger=logger)
 
     @staticmethod
@@ -147,12 +152,19 @@ class GenesisScene(BaseScene):
             viewer_flags["rotate"] = False
 
     def step_scene(self) -> None:
-        """Step the Genesis scene directly."""
+        """Step the Genesis scene."""
         if self._scene is None:
             return
-        self._lock_viewer_rotation()
-        if not self._run_pre_step_callbacks():
-            self._scene.step()
+        self._real_step()
+
+    def _real_step(self) -> None:
+        """Unconditional scene step."""
+        if self._scene is None:
+            return
+        with self._step_lock:
+            self._lock_viewer_rotation()
+            if not self._run_pre_step_callbacks():
+                self._scene.step()
 
     def _add_default_ground_plane(self) -> None:
         if self._scene is None:
@@ -177,6 +189,28 @@ class GenesisScene(BaseScene):
         self._post_build_callbacks.clear()
         for callback in callbacks:
             callback()
+        if self._config.show_viewer and self._config.idle_render_fps > 0:
+            self._start_idle_render_loop()
+
+    def _start_idle_render_loop(self) -> None:
+        """Schedule the idle render loop on the running event loop, if available."""
+        if self._idle_render_task is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._idle_render_task = loop.create_task(self._idle_render_loop())
+
+    async def _idle_render_loop(self) -> None:
+        """Continuously step the scene while no agent task is running."""
+        interval = 1.0 / self._config.idle_render_fps
+        while True:
+            await asyncio.sleep(interval)
+            # Skip when an agent task is actively executing
+            if any(t is not None and not t.done() for t in self._agent_execute_tasks.values()):
+                continue
+            self._real_step()
 
     @property
     def scene(self) -> Any | None:
@@ -288,6 +322,66 @@ class GenesisScene(BaseScene):
         if name == "genesis_scene":
             return self
         return None
+
+    async def _on_server_started(self) -> None:
+        """Start the idle render loop once the MCP server's event loop is live."""
+        self._start_idle_render_loop()
+
+    async def _start_task(self, canonical: str, method_name: str, *args: Any) -> dict[str, Any]:
+        """Start an agent task using a per-agent lock.
+
+        Each agent gets its own asyncio.Lock so concurrent execute() calls for
+        different agents don't block each other at the scene level.
+        """
+        if canonical not in self._agent_locks:
+            self._agent_locks[canonical] = asyncio.Lock()
+        agent_lock = self._agent_locks[canonical]
+
+        task = self._agent_execute_tasks.get(canonical)
+        if task is not None and not task.done():
+            return cap_utils.to_json_safe(
+                self._agent_execute_status.get(canonical, self._get_status(canonical))
+            )
+        started_at = time.time()
+        self._agent_execute_status[canonical] = self._get_status(
+            canonical,
+            method=method_name,
+            running=True,
+            started_at=started_at,
+        )
+        agent = self._get_agent(canonical)
+        method = getattr(agent, method_name)
+
+        async def _run() -> dict[str, Any]:
+            try:
+                async with agent_lock:
+                    result = method(*args)
+                error = None
+            except BaseException as exc:
+                self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
+                result = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                    "stderr": str(exc),
+                }
+                error = {"type": type(exc).__name__, "message": str(exc)}
+            finished_at = time.time()
+            status = self._get_status(
+                canonical,
+                method=method_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration=f"{finished_at - started_at:.2f}s",
+                result=cap_utils.to_json_safe(result),
+                error=error,
+            )
+            self._agent_execute_status[canonical] = status
+            return status
+
+        self._agent_execute_tasks[canonical] = asyncio.create_task(_run())
+        return cap_utils.to_json_safe(
+            self._agent_execute_status.get(canonical, self._get_status(canonical))
+        )
 
 
 GenesisScene._registry[GenesisScene.scene_type()] = GenesisScene

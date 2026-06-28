@@ -23,45 +23,24 @@ Available agent names and aliases: `{available_names}`.
 
 Selector tools use an `agents` list. Tools with per-agent values use mappings keyed by agent name. Response keys use each agent's scene-visible `mark`, typically `alias(agent_name)` when an alias exists. Never pass a formatted response key back as an agent selector.
 
-## History Protocol
+## CRITICAL: Use `message` For Mid-Task Notifications
 
-Call `{cap_id}_update_history` only after the LLM produces one of these reasoning results:
+This skill executes many steps before the final response. The user sees nothing during that time unless you proactively send updates. You MUST call `message` at these checkpoints:
 
-1. The decomposed subtask plan.
-2. A success/failure judgment after inspecting an execution or retry result.
-
-Do not record CAP tool requests. Do not manually record responses from `reset`, `agent_doc`, `execute`, `monitor`, `retry`, `get_obs`, `train`, or `record`.
-
-When the MCP server starts, Scene enables Agent auto trace. Completed `execute`, `retry`, and `train` calls append their full results to history automatically. Never duplicate those results with `{cap_id}_update_history`.
-
-History is append-only. Each manual update sends one LLM reasoning message:
+1. **After planning** — immediately after `update_history` with the plan, send the main task and numbered subtask list.
+2. **After each verification** — immediately after `update_history` with the verify result, send the SUCCESS/FAIL result and brief notes.
+3. **After final record** — send the returned `code` in a fenced Python block.
 
 ```json
 {
-  "agent_messages": {
-    "{agent_name}": {
-      "role": "llm",
-      "mark": "step_1_trail_1",
-      "response": {
-        "tool": "verification",
-        "data": {"success": true, "notes": "<reasoning result>"}
-      }
-    }
+  "name": "message",
+  "arguments": {
+    "content": "<text to show the user>"
   }
 }
 ```
 
-Use history marks with this exact spelling:
-
-```text
-step_{exec_cnt}_trail_{trial_cnt}
-```
-
-Use `step_0_trail_0` for planning. After execution, use the returned `exec_cnt` and `trial_cnt` as the authoritative verification mark. Use `trail`, not `trial`, in history marks.
-
-## User Notifications
-
-Use `message` immediately after planning and after every verification result. Use `media` to display verification images and final videos. These UI tools do not require history entries.
+Use `media` only for final videos, not for images (image analysis uses `image.analyze` which displays automatically).
 
 ## Workflow
 
@@ -85,16 +64,15 @@ Treat `function_doc`, `execute_rules`, `policy_doc`, and `max_retry` from `agent
 
 ### 2. Plan
 
-Build ordered atomic subtasks. Record the completed plan once under `step_0_trail_0`:
+Build ordered atomic subtasks. Then call `update_history` with `tool: plan`:
 
 ```json
 {
   "agent_messages": {
     "{agent_name}": {
-      "role": "llm",
-      "mark": "step_0_trail_0",
-      "response": {
-        "tool": "planning",
+      "role": "user",
+      "request": {
+        "tool": "plan",
         "data": {
           "main_task": "<original task>",
           "sub_tasks": ["<subtask 1>", "<subtask 2>"]
@@ -105,7 +83,16 @@ Build ordered atomic subtasks. Record the completed plan once under `step_0_trai
 }
 ```
 
-Send the plan with `message` before execution.
+Immediately after, send the plan with `message`:
+
+```json
+{
+  "name": "message",
+  "arguments": {
+    "content": "Task: <original task>\n\nSubtasks:\n1. <subtask 1>\n2. <subtask 2>"
+  }
+}
+```
 
 ### 3. Execute
 
@@ -115,9 +102,9 @@ Generate code using only functions from `function_doc`:
 {"name": "{cap_id}_execute", "arguments": {"agent_codes": {"{agent_name}": "<python code>"}}}
 ```
 
-Independent agents may be sent in one `agent_codes` mapping. Dependent subtasks must run in order. Do not call `update_history` around `execute`; Agent auto trace records its completed result.
+Independent agents may be sent in one `agent_codes` mapping. Dependent subtasks must run in order.
 
-### 4. Monitor And Verify
+### 4. Monitor
 
 Wait for completion:
 
@@ -125,23 +112,39 @@ Wait for completion:
 {"name": "{cap_id}_monitor", "arguments": {"agents": ["{agent_name}"], "wait_ms": -1}}
 ```
 
-Inspect each result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt`, and `obs.main_image`. Display `main_image` with `media` when present.
+Inspect the result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt`, and `obs.main_image`.
 
-After making the LLM success/failure judgment, append exactly one verification event under the result's authoritative counters:
+### 5. Analyze And Verify
+
+When `obs.main_image` is present, call `image` in analyze mode to judge task outcome (this also displays the image automatically):
+
+```json
+{
+  "name": "image",
+  "arguments": {
+    "media_type": "image",
+    "mode": "analyze",
+    "media_path": "<absolute path from obs.main_image>",
+    "prompt": "The robot was attempting to: <subtask>. Did it succeed? Answer YES or NO and briefly explain what you see."
+  }
+}
+```
+
+Then record exactly one verification event using `tool: verify` with the authoritative `exec_cnt` and `trial_cnt`:
 
 ```json
 {
   "agent_messages": {
     "{agent_name}": {
       "role": "llm",
-      "mark": "step_1_trail_1",
+      "mark": "step_{exec_cnt}_trail_{trial_cnt}",
       "response": {
-        "tool": "verification",
+        "tool": "verify",
         "data": {
           "subtask": "<subtask>",
           "success": true,
-          "image": "<main_image>",
-          "notes": "<LLM judgment and evidence>"
+          "image": "<obs.main_image path>",
+          "notes": "<brief visual or execution assessment>"
         }
       }
     }
@@ -149,29 +152,53 @@ After making the LLM success/failure judgment, append exactly one verification e
 }
 ```
 
-Send the same SUCCESS/FAIL judgment with `message`.
+Immediately after, send the result with `message`:
 
-### 5. Retry
+```json
+{
+  "name": "message",
+  "arguments": {
+    "content": "Verification result (Exec <exec_cnt> Trial <trial_cnt>): <subtask>\nResult: <SUCCESS or FAIL>\nNotes: <brief assessment>"
+  }
+}
+```
 
-On failure, call retry directly:
+### 6. Retry
+
+If the image analysis indicates failure, call retry directly:
 
 ```json
 {"name": "{cap_id}_retry", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
-Monitor it, make a new LLM judgment, and record one new verification event using the returned `exec_cnt` and `trial_cnt`. Do not manually record the retry result; Agent auto trace handles it.
+Then go back to **Monitor → Analyze And Verify** using the new `exec_cnt` and `trial_cnt`. Do not manually record the retry result; Agent auto trace handles it.
 
 Retry no more than `max_retry`. Stop if the result contains `error: "max_retry_exceeded"`.
 
-### 6. Final Record
+### 7. Final Record
 
-After all subtasks, call record once without wrapping it in history updates:
+After all subtasks, call record once:
 
 ```json
 {"name": "{cap_id}_record", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
-The complete record contains concise LLM reasoning history, automatic Agent task results, execution code, `main_video`, and other videos. Send the executed code with `message`, then display each useful final video with `media`.
+Send the executed code with `message`:
+
+```json
+{
+  "name": "message",
+  "arguments": {
+    "content": "Executed code:\n\n```python\n<record.code>\n```"
+  }
+}
+```
+
+Then display each useful final video with `media`:
+
+```json
+{"name": "media", "arguments": {"media_type": "video", "mode": "display", "media_path": "<absolute path from main_video>", "prompt": "Full task execution video"}}
+```
 
 ## Conceptual Pseudo-Code
 
@@ -180,48 +207,44 @@ reset(agent)
 doc = agent_doc(agent)
 obs = get_obs(agent)
 
-subtasks = plan_task(doc, obs)
-update_history(agent, {
-    "role": "llm",
-    "mark": "step_0_trail_0",
-    "response": {"tool": "planning", "data": subtasks},
-})
-message(subtasks)
+subtasks = decompose(doc, obs)
+update_history(agent, {"role": "user", "request": {"tool": "plan", "data": subtasks}})
+message(f"Task: ...\n\nSubtasks:\n1. ...")
 
 for subtask in subtasks:
-    execute(agent, make_code(subtask))  # Result is auto-traced by Agent.
+    execute(agent, make_code(subtask))  # auto-traced by Agent
     status = monitor(agent, wait_ms=-1)
-    judgment = verify(status)
+    judgment = image.analyze(status.main_image, subtask)  # displays image automatically
     mark = f"step_{status.exec_cnt}_trail_{status.trial_cnt}"
     update_history(agent, {
-        "role": "llm",
-        "mark": mark,
-        "response": {"tool": "verification", "data": judgment},
+        "role": "user", "mark": mark,
+        "response": {"tool": "verify", "data": judgment},
     })
-    message(judgment)
+    message(f"Verification result (Exec {exec_cnt} Trial {trial_cnt}): {subtask}\nResult: ...")
 
     while not judgment.success and status.trial_cnt <= doc.max_retry:
-        retry(agent)  # Result is auto-traced by Agent.
+        retry(agent)  # auto-traced by Agent
         status = monitor(agent, wait_ms=-1)
-        judgment = verify(status)
+        judgment = image.analyze(status.main_image, subtask)
         mark = f"step_{status.exec_cnt}_trail_{status.trial_cnt}"
         update_history(agent, {
-            "role": "llm",
-            "mark": mark,
-            "response": {"tool": "verification", "data": judgment},
+            "role": "llm", "mark": mark,
+            "response": {"tool": "verify", "data": judgment},
         })
-        message(judgment)
+        message(f"Verification result (Exec {exec_cnt} Trial {trial_cnt}): {subtask}\nResult: ...")
 
-record(agent)
+record_result = record(agent)
+message(f"Executed code:\n\n```python\n{record_result.code}\n```")
+media(record_result.main_video)
 ```
 
 ## Important Rules
 
-1. Call `update_history` only for completed LLM planning and verification reasoning.
-2. Never record CAP tool requests.
-3. Never duplicate auto-traced `execute`, `retry`, or `train` results.
-4. Use `step_{cnt}_trail_{cnt}` marks exactly, including the spelling `trail`.
-5. Never overwrite or summarize earlier history; updates append.
+1. Always call `message` immediately after planning and after each verification — the user sees nothing otherwise.
+2. Always call `image.analyze` after monitor before deciding to retry or record verify.
+3. Use `step_{cnt}_trail_{cnt}` marks exactly, including the spelling `trail`.
+4. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
+5. Never duplicate auto-traced `execute`, `retry`, or `train` results.
 6. Read `agent_doc` before generating execution code.
 7. Use exact LIBERO task strings from `execute_rules`.
 8. Use `monitor(..., wait_ms=-1)` for final execution results.

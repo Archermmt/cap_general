@@ -158,8 +158,10 @@ class BaseScene(RegisteredBase):
     async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
         """Start code execution tasks for each selected agent."""
         requests = self._resolve_kwargs(agent_codes)
-        results = [await self._start_task(agent, "execute", code) for agent, code in requests.items()]
-        return self._format_results(requests, results)
+        results = await asyncio.gather(
+            *(self._start_task(agent, "execute", code) for agent, code in requests.items())
+        )
+        return self._format_results(requests, list(results))
 
     async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Start train tasks for selected agents from an agent-to-options mapping."""
@@ -343,7 +345,33 @@ class BaseScene(RegisteredBase):
         self._logger.info(
             "Starting scene MCP server %s at http://%s:%s/mcp", s_config.cap_id, s_config.host, s_config.port
         )
-        server.run(transport=transport)
+        import anyio
+        anyio.run(self._run_server_async, server, transport)
+
+    async def _run_server_async(self, server: Any, transport: str) -> None:
+        """Run the MCP server inside the event loop.
+
+        Separated from ``serve()`` so subclasses can override
+        ``_on_server_started()`` to schedule async startup work (e.g. idle
+        render loops) after the event loop is running but before the server
+        begins accepting requests.
+        """
+        await self._on_server_started()
+        if transport == "streamable-http":
+            await server.run_streamable_http_async()
+        elif transport == "sse":
+            await server.run_sse_async()
+        elif transport == "stdio":
+            await server.run_stdio_async()
+        else:
+            raise ValueError(f"Unknown transport: {transport!r}")
+
+    async def _on_server_started(self) -> None:
+        """Called once the event loop is running, before the server accepts requests.
+
+        Override in subclasses to schedule asyncio tasks that require a live
+        event loop (e.g. background render loops).
+        """
 
     def _get_agent(self, agent: str | None = None) -> BaseAgent:
         """Return an agent by name or alias."""

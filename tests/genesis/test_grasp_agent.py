@@ -42,7 +42,7 @@ RESULT = grasp_episode(stage="rl", max_steps={max_steps})
 
 def _make_train_request(train_ep: int) -> dict:
     """Build a lightweight GraspAgent training request for smoke tests."""
-    return {"policy_name": "smoke_test", "epoch": train_ep, "method": "rl"}
+    return {"policy_name": "smoke_test", "epoch": train_ep}
 
 
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
