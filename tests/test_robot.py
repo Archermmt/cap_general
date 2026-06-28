@@ -33,6 +33,12 @@ class DummyRobot(BaseRobot):
     def get_observation(self, folder) -> dict[str, Any]:
         return {"step": self.step_cnt}
 
+    def _train_reset(self, options=None):
+        return {"mode": "train", "options": options or {}}
+
+    def _train_step(self, action):
+        return {"mode": "train"}, 1.0, False, {"action": action}
+
 
 class RewardDummyRobot(DummyRobot):
     """Dummy robot whose step reward placeholder differs from computed reward."""
@@ -77,6 +83,62 @@ def test_robot_base_step_uses_compute_reward():
     _, reward, _, _, _ = robot.step({"move": 1})
 
     assert reward == 3.5
+
+
+def test_robot_train_and_eval_switch_reset_and_step_semantics():
+    robot = DummyRobot(config=BaseRobotConfig(), logger=LOGGER)
+
+    assert robot.training is False
+    assert robot.train() is robot
+    assert robot.training is True
+    assert robot.reset(options={"seed": 1}) == {"mode": "train", "options": {"seed": 1}}
+    assert robot.step({"move": 1}) == ({"mode": "train"}, 1.0, False, {"action": {"move": 1}})
+    assert robot.step_cnt == 0
+
+    assert robot.eval() is robot
+    assert robot.training is False
+    obs, _, _, _, _ = robot.step({"move": 2})
+    assert obs == {"step": 1}
+    assert robot.step_cnt == 1
+
+
+def test_grasp_robot_train_restores_training_episode_length_and_resets():
+    from cap_general.frameworks.genesis.robot.grasp_robot import GraspRobot, GraspRobotConfig
+
+    class FakeGraspEnv:
+        def __init__(self):
+            self.ctrl_dt = 0.01
+            self.env_cfg = {"episode_length_s": 10_000.0}
+            self.max_episode_length = 1_000_000
+            self.reset_count = 0
+
+        def reset(self):
+            self.reset_count += 1
+            return {"policy": "reset"}
+
+        def get_observations(self):
+            return {"policy": "eval"}
+
+    robot = GraspRobot(config=GraspRobotConfig(), logger=LOGGER)
+    env = FakeGraspEnv()
+    robot._example_env = env
+    robot._train_episode_length_s = 3.0
+    robot._eval_episode_length_s = 10_000.0
+
+    robot.train()
+
+    assert robot.training is True
+    assert env.env_cfg["episode_length_s"] == 3.0
+    assert env.max_episode_length == 300
+    assert env.reset_count == 1
+    assert robot.policy_obs == {"policy": "reset"}
+
+    robot.eval()
+
+    assert robot.training is False
+    assert env.env_cfg["episode_length_s"] == 10_000.0
+    assert env.max_episode_length == 1_000_000
+    assert robot.policy_obs == {"policy": "eval"}
 
 
 def test_robot_base_registry():

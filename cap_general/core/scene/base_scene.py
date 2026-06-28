@@ -18,6 +18,7 @@ from cap_general.core.agent import BaseAgent
 from cap_general.core.base import RegisteredBase
 from cap_general.core.scene.context import set_current_scene
 from cap_general.core.utils.config import load_yaml_config
+from cap_general.frameworks import import_frameworks
 
 
 @dataclass
@@ -55,12 +56,11 @@ class BaseScene(RegisteredBase):
     _registry: ClassVar[dict[str, type["BaseScene"]]] = {}
     config_cls: ClassVar[type[BaseSceneConfig]] = BaseSceneConfig
     registry_key_method: ClassVar[str] = "scene_type"
-    _run_task_on_main_thread: ClassVar[bool] = False
 
     @classmethod
     def scene_type(cls) -> str:
         """Return the registry key for this scene."""
-        return "scene"
+        return "base_scene"
 
     def __init__(self, config: BaseSceneConfig, logger: logging.Logger | None = None):
         self._config = config
@@ -69,36 +69,27 @@ class BaseScene(RegisteredBase):
         self._logger = logger or self._build_logger(self._record_dir)
         self._agents: dict[str, BaseAgent] = {}
         self._agent_aliases: dict[str, str] = {}
-        self._agent_execute_status: dict[str, dict[str, Any]] = {}
-        self._agent_execute_tasks: dict[str, asyncio.Future[Any] | asyncio.Task[Any]] = {}
-        self._task_lock: asyncio.Lock | None = None
-        self._before_build_agents()
+        self._agent_status: dict[str, dict[str, Any]] = {}
+        self._agent_tasks: dict[str, asyncio.Future[Any] | asyncio.Task[Any]] = {}
         set_current_scene(self)
         try:
             self._build_agents(self._config.agents)
-            self._after_build_agents()
-        finally:
+        except BaseException:
             set_current_scene(None)
+            raise
 
     @classmethod
     def from_yaml(cls, config_path: str | Path, overrides: list[str] | None = None) -> "BaseScene":
         """Initialize a scene from YAML with optional OmegaConf overrides."""
-        return cls.from_config(cls._load_yaml_config(config_path, overrides=overrides))
-
-    @staticmethod
-    def _load_yaml_config(config_path: str | Path, overrides: list[str] | None = None) -> dict[str, Any]:
-        """Load a scene YAML config and apply recursive overrides."""
-        return load_yaml_config(config_path, overrides=overrides)
+        return cls.from_config(load_yaml_config(config_path, overrides=overrides))
 
     @classmethod
     def get_server_url(cls, config_path: str | Path, overrides: list[str] | None = None) -> str:
         """Return the MCP server URL configured by a scene YAML file."""
-        config_data = cls._load_yaml_config(config_path, overrides=overrides)
+        config_data = load_yaml_config(config_path, overrides=overrides)
         scene_type = config_data.pop("type")
         scene_cls = cls.get_registered_class(scene_type)
         if scene_cls is None:
-            from cap_general.frameworks import import_frameworks
-
             import_frameworks()
             scene_cls = cls.get_registered_class(scene_type)
         if scene_cls is None:
@@ -111,13 +102,8 @@ class BaseScene(RegisteredBase):
     def _build_logger(record_dir: Path) -> logging.Logger:
         return cap_utils.build_file_logger(record_dir, logger_name="scene")
 
-    def _before_build_agents(self) -> None:
-        """Hook for subclasses to initialize state before agents."""
-
-    def _after_build_agents(self) -> None:
-        """Hook for subclasses to finalize state after agents."""
-
     def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
+        self._before_build_agents()
         for spec_data in specs:
             spec = spec_data if isinstance(spec_data, AgentSpec) else AgentSpec(**spec_data)
             if spec.name in self._agents:
@@ -137,6 +123,13 @@ class BaseScene(RegisteredBase):
                     )
                     continue
                 self._agent_aliases[alias] = spec.name
+        self._after_build_agents()
+
+    def _before_build_agents(self) -> None:
+        """Hook for subclasses to initialize state before agents."""
+
+    def _after_build_agents(self) -> None:
+        """Hook for subclasses to finalize state after agents."""
 
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""
@@ -158,22 +151,7 @@ class BaseScene(RegisteredBase):
     async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
         """Start code execution tasks for each selected agent."""
         requests = self._resolve_kwargs(agent_codes)
-        results = await asyncio.gather(
-            *(self._start_task(agent, "execute", code) for agent, code in requests.items())
-        )
-        return self._format_results(requests, list(results))
-
-    async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        """Start train tasks for selected agents from an agent-to-options mapping."""
-        requests = self._resolve_kwargs(agent_options)
-        results = []
-        for agent, train_request in requests.items():
-            train_request = dict(train_request or {})
-            policy_name = train_request.pop("policy_name")
-            epoch = train_request.pop("epoch")
-            method = train_request.pop("method", "train")
-            options = train_request.pop("options", train_request)
-            results.append(await self._start_task(agent, "train", policy_name, epoch, method, options))
+        results = [await self._start_task(agent, "execute", code=code) for agent, code in requests.items()]
         return self._format_results(requests, results)
 
     async def retry(self, agents: list[str]) -> dict[str, dict[str, Any]]:
@@ -181,6 +159,12 @@ class BaseScene(RegisteredBase):
         canonical_agents = self._resolve_names(agents)
         results = [await self._start_task(agent, "retry") for agent in canonical_agents]
         return self._format_results(canonical_agents, results)
+
+    async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Start train tasks for selected agents from an agent-to-options mapping."""
+        requests = self._resolve_kwargs(agent_options)
+        results = [await self._start_task(agent, "train", **kwargs) for agent, kwargs in requests.items()]
+        return self._format_results(requests, results)
 
     async def monitor(self, agents: list[str], wait_ms: int = -1) -> dict[str, dict[str, Any]]:
         """Return selected agents' execution statuses, optionally waiting for completion."""
@@ -190,86 +174,10 @@ class BaseScene(RegisteredBase):
         return self._format_results(
             canonical_agents,
             [
-                cap_utils.to_json_safe(self._agent_execute_status.get(agent, self._get_status(agent)))
+                cap_utils.to_json_safe(self._agent_status.get(agent, self._get_status(agent)))
                 for agent in canonical_agents
             ],
         )
-
-    def _get_status(self, canonical: str, **kwargs: Any) -> dict[str, Any]:
-        status = {
-            "agent": canonical,
-            "method": None,
-            "running": False,
-            "started_at": None,
-            "finished_at": None,
-            "duration": None,
-            "result": None,
-            "error": None,
-        }
-        status.update(kwargs)
-        return status
-
-    async def _start_task(self, canonical: str, method_name: str, *args: Any) -> dict[str, Any]:
-        task = self._agent_execute_tasks.get(canonical)
-        if task is not None and not task.done():
-            return cap_utils.to_json_safe(self._agent_execute_status.get(canonical, self._get_status(canonical)))
-        started_at = time.time()
-        self._agent_execute_status[canonical] = self._get_status(
-            canonical,
-            method=method_name,
-            running=True,
-            started_at=started_at,
-        )
-        agent = self._get_agent(canonical)
-        method = getattr(agent, method_name)
-
-        async def _run() -> dict[str, Any]:
-            try:
-                if self._run_task_on_main_thread:
-                    if self._task_lock is None:
-                        self._task_lock = asyncio.Lock()
-                    async with self._task_lock:
-                        result = method(*args)
-                else:
-                    result = await asyncio.to_thread(method, *args)
-                error = None
-            except BaseException as exc:
-                self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
-                result = {
-                    "ok": False,
-                    "error": type(exc).__name__,
-                    "stderr": str(exc),
-                }
-                error = {"type": type(exc).__name__, "message": str(exc)}
-            finished_at = time.time()
-            status = self._get_status(
-                canonical,
-                method=method_name,
-                started_at=started_at,
-                finished_at=finished_at,
-                duration=f"{finished_at - started_at:.2f}s",
-                result=cap_utils.to_json_safe(result),
-                error=error,
-            )
-            self._agent_execute_status[canonical] = status
-            return status
-
-        self._agent_execute_tasks[canonical] = asyncio.create_task(_run())
-        return cap_utils.to_json_safe(self._agent_execute_status.get(canonical, self._get_status(canonical)))
-
-    async def _wait_task(self, canonical: str, wait_ms: int) -> None:
-        task = self._agent_execute_tasks.get(canonical)
-        if task is None or task.done():
-            return
-        if wait_ms < 0:
-            await asyncio.shield(task)
-            return
-        if wait_ms == 0:
-            return
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=max(wait_ms, 0) / 1000.0)
-        except asyncio.TimeoutError:
-            return
 
     def record(self, agents: list[str]) -> dict[str, Any]:
         """Record complete run artifacts for selected agents, or all agents if omitted."""
@@ -296,10 +204,11 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.get_obs()
         return results
 
-    def enable_trace(self, enabled: bool = True) -> None:
-        """Enable or disable automatic history recording for all agents."""
+    def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
+        """Set the history trace level for all agents."""
+        level = cap_utils.TraceLevel(level)
         for agent in self._agents.values():
-            agent.enable_trace(enabled)
+            agent.set_trace_level(level)
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
@@ -309,7 +218,7 @@ class BaseScene(RegisteredBase):
             raise ImportError("Serving a scene over MCP requires the mcp package") from exc
 
         s_config = self._server_config
-        self.enable_trace()
+        self.set_trace_level(cap_utils.TraceLevel.ALL)
         self._copy_skills_for_server(s_config)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
         for method_name in (
@@ -346,7 +255,71 @@ class BaseScene(RegisteredBase):
             "Starting scene MCP server %s at http://%s:%s/mcp", s_config.cap_id, s_config.host, s_config.port
         )
         import anyio
+
         anyio.run(self._run_server_async, server, transport)
+
+    async def _start_task(self, canonical: str, method_name: str, **kwargs: Any) -> dict[str, Any]:
+        task = self._agent_tasks.get(canonical)
+        if task is not None and not task.done():
+            return cap_utils.to_json_safe(self._agent_status.get(canonical, self._get_status(canonical)))
+        started_at = time.time()
+        self._agent_status[canonical] = self._get_status(
+            canonical, method=method_name, running=True, started_at=started_at
+        )
+        agent = self._get_agent(canonical)
+        method = getattr(agent, method_name)
+
+        async def _run() -> dict[str, Any]:
+            try:
+                result = await self._dispatch_task(method, kwargs)
+            except BaseException as exc:
+                self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
+                result = {"ok": False, "error": type(exc).__name__, "err_msg": str(exc)}
+            finished_at = time.time()
+            status = self._get_status(
+                canonical,
+                method=method_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration=f"{finished_at - started_at:.2f}s",
+                result=cap_utils.to_json_safe(result),
+            )
+            self._agent_status[canonical] = status
+            return status
+
+        self._agent_tasks[canonical] = asyncio.create_task(_run())
+        return cap_utils.to_json_safe(self._agent_status.get(canonical, self._get_status(canonical)))
+
+    async def _dispatch_task(self, method: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
+        """Dispatch a synchronous agent method without blocking the event loop."""
+        return await asyncio.to_thread(method, **kwargs)
+
+    async def _wait_task(self, canonical: str, wait_ms: int) -> None:
+        task = self._agent_tasks.get(canonical)
+        if task is None or task.done():
+            return
+        if wait_ms < 0:
+            await asyncio.shield(task)
+            return
+        if wait_ms == 0:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=max(wait_ms, 0) / 1000.0)
+        except asyncio.TimeoutError:
+            return
+
+    def _get_status(self, canonical: str, **kwargs: Any) -> dict[str, Any]:
+        status = {
+            "agent": canonical,
+            "method": None,
+            "running": False,
+            "started_at": None,
+            "finished_at": None,
+            "duration": None,
+            "result": None,
+        }
+        status.update(kwargs)
+        return status
 
     async def _run_server_async(self, server: Any, transport: str) -> None:
         """Run the MCP server inside the event loop.

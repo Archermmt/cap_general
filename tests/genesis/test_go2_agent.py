@@ -10,6 +10,7 @@ Remote mode:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import math
 import sys
@@ -155,8 +156,6 @@ def test_local_go2_agent() -> None:
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Genesis Go2Agent evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)

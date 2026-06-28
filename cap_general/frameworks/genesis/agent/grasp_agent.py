@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -71,11 +71,16 @@ class GraspAgent(BaseAgent):
         obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":
-                action = self._run_policy(self._rl_policy_name, env=env, obs=obs)
+                action = self._run_policy(self._rl_policy_name, env=self._robot, obs=obs)
             elif current_stage == "bc":
                 rgb_obs = self._robot.get_stereo_rgb_images(normalize=True).float()
                 ee_pose = env.robot.ee_pose.float()
-                action = self._run_policy(self._bc_policy_name, env=env, rgb_obs=rgb_obs, ee_pose=ee_pose)
+                action = self._run_policy(
+                    self._bc_policy_name,
+                    env=self._robot,
+                    rgb_obs=rgb_obs,
+                    ee_pose=ee_pose,
+                )
             else:
                 raise ValueError(f"Unknown grasp stage: {current_stage!r}")
             obs, _reward, terminated, truncated, _info = self._robot.step(action)
@@ -103,10 +108,12 @@ class GraspAgent(BaseAgent):
             "train_cfg: Dict of overrides for the RL or BC training config."
         )
 
+    def _load_policy_to_runner(self, policy_name: str, **kwargs: Any) -> Any:
+        """Load a Genesis training policy's current weights into its runner."""
+        return self._run_policy(policy_name, method="load_to_runner", **kwargs)
+
     def _train(self, policy_name: str, epoch: int, method: str, options: dict) -> dict:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
-        import sys
-
         try:
             from rsl_rl.runners import OnPolicyRunner
         except ImportError as exc:
@@ -121,9 +128,7 @@ class GraspAgent(BaseAgent):
             sys.path.insert(0, example_root)
         from behavior_cloning import BehaviorCloning  # type: ignore[import]  # noqa: PLC0415
 
-        env = self._robot.example_env
-        if env is None:
-            raise RuntimeError("Grasp env is in mock mode — cannot train without a live Genesis env.")
+        env = self._robot
 
         log_dir = self.train_dir / f"{policy_name}_{stage}"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -196,21 +201,16 @@ class GraspAgent(BaseAgent):
             bc_cfg.update(options.get("train_cfg", {}))
 
         if stage == "bc":
-            rl_log_dir = self.train_dir / f"{policy_name}_rl"
-            if not rl_log_dir.exists():
-                raise FileNotFoundError(f"RL log directory {rl_log_dir} does not exist — train RL first.")
-            ckpt_files = [p for p in rl_log_dir.iterdir() if re.match(r"model_\d+\.pt", p.name)]
-            if not ckpt_files:
-                raise FileNotFoundError(f"No RL checkpoints found in {rl_log_dir}")
-            last_ckpt = max(ckpt_files, key=lambda p: int(re.search(r"\d+", p.stem).group()))
-            rl_runner = OnPolicyRunner(env, rl_cfg, rl_log_dir, device=env.device)
-            rl_runner.load(last_ckpt)
+            rl_runner = OnPolicyRunner(env, rl_cfg, str(log_dir), device=env.device)
+            self._load_policy_to_runner(self._rl_policy_name, env=env, runner=rl_runner)
             teacher_policy = rl_runner.get_inference_policy(device=env.device)
             runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
+            self._load_policy_to_runner(self._bc_policy_name, env=env, runner=runner)
             runner.learn(num_learning_iterations=epoch, log_dir=log_dir)
             self._update_policy(self._bc_policy_name, env=env, runner=runner)
         else:
             runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
+            self._load_policy_to_runner(self._rl_policy_name, env=env, runner=runner)
             runner.learn(num_learning_iterations=epoch, init_at_random_ep_len=True)
             self._update_policy(self._rl_policy_name, env=env, runner=runner)
 

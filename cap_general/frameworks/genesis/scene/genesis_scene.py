@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +12,6 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.scene import BaseScene, BaseSceneConfig
-from cap_general.core import utils as cap_utils
 from cap_general.core.utils import save_image
 
 
@@ -95,7 +93,6 @@ class GenesisScene(BaseScene):
 
     name = "Genesis Scene"
     config_cls = GenesisSceneConfig
-    _run_task_on_main_thread = True
 
     @classmethod
     def scene_type(cls) -> str:
@@ -113,7 +110,7 @@ class GenesisScene(BaseScene):
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
         self._idle_render_task: asyncio.Task | None = None
         self._step_lock = threading.Lock()
-        self._agent_locks: dict[str, asyncio.Lock] = {}
+        self._agent_locks: dict[Any, asyncio.Lock] = {}
         super().__init__(config=config, logger=logger)
 
     @staticmethod
@@ -208,7 +205,7 @@ class GenesisScene(BaseScene):
         while True:
             await asyncio.sleep(interval)
             # Skip when an agent task is actively executing
-            if any(t is not None and not t.done() for t in self._agent_execute_tasks.values()):
+            if any(t is not None and not t.done() for t in self._agent_tasks.values()):
                 continue
             self._real_step()
 
@@ -327,61 +324,15 @@ class GenesisScene(BaseScene):
         """Start the idle render loop once the MCP server's event loop is live."""
         self._start_idle_render_loop()
 
-    async def _start_task(self, canonical: str, method_name: str, *args: Any) -> dict[str, Any]:
-        """Start an agent task using a per-agent lock.
-
-        Each agent gets its own asyncio.Lock so concurrent execute() calls for
-        different agents don't block each other at the scene level.
-        """
-        if canonical not in self._agent_locks:
-            self._agent_locks[canonical] = asyncio.Lock()
-        agent_lock = self._agent_locks[canonical]
-
-        task = self._agent_execute_tasks.get(canonical)
-        if task is not None and not task.done():
-            return cap_utils.to_json_safe(
-                self._agent_execute_status.get(canonical, self._get_status(canonical))
-            )
-        started_at = time.time()
-        self._agent_execute_status[canonical] = self._get_status(
-            canonical,
-            method=method_name,
-            running=True,
-            started_at=started_at,
-        )
-        agent = self._get_agent(canonical)
-        method = getattr(agent, method_name)
-
-        async def _run() -> dict[str, Any]:
-            try:
-                async with agent_lock:
-                    result = method(*args)
-                error = None
-            except BaseException as exc:
-                self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
-                result = {
-                    "ok": False,
-                    "error": type(exc).__name__,
-                    "stderr": str(exc),
-                }
-                error = {"type": type(exc).__name__, "message": str(exc)}
-            finished_at = time.time()
-            status = self._get_status(
-                canonical,
-                method=method_name,
-                started_at=started_at,
-                finished_at=finished_at,
-                duration=f"{finished_at - started_at:.2f}s",
-                result=cap_utils.to_json_safe(result),
-                error=error,
-            )
-            self._agent_execute_status[canonical] = status
-            return status
-
-        self._agent_execute_tasks[canonical] = asyncio.create_task(_run())
-        return cap_utils.to_json_safe(
-            self._agent_execute_status.get(canonical, self._get_status(canonical))
-        )
+    async def _dispatch_task(
+        self,
+        method: Callable[..., Any],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        """Run a Genesis agent method on the main thread under its agent lock."""
+        agent_lock = self._agent_locks.setdefault(method.__self__, asyncio.Lock())
+        async with agent_lock:
+            return method(**kwargs)
 
 
 GenesisScene._registry[GenesisScene.scene_type()] = GenesisScene

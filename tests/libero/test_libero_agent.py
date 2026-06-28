@@ -16,6 +16,7 @@ Nanobot test:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import platform
@@ -156,8 +157,6 @@ def test_mcp_libero(config: str = _DEFAULT_CONFIG) -> None:
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="LIBERO VLA evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)

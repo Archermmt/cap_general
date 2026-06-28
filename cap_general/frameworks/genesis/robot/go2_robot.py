@@ -16,9 +16,7 @@ from cap_general.frameworks.genesis.utils import step_scene
 
 
 def _load_genesis_deps():
-    global gs, inv_quat, math, quat_to_xyz, torch, TensorDict
-
-    import math
+    global gs, inv_quat, quat_to_xyz, torch, TensorDict
 
     import genesis as gs
     import torch

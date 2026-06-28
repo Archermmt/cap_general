@@ -40,7 +40,7 @@ This skill executes many steps before the final response. The user sees nothing 
 }
 ```
 
-Use `media` only for final videos, not for images (image analysis uses `image.analyze` which displays automatically).
+Use `media` with `mode="analyze"` for verification images; it displays the image automatically. Use `media` with `mode="display"` for final videos.
 
 ## Workflow
 
@@ -71,12 +71,10 @@ Build ordered atomic subtasks. Then call `update_history` with `tool: plan`:
   "agent_messages": {
     "{agent_name}": {
       "role": "user",
+      "tool": "plan",
       "request": {
-        "tool": "plan",
-        "data": {
-          "main_task": "<original task>",
-          "sub_tasks": ["<subtask 1>", "<subtask 2>"]
-        }
+        "main_task": "<original task>",
+        "sub_tasks": ["<subtask 1>", "<subtask 2>"]
       }
     }
   }
@@ -116,11 +114,11 @@ Inspect the result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt`
 
 ### 5. Analyze And Verify
 
-When `obs.main_image` is present, call `image` in analyze mode to judge task outcome (this also displays the image automatically):
+When `obs.main_image` is present, call `media` in analyze mode to judge task outcome (this also displays the image automatically):
 
 ```json
 {
-  "name": "image",
+  "name": "media",
   "arguments": {
     "media_type": "image",
     "mode": "analyze",
@@ -130,22 +128,19 @@ When `obs.main_image` is present, call `image` in analyze mode to judge task out
 }
 ```
 
-Then record exactly one verification event using `tool: verify` with the authoritative `exec_cnt` and `trial_cnt`:
+Then record exactly one verification event using `tool: verify`:
 
 ```json
 {
   "agent_messages": {
     "{agent_name}": {
-      "role": "llm",
-      "mark": "step_{exec_cnt}_trail_{trial_cnt}",
+      "role": "user",
+      "tool": "verify",
       "response": {
-        "tool": "verify",
-        "data": {
-          "subtask": "<subtask>",
-          "success": true,
-          "image": "<obs.main_image path>",
-          "notes": "<brief visual or execution assessment>"
-        }
+        "subtask": "<subtask>",
+        "success": true,
+        "image": "<obs.main_image path>",
+        "notes": "<brief visual or execution assessment>"
       }
     }
   }
@@ -208,28 +203,24 @@ doc = agent_doc(agent)
 obs = get_obs(agent)
 
 subtasks = decompose(doc, obs)
-update_history(agent, {"role": "user", "request": {"tool": "plan", "data": subtasks}})
+update_history(agent, {"role": "user", "tool": "plan", "request": subtasks})
 message(f"Task: ...\n\nSubtasks:\n1. ...")
 
 for subtask in subtasks:
     execute(agent, make_code(subtask))  # auto-traced by Agent
     status = monitor(agent, wait_ms=-1)
-    judgment = image.analyze(status.main_image, subtask)  # displays image automatically
-    mark = f"step_{status.exec_cnt}_trail_{status.trial_cnt}"
+    judgment = media(media_type="image", mode="analyze", media_path=status.main_image, prompt=subtask)
     update_history(agent, {
-        "role": "user", "mark": mark,
-        "response": {"tool": "verify", "data": judgment},
+        "role": "user", "tool": "verify", "response": judgment,
     })
     message(f"Verification result (Exec {exec_cnt} Trial {trial_cnt}): {subtask}\nResult: ...")
 
     while not judgment.success and status.trial_cnt <= doc.max_retry:
         retry(agent)  # auto-traced by Agent
         status = monitor(agent, wait_ms=-1)
-        judgment = image.analyze(status.main_image, subtask)
-        mark = f"step_{status.exec_cnt}_trail_{status.trial_cnt}"
+        judgment = media(media_type="image", mode="analyze", media_path=status.main_image, prompt=subtask)
         update_history(agent, {
-            "role": "llm", "mark": mark,
-            "response": {"tool": "verify", "data": judgment},
+            "role": "user", "tool": "verify", "response": judgment,
         })
         message(f"Verification result (Exec {exec_cnt} Trial {trial_cnt}): {subtask}\nResult: ...")
 
@@ -241,9 +232,9 @@ media(record_result.main_video)
 ## Important Rules
 
 1. Always call `message` immediately after planning and after each verification — the user sees nothing otherwise.
-2. Always call `image.analyze` after monitor before deciding to retry or record verify.
-3. Use `step_{cnt}_trail_{cnt}` marks exactly, including the spelling `trail`.
-4. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
+2. Always call `media` with `media_type="image"` and `mode="analyze"` after monitor before deciding to retry or record verify.
+3. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
+4. Keep `role`, `tool`, and `request` or `response` at the top level of each history message.
 5. Never duplicate auto-traced `execute`, `retry`, or `train` results.
 6. Read `agent_doc` before generating execution code.
 7. Use exact LIBERO task strings from `execute_rules`.

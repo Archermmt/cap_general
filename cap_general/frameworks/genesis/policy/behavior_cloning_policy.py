@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,10 +51,17 @@ class BehaviorCloningPolicy(BasePolicy):
     def inference(self, *, env: Any, rgb_obs: Any, ee_pose: Any) -> Any:
         """Run the BC policy on stereo images and end-effector pose."""
         self._ensure_loaded(env)
+        self._policy.eval()
         return self._policy(rgb_obs, ee_pose)
 
+    def load_to_runner(self, *, env: Any, runner: Any) -> dict[str, Any]:
+        """Load the current policy weights into a BC training runner."""
+        self._ensure_loaded(env)
+        runner._policy.load_state_dict(self._policy.state_dict())
+        return {}
+
     def update(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Reload the BC policy weights from a just-trained BehaviorCloning runner."""
+        """Update the current policy from a trained BC runner."""
         self._policy = runner._policy
         self._policy.eval()
         self._loaded_env_id = id(env)
@@ -66,8 +74,6 @@ class BehaviorCloningPolicy(BasePolicy):
             import genesis as gs
         except ImportError as exc:
             raise ImportError("BehaviorCloningPolicy requires genesis") from exc
-
-        import pickle
 
         example_root = Path(self._config.example_root).expanduser()
         module = load_module_from_file(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+import math
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,10 +17,7 @@ from cap_general.frameworks.genesis.utils import step_scene
 
 
 def _load_genesis_deps():
-    global copy, gs, inv_quat, math, quat_to_xyz, torch, TensorDict
-
-    import copy
-    import math
+    global gs, inv_quat, quat_to_xyz, torch, TensorDict
 
     import genesis as gs
     import torch

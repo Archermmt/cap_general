@@ -55,6 +55,7 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._scene = get_current_scene()
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
+        self._training = False
 
     @property
     def cap_scene(self) -> Any | None:
@@ -63,6 +64,8 @@ class BaseRobot(RegisteredBase, GymEnv):
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the robot and return the initial observation and info."""
+        if self._training:
+            return self._train_reset(options=options)
         reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
         if reset_level >= ResetLevel.AGENT:
             self._step_cnt = 0
@@ -83,11 +86,39 @@ class BaseRobot(RegisteredBase, GymEnv):
         Returns:
             observation, reward, terminated, truncated, info.
         """
+        if self._training:
+            return self._train_step(action)
         self._step_cnt += 1
         self._last_obs, _reward, terminated, truncated, info = self._step(action)
         reward = self.compute_reward()
         self._record_frame(self._last_obs)
         return self._last_obs, reward, terminated, truncated, info
+
+    def train(self) -> "BaseRobot":
+        """Switch to training reset and step semantics."""
+        self._training = True
+        self._on_train()
+        return self
+
+    def eval(self) -> "BaseRobot":
+        """Switch to evaluation reset and step semantics."""
+        self._training = False
+        self._on_eval()
+        return self
+
+    def _train_reset(self, options: dict[str, Any] | None = None) -> Any:
+        """Reset hook used in training mode."""
+        return self._reset(options=options)
+
+    def _train_step(self, action: ActType) -> Any:
+        """Step hook used in training mode."""
+        return self._step(action)
+
+    def _on_train(self) -> None:
+        """Hook called after entering training mode."""
+
+    def _on_eval(self) -> None:
+        """Hook called after entering evaluation mode."""
 
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
@@ -169,3 +200,8 @@ class BaseRobot(RegisteredBase, GymEnv):
     def last_obs(self) -> ObsType:
         """Get the last observation."""
         return self._last_obs
+
+    @property
+    def training(self) -> bool:
+        """Whether the robot uses training semantics."""
+        return self._training

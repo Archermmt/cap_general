@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,10 +54,18 @@ class RslRlPolicy(BasePolicy):
         if env is None:
             raise ValueError("RslRlPolicy.inference requires env=...")
         self._ensure_loaded(env)
+        self._policy.eval()
         return self._policy(obs)
 
+    def load_to_runner(self, *, env: Any, runner: Any) -> dict[str, Any]:
+        """Load the current policy weights into a training runner."""
+        self._ensure_loaded(env)
+        runner_policy = runner.alg.get_policy().to(env.device)
+        runner_policy.load_state_dict(self._policy.state_dict())
+        return {}
+
     def update(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Reload the inference policy from a just-trained OnPolicyRunner."""
+        """Update the current policy from a trained runner."""
         self._policy = runner.get_inference_policy(device=env.device)
         self._loaded_env_id = id(env)
         self._train_cfg = getattr(runner, "cfg", None)
@@ -81,8 +90,6 @@ class RslRlPolicy(BasePolicy):
         self._train_cfg = train_cfg
 
     def _load_train_cfg(self, log_dir: Path) -> dict[str, Any]:
-        import pickle
-
         with (log_dir / self._config.cfgs_filename).open("rb") as file:
             cfgs = pickle.load(file)
         return cfgs[self._config.train_cfg_index]

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import math
 import pickle
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +18,7 @@ from cap_general.frameworks.genesis.utils import step_scene
 
 def _load_genesis_deps():
     global BatchRendererCameraOptions, Camera, RasterizerCameraOptions, TensorDict, _ENABLE_MADRONA
-    global gs, math, partial, torch, transform_by_trans_quat, transform_quat_by_quat, xyz_to_quat
-
-    import math
-    from functools import partial
+    global gs, torch, transform_by_trans_quat, transform_quat_by_quat, xyz_to_quat
 
     import genesis as gs
     import torch
@@ -79,6 +78,8 @@ class GraspRobot(BaseRobot):
         self._mock_reason: str | None = None
         self._hand_camera = None
         self._hand_camera_failed = False
+        self._train_episode_length_s: float | None = None
+        self._eval_episode_length_s: float | None = None
 
     @classmethod
     def robot_type(cls) -> str:
@@ -97,6 +98,55 @@ class GraspRobot(BaseRobot):
             if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
                 self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
+
+    def get_observations(self) -> Any:
+        """Return raw vector observations used by training runners."""
+        env = self._require_example_env()
+        return env.get_observations()
+
+    @property
+    def num_envs(self) -> int:
+        return int(self._require_example_env().num_envs)
+
+    @property
+    def num_actions(self) -> int:
+        return int(self._require_example_env().num_actions)
+
+    @property
+    def device(self) -> Any:
+        return self._require_example_env().device
+
+    @property
+    def cfg(self) -> dict[str, Any]:
+        return self._require_example_env().cfg
+
+    @property
+    def max_episode_length(self) -> int:
+        return int(self._require_example_env().max_episode_length)
+
+    @property
+    def episode_length_buf(self) -> Any:
+        return self._require_example_env().episode_length_buf
+
+    @episode_length_buf.setter
+    def episode_length_buf(self, value: Any) -> None:
+        self._require_example_env().episode_length_buf = value
+
+    @property
+    def image_height(self) -> int:
+        return int(self._require_example_env().image_height)
+
+    @property
+    def image_width(self) -> int:
+        return int(self._require_example_env().image_width)
+
+    @property
+    def robot(self) -> Any:
+        return self._require_example_env().robot
+
+    @property
+    def object(self) -> Any:
+        return self._require_example_env().object
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         self._ensure_example_env()
@@ -125,6 +175,39 @@ class GraspRobot(BaseRobot):
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
         return self._build_observation(), 0.0, self._last_done, False, info
+
+    def _train_reset(self, options: dict[str, Any] | None = None) -> Any:
+        """Reset the raw vector environment for policy training."""
+        del options
+        return self._require_example_env().reset()
+
+    def _train_step(self, action: Any) -> Any:
+        """Step the raw vector environment without evaluation wrapping."""
+        return self._require_example_env().step(action)
+
+    def _on_train(self) -> None:
+        env = self._require_example_env()
+        self._set_episode_length(self._train_episode_length_s)
+        self._last_policy_obs = env.reset()
+
+    def _on_eval(self) -> None:
+        if self._example_env is not None and not getattr(self._example_env, "_deferred_build", False):
+            self._set_episode_length(self._eval_episode_length_s)
+            self._last_policy_obs = self._example_env.get_observations()
+
+    def _set_episode_length(self, episode_length_s: float | None) -> None:
+        if episode_length_s is None or self._example_env is None:
+            return
+        self._example_env.env_cfg["episode_length_s"] = episode_length_s
+        self._example_env.max_episode_length = math.ceil(episode_length_s / self._example_env.ctrl_dt)
+
+    def _require_example_env(self) -> Any:
+        self._ensure_example_env()
+        if self._example_env is None:
+            raise RuntimeError("Grasp env is in mock mode and cannot be used for training")
+        if getattr(self._example_env, "_deferred_build", False):
+            raise RuntimeError("Grasp env must be built before training")
+        return self._example_env
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -163,11 +246,13 @@ class GraspRobot(BaseRobot):
                 return
             env_cfg, reward_cfg, robot_cfg, _rl_train_cfg, _bc_train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
+            self._train_episode_length_s = float(env_cfg["episode_length_s"])
             env_cfg["num_envs"] = self._config.num_envs
             env_cfg["box_fixed"] = self._config.box_fixed
             env_cfg["visualize_camera"] = False
             if self._config.max_episode_steps is not None:
                 env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * float(env_cfg["ctrl_dt"])
+            self._eval_episode_length_s = float(env_cfg["episode_length_s"])
             if self._config.record_video:
                 env_cfg["record_video"] = self._config.record_video
             if self._config.robot_pos is not None:

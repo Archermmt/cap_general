@@ -40,8 +40,6 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
             raise RuntimeError(f"Failed to initialize RobosuiteCubeRobot: {exc}") from exc
 
     def _init_robosuite_stack(self) -> None:
-        import logging
-
         _rs_log = logging.getLogger("robosuite")
         _rs_level = _rs_log.level
         _rs_log.setLevel(logging.ERROR)

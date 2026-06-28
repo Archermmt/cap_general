@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,8 +81,6 @@ class RobosuiteBaseRobot(BaseRobot):
         the robosuite env so the env (and its GL context) are created on the
         dedicated thread.
         """
-        import threading
-
         if self._sim_executor is not None:
             self._sim_executor.shutdown(wait=False)
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sim_gl")
@@ -94,8 +93,6 @@ class RobosuiteBaseRobot(BaseRobot):
 
         If already running on the sim thread (e.g. during reset), call directly.
         """
-        import threading
-
         if self._sim_executor is None or threading.get_ident() == self._sim_thread_id:
             return fn(*args, **kwargs)
         future: Future = self._sim_executor.submit(fn, *args, **kwargs)
