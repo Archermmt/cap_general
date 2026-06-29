@@ -537,11 +537,11 @@ class _GenesisGraspCoreRobot:
         if before_scene_build is not None:
             before_scene_build(self.scene)
         scene_resource = env_cfg.get("_scene_resource")
-        build_kwargs = {"n_envs": env_cfg["num_envs"], "env_spacing": (1.0, 1.0)}
-        if scene_resource is not None and scene_resource.defer_build(build_kwargs, self._post_build):
+        if scene_resource is not None:
+            scene_resource.defer_build(self._post_build)
             self._deferred_build = True
             return
-        self.scene.build(**build_kwargs)
+        self.scene.build()
         self._post_build()
 
     def _post_build(self) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -379,7 +380,6 @@ class GraspAgent(BaseAgent):
         example_root = str(self._robot._config.example_root)
         if example_root not in sys.path:
             sys.path.insert(0, example_root)
-        import importlib  # noqa: PLC0415
 
         behavior_cloning_module = importlib.import_module("behavior_cloning")
         BehaviorCloning = behavior_cloning_module.BehaviorCloning

@@ -24,8 +24,6 @@ from cap_general.frameworks.genesis.robot import (
 from cap_general.frameworks.genesis.scene import (
     GenesisScene,
     GenesisSceneConfig,
-    get_scene,
-    reset_scene,
 )
 from cap_general.frameworks.genesis.policy import BehaviorCloningPolicy, BehaviorCloningPolicyConfig
 
@@ -51,6 +49,4 @@ __all__ = [
     "GenesisSceneConfig",
     "BehaviorCloningPolicy",
     "BehaviorCloningPolicyConfig",
-    "get_scene",
-    "reset_scene",
 ]

@@ -7,7 +7,7 @@ from cap_general.core.utils.depth_utils import (
     depth_to_pointcloud,
     depth_to_rgb,
 )
-from cap_general.core.utils.filesystem import remove_path, write_json, write_text
+from cap_general.core.utils.filesystem import load_module_from_file, remove_path, write_json, write_text
 from cap_general.core.utils.logging import build_file_logger, close_file_handlers
 from cap_general.core.utils.media import frame_to_array, save_image, save_video
 from cap_general.core.utils.namespace import (
@@ -23,6 +23,7 @@ __all__ = [
     "ResetLevel",
     "TraceLevel",
     "remove_path",
+    "load_module_from_file",
     "build_file_logger",
     "close_file_handlers",
     "write_json",

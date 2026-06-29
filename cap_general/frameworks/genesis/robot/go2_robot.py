@@ -430,11 +430,11 @@ class _GenesisGo2CoreRobot:
         if before_scene_build is not None:
             before_scene_build(self.scene)
         scene_resource = env_cfg.get("_scene_resource")
-        build_kwargs = {"n_envs": num_envs}
-        if scene_resource is not None and scene_resource.defer_build(build_kwargs, self._post_build):
+        if scene_resource is not None:
+            scene_resource.defer_build(self._post_build)
             self._deferred_build = True
             return
-        self.scene.build(**build_kwargs)
+        self.scene.build()
         self._post_build()
 
     def _post_build(self) -> None:

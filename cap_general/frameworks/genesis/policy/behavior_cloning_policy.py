@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cap_general.core.policy import BasePolicy, BasePolicyConfig
-from cap_general.frameworks.genesis.utils import load_module_from_file
+from cap_general.core.utils import load_module_from_file
 
 if TYPE_CHECKING:
     from logging import Logger

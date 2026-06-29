@@ -26,6 +26,7 @@ class GenesisSceneConfig(BaseSceneConfig):
     viewer_options: dict[str, Any] = field(default_factory=dict)
     vis_options: dict[str, Any] = field(default_factory=dict)
     profiling_options: dict[str, Any] = field(default_factory=dict)
+    build_kwargs: dict[str, Any] = field(default_factory=lambda: {"n_envs": 1})
     image_key: str = "viewer"
     camera_name: str = "scene_camera"
     camera_res: tuple[int, int] = (640, 480)
@@ -37,47 +38,6 @@ class GenesisSceneConfig(BaseSceneConfig):
     camera_far: float = 20.0
     lock_viewer_rotation: bool = True
     idle_render_fps: float = 30.0
-
-
-_SCENE: Any | None = None
-
-
-def get_scene(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
-    """Create or return the process-global Genesis scene."""
-    global _SCENE
-
-    if _SCENE is not None:
-        return _SCENE
-    if gs is None:
-        import genesis as gs
-
-    _SCENE = create_scene_from_config(config, gs=gs)
-    return _SCENE
-
-
-def create_scene_from_config(config: GenesisSceneConfig, *, gs: Any | None = None) -> Any:
-    """Create a fresh Genesis scene from config."""
-    if gs is None:
-        import genesis as gs
-
-    kwargs: dict[str, Any] = {"show_viewer": config.show_viewer}
-    if config.sim_options:
-        kwargs["sim_options"] = gs.options.SimOptions(**_resolve_options(config.sim_options, gs))
-    if config.rigid_options:
-        kwargs["rigid_options"] = gs.options.RigidOptions(**_resolve_options(config.rigid_options, gs))
-    if config.viewer_options:
-        kwargs["viewer_options"] = gs.options.ViewerOptions(**_resolve_options(config.viewer_options, gs))
-    if config.vis_options:
-        kwargs["vis_options"] = gs.options.VisOptions(**_resolve_options(config.vis_options, gs))
-    if config.profiling_options:
-        kwargs["profiling_options"] = gs.options.ProfilingOptions(**_resolve_options(config.profiling_options, gs))
-    return gs.Scene(**kwargs)
-
-
-def reset_scene() -> None:
-    """Forget the process-global scene reference."""
-    global _SCENE
-    _SCENE = None
 
 
 def _resolve_options(options: dict[str, Any], gs: Any) -> dict[str, Any]:
@@ -104,9 +64,6 @@ class GenesisScene(BaseScene):
         self._gs_scene = None
         self._camera = None
         self._camera_failed = False
-        self._defer_scene_build = False
-        self._scene_built = False
-        self._build_kwargs: dict[str, Any] | None = None
         self._post_build_callbacks: list[Callable[[], None]] = []
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
         self._idle_render_task: asyncio.Task | None = None
@@ -115,21 +72,35 @@ class GenesisScene(BaseScene):
         super().__init__(config=config, logger=logger)
 
     def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
-        self._gs_scene = self._create_scene()
-        if self._gs_scene is not None:
-            self._gs_scene._cap_step_scene = self.step_scene
-            self._gs_scene._cap_register_pre_step_callback = self.register_pre_step_callback
-        self._add_default_ground_plane()
-        self._defer_scene_build = True
+        import genesis as gs
+
+        if self._config.backend:
+            gs.init(backend=getattr(gs, self._config.backend))
+        else:
+            gs.init()
+
+        scene_kwargs: dict[str, Any] = {"show_viewer": self._config.show_viewer}
+        if self._config.sim_options:
+            scene_kwargs["sim_options"] = gs.options.SimOptions(**_resolve_options(self._config.sim_options, gs))
+        if self._config.rigid_options:
+            scene_kwargs["rigid_options"] = gs.options.RigidOptions(**_resolve_options(self._config.rigid_options, gs))
+        if self._config.viewer_options:
+            scene_kwargs["viewer_options"] = gs.options.ViewerOptions(
+                **_resolve_options(self._config.viewer_options, gs)
+            )
+        if self._config.vis_options:
+            scene_kwargs["vis_options"] = gs.options.VisOptions(**_resolve_options(self._config.vis_options, gs))
+        if self._config.profiling_options:
+            scene_kwargs["profiling_options"] = gs.options.ProfilingOptions(
+                **_resolve_options(self._config.profiling_options, gs)
+            )
+        self._gs_scene = gs.Scene(**scene_kwargs)
+        self._gs_scene._cap_step_scene = self.step_scene
+        self._gs_scene._cap_register_pre_step_callback = self.register_pre_step_callback
+        self._gs_scene.add_entity(gs.morphs.Plane())
         super()._build_agents(specs)
-        self._defer_scene_build = False
-        if self._gs_scene is None or self._scene_built:
-            return
-        if self._build_kwargs is None:
-            return
-        self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
-        self._gs_scene.build(**self._build_kwargs)
-        self._scene_built = True
+        self._logger.info("Building Genesis scene with kwargs=%s", self._config.build_kwargs)
+        self._gs_scene.build(**self._config.build_kwargs)
         self._lock_viewer_rotation()
         callbacks = list(self._post_build_callbacks)
         self._post_build_callbacks.clear()
@@ -159,27 +130,14 @@ class GenesisScene(BaseScene):
 
     def step_scene(self) -> None:
         """Step the Genesis scene."""
-        if self._gs_scene is None:
-            return
         self._real_step()
 
     def _real_step(self) -> None:
         """Unconditional scene step."""
-        if self._gs_scene is None:
-            return
         with self._step_lock:
             self._lock_viewer_rotation()
             if not self._run_pre_step_callbacks():
                 self._gs_scene.step()
-
-    def _add_default_ground_plane(self) -> None:
-        if self._gs_scene is None:
-            return
-        try:
-            import genesis as gs
-        except ImportError:
-            return
-        self._gs_scene.add_entity(gs.morphs.Plane())
 
     def _start_idle_render_loop(self) -> None:
         """Schedule the idle render loop on the running event loop, if available."""
@@ -202,51 +160,13 @@ class GenesisScene(BaseScene):
             self._real_step()
 
     @property
-    def scene(self) -> Any | None:
+    def scene(self) -> Any:
         """Return the Genesis scene owned by this scene wrapper."""
         return self._gs_scene
 
-    def _create_scene(self) -> Any | None:
-        try:
-            import genesis as gs
-        except ImportError as exc:
-            self._logger.warning("Genesis scene is disabled because Genesis is not importable: %s", exc)
-            return None
-
-        try:
-            if self._config.backend:
-                gs.init(backend=getattr(gs, self._config.backend))
-            else:
-                gs.init()
-        except Exception as exc:
-            message = str(exc)
-            if "already" not in message.lower() and "initialized" not in message.lower():
-                self._logger.warning("Genesis scene failed to initialize Genesis: %s", exc)
-                return None
-        return get_scene(self._config, gs=gs)
-
-    def defer_build(self, build_kwargs: dict[str, Any], post_build: Callable[[], None]) -> bool:
+    def defer_build(self, post_build: Callable[[], None]) -> None:
         """Defer the shared Genesis scene build until all robots are created."""
-        if not self._defer_scene_build:
-            return False
-        self._merge_build_kwargs(build_kwargs)
         self._post_build_callbacks.append(post_build)
-        return True
-
-    def _merge_build_kwargs(self, build_kwargs: dict[str, Any]) -> None:
-        if self._build_kwargs is None:
-            self._build_kwargs = dict(build_kwargs)
-            return
-        for key, value in build_kwargs.items():
-            if key not in self._build_kwargs:
-                self._build_kwargs[key] = value
-            elif self._build_kwargs[key] != value:
-                self._logger.warning(
-                    "Ignoring conflicting Genesis scene.build kwarg %s=%r; using %r",
-                    key,
-                    value,
-                    self._build_kwargs[key],
-                )
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Render and save the shared scene camera image."""
@@ -263,8 +183,6 @@ class GenesisScene(BaseScene):
             return None
         try:
             scene = self._gs_scene
-            if scene is None:
-                return None
             camera = self._ensure_camera(scene)
             rgb = camera.render(rgb=True, force_render=True)[0]
             if getattr(rgb, "ndim", 0) > 3:
