@@ -64,7 +64,6 @@ class GenesisScene(BaseScene):
         self._gs_scene = None
         self._camera = None
         self._camera_failed = False
-        self._post_build_callbacks: list[Callable[[], None]] = []
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
         self._idle_render_task: asyncio.Task | None = None
         self._step_lock = threading.Lock()
@@ -98,14 +97,12 @@ class GenesisScene(BaseScene):
         self._gs_scene._cap_step_scene = self.step_scene
         self._gs_scene._cap_register_pre_step_callback = self.register_pre_step_callback
         self._gs_scene.add_entity(gs.morphs.Plane())
-        super()._build_agents(specs)
+        super()._build_agents(specs, scene=self._gs_scene)
         self._logger.info("Building Genesis scene with kwargs=%s", self._config.build_kwargs)
         self._gs_scene.build(**self._config.build_kwargs)
         self._lock_viewer_rotation()
-        callbacks = list(self._post_build_callbacks)
-        self._post_build_callbacks.clear()
-        for callback in callbacks:
-            callback()
+        for agent_info in self._agents.values():
+            agent_info.agent.post_build()
         if self._config.show_viewer and self._config.idle_render_fps > 0:
             self._start_idle_render_loop()
 
@@ -163,10 +160,6 @@ class GenesisScene(BaseScene):
     def scene(self) -> Any:
         """Return the Genesis scene owned by this scene wrapper."""
         return self._gs_scene
-
-    def defer_build(self, post_build: Callable[[], None]) -> None:
-        """Defer the shared Genesis scene build until all robots are created."""
-        self._post_build_callbacks.append(post_build)
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Render and save the shared scene camera image."""

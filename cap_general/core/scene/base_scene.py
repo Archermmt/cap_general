@@ -16,7 +16,6 @@ from typing import Any, ClassVar
 from cap_general.core import utils as cap_utils
 from cap_general.core.agent import BaseAgent
 from cap_general.core.base import RegisteredBase
-from cap_general.core.scene.context import set_current_scene
 from cap_general.core.utils.config import load_yaml_config
 from cap_general.frameworks import import_frameworks
 
@@ -79,12 +78,7 @@ class BaseScene(RegisteredBase):
         self._logger = logger or self._build_logger(self._record_dir)
         self._agent_aliases: dict[str, str] = {}
         self._agents: dict[str, AgentInfo] = {}
-        set_current_scene(self)
-        try:
-            self._build_agents(self._config.agents)
-        except BaseException:
-            set_current_scene(None)
-            raise
+        self._build_agents(self._config.agents)
 
     @classmethod
     def from_yaml(cls, config_path: str | Path, overrides: list[str] | None = None) -> "BaseScene":
@@ -110,7 +104,7 @@ class BaseScene(RegisteredBase):
     def _build_logger(record_dir: Path) -> logging.Logger:
         return cap_utils.build_file_logger(record_dir, logger_name="scene")
 
-    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
+    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]], scene: Any | None = None) -> None:
         for spec_data in specs:
             spec = spec_data if isinstance(spec_data, AgentSpec) else AgentSpec(**spec_data)
             if spec.name in self._agents:
@@ -120,7 +114,10 @@ class BaseScene(RegisteredBase):
             aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
             agent_config["name"] = spec.name
             agent_config["alias"] = aliases[0] if aliases else None
-            agent = BaseAgent.from_config(agent_config, logger=self._logger)
+            agent_kwargs = {"logger": self._logger}
+            if scene is not None:
+                agent_kwargs["scene"] = scene
+            agent = BaseAgent.from_config(agent_config, **agent_kwargs)
             self._agents[spec.name] = AgentInfo(agent=agent, status=self._get_status(spec.name))
             for alias in aliases:
                 existing = self._agent_aliases.get(alias)

@@ -93,11 +93,12 @@ class BaseAgent(RegisteredBase):
         """Return the registry key for this agent."""
         return "base"
 
-    def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
+    def __init__(self, config: BaseAgentConfig, logger: logging.Logger, scene: Any | None = None):
         """Initialize an agent from config."""
         self._config, self._logger = config, logger
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
         self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
+        self.bind_scene(scene)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
         self._exec_cnt, self._trial_cnt = 0, 0
@@ -110,10 +111,17 @@ class BaseAgent(RegisteredBase):
 
     @staticmethod
     def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
-        robot = BaseRobot.from_config(config, logger=logger)
-        robot.reset()
-        robot.eval()
-        return robot
+        return BaseRobot.from_config(config, logger=logger)
+
+    def bind_scene(self, scene: Any | None) -> None:
+        """Bind a scene and initialize the robot against it."""
+        self._robot.bind_scene(scene)
+        self._robot.reset()
+        self._robot.eval()
+
+    def post_build(self) -> None:
+        """Finish robot initialization after its scene is built."""
+        self._robot.post_build()
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:

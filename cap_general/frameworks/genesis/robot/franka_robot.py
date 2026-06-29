@@ -9,7 +9,6 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
-from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -77,13 +76,23 @@ class FrankaRobot(BaseRobot):
         self._rng = np.random.default_rng(self._config.seed)
 
         self._scene = None
+        self._scene_built = False
+        self._entities_added = False
         self._objects: list[Any] = []
         self._object_specs: list[dict[str, Any]] = []
-        self._genesis_unavailable_logged = False
 
     @classmethod
     def robot_type(cls) -> str:
         return "genesis_franka"
+
+    def bind_scene(self, scene: Any | None) -> None:
+        if scene is None:
+            raise RuntimeError("FrankaRobot requires a Genesis scene")
+        self._scene = scene
+
+    def post_build(self) -> None:
+        self._scene_built = True
+        self._reset_objects()
 
     @property
     def robot(self) -> Any | None:
@@ -208,11 +217,12 @@ class FrankaRobot(BaseRobot):
         """Reset the Genesis scene and return the initial observation."""
         options = options or {}
         self._ensure_scene()
-        if self._scene is not None and hasattr(self._scene, "reset"):
+        if self._scene_built and hasattr(self._scene, "reset"):
             self._scene.reset()
-        elif self._robot is not None and hasattr(self._robot, "reset"):
+        elif self._scene_built and self._robot is not None and hasattr(self._robot, "reset"):
             self._robot.reset()
-        self._reset_objects()
+        if self._scene_built:
+            self._reset_objects()
         obs = self._build_observation()
         return obs, {"seed": self._config.seed, "options": options, "object_count": len(self._object_specs)}
 
@@ -243,24 +253,13 @@ class FrankaRobot(BaseRobot):
         return self._build_observation()
 
     def _ensure_scene(self) -> None:
-        if self._scene is not None:
+        if self._entities_added:
             return
-        try:
-            import genesis as gs
-        except ImportError:
-            if not self._genesis_unavailable_logged:
-                self.logger.warning("Genesis is not importable; FrankaRobot is running in mock mode")
-                self._genesis_unavailable_logged = True
-            return
-
-        current_scene = get_current_scene()
-        scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
-        self._scene = getattr(scene_resource, "scene", None)
         if self._scene is None:
-            if not self._genesis_unavailable_logged:
-                self.logger.warning("Genesis scene resource is not enabled or failed; FrankaRobot is running in mock mode")
-                self._genesis_unavailable_logged = True
-            return
+            raise RuntimeError("FrankaRobot is not bound to a Genesis scene")
+
+        import genesis as gs
+
         if self._robot is None:
             self._robot = self._scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
 
@@ -272,7 +271,7 @@ class FrankaRobot(BaseRobot):
             )
             for spec in self._object_specs
         ]
-        self._scene.build()
+        self._entities_added = True
 
     def _sample_object_specs(self) -> list[dict[str, Any]]:
         used_random_colors = list(_DEFAULT_COLORS)

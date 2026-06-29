@@ -1,14 +1,10 @@
 """Core CAP scene components."""
 
-from cap_general.core.scene.context import get_current_scene, set_current_scene
-
 __all__ = [
     "AgentSpec",
     "BaseScene",
     "BaseSceneConfig",
     "ServerConfig",
-    "get_current_scene",
-    "set_current_scene",
 ]
 
 

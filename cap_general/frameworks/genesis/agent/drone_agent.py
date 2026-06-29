@@ -29,10 +29,10 @@ class DroneAgent(BaseAgent):
     name = "Genesis Drone Agent"
     config_cls = DroneAgentConfig
 
-    def __init__(self, config: DroneAgentConfig, logger: Logger):
+    def __init__(self, config: DroneAgentConfig, logger: Logger, scene: Any | None = None):
         self._policy_name = config.policy
         self.horizon = int(config.horizon)
-        super().__init__(config=config, logger=logger)
+        super().__init__(config=config, logger=logger, scene=scene)
 
     @classmethod
     def agent_type(cls) -> str:

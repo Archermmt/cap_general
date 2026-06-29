@@ -12,7 +12,6 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -72,6 +71,7 @@ class GraspRobot(BaseRobot):
             config.image_keys = [*config.image_keys, "hand_camera_image"]
         super().__init__(config=config, logger=logger)
         self._config = config
+        self._gs_scene = None
         self._example_env = None
         self._last_policy_obs = None
         self._last_reward = 0.0
@@ -85,6 +85,16 @@ class GraspRobot(BaseRobot):
     @classmethod
     def robot_type(cls) -> str:
         return "genesis_grasp"
+
+    def bind_scene(self, scene: Any | None) -> None:
+        if scene is None:
+            raise RuntimeError("GraspRobot requires a Genesis scene")
+        self._gs_scene = scene
+
+    def post_build(self) -> None:
+        if self._example_env is not None and getattr(self._example_env, "_deferred_build", False):
+            self._example_env._post_build()
+            self._last_policy_obs = self._example_env.get_observations()
 
     @property
     def example_env(self) -> Any:
@@ -237,13 +247,6 @@ class GraspRobot(BaseRobot):
             return
 
         try:
-            current_scene = get_current_scene()
-            scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
-            scene = getattr(scene_resource, "scene", None)
-            if scene is None:
-                self._mock_reason = "genesis scene resource is not enabled or failed"
-                self.logger.warning("Genesis grasp env running in mock mode: %s", self._mock_reason)
-                return
             env_cfg, reward_cfg, robot_cfg, _rl_train_cfg, _bc_train_cfg = self._load_cfgs()
             env_cfg = dict(env_cfg)
             self._train_episode_length_s = float(env_cfg["episode_length_s"])
@@ -259,8 +262,7 @@ class GraspRobot(BaseRobot):
                 env_cfg["robot_pos"] = list(self._config.robot_pos)
             if self._config.object_pos_offset is not None:
                 env_cfg["object_pos_offset"] = list(self._config.object_pos_offset)
-            env_cfg["_scene"] = scene
-            env_cfg["_scene_resource"] = scene_resource
+            env_cfg["_scene"] = self._gs_scene
             self._example_env = self._build_example_env_with_camera(
                 env_cfg=env_cfg,
                 reward_cfg=dict(reward_cfg),
@@ -536,13 +538,7 @@ class _GenesisGraspCoreRobot:
         before_scene_build = env_cfg.get("_before_scene_build")
         if before_scene_build is not None:
             before_scene_build(self.scene)
-        scene_resource = env_cfg.get("_scene_resource")
-        if scene_resource is not None:
-            scene_resource.defer_build(self._post_build)
-            self._deferred_build = True
-            return
-        self.scene.build()
-        self._post_build()
+        self._deferred_build = True
 
     def _post_build(self) -> None:
         self._deferred_build = False
