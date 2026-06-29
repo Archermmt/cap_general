@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class FrankaAgentConfig(BaseAgentConfig):
     """Configuration for FrankaAgent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     horizon: int = 100
 
@@ -34,7 +34,7 @@ class FrankaAgent(BaseAgent):
 
     @classmethod
     def agent_type(cls) -> str:
-        return "franka_agent"
+        return "franka"
 
     def _execute_rules(self) -> str:
         """Return valid rules for execute for the Genesis Franka robot."""

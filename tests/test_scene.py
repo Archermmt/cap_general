@@ -28,7 +28,7 @@ class SceneDummyRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "scene_dummy_robot"
+        return "scene_dummy"
 
     def _reset(self, options=None):
         return {"options": options or {}}, {}
@@ -54,10 +54,13 @@ class SceneDummyPolicy(BasePolicy):
 
     @classmethod
     def policy_type(cls) -> str:
-        return "scene_dummy_policy"
+        return "scene_dummy"
 
     def inference(self, *args, **kwargs):
         return None
+
+    def update(self, **kwargs):
+        return kwargs
 
 
 @BaseAgent.register()
@@ -68,7 +71,7 @@ class SceneDummyAgent(BaseAgent):
 
     @classmethod
     def agent_type(cls) -> str:
-        return "scene_dummy_agent"
+        return "scene_dummy"
 
     def functions(self):
         return {"echo": self.echo}
@@ -77,18 +80,21 @@ class SceneDummyAgent(BaseAgent):
         return value
 
     def _train(self, policy, epoch, method, options):
-        return {
-            "policy_name": policy.name,
-            "epoch": epoch,
-            "method": method,
-            "options": options,
-        }
+        return (
+            {
+                "policy_name": policy.name,
+                "epoch": epoch,
+                "method": method,
+                "options": options,
+            },
+            {},
+        )
 
 
 def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
     agent_names = agent_names or ("alpha",)
     return {
-        "type": "base_scene",
+        "type": "base",
         "server": {"cap_id": "scene_test", "port": 8899},
         "record_dir": "outputs/test_scene",
         "agents": [
@@ -96,9 +102,9 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
                 "name": agent_name,
                 "alias": [agent_name[0]],
                 "config": {
-                    "type": "scene_dummy_agent",
-                    "robot": {"type": "scene_dummy_robot", "reset_time": 0},
-                    "policies": {"test": {"type": "scene_dummy_policy"}},
+                    "type": "scene_dummy",
+                    "robot": {"type": "scene_dummy", "reset_time": 0},
+                    "policies": {"test": {"type": "scene_dummy"}},
                     "trace_level": trace_level,
                 },
             }
@@ -325,7 +331,7 @@ def test_scene_from_yaml_loads_agents(tmp_path: Path):
     config_path = tmp_path / "scene.yaml"
     config_path.write_text(
         """
-type: base_scene
+type: base
 server:
   cap_id: scene_test
   port: 8899
@@ -335,9 +341,9 @@ agents:
     alias:
       - a
     config:
-      type: scene_dummy_agent
+      type: scene_dummy
       robot:
-        type: scene_dummy_robot
+        type: scene_dummy
         reset_time: 0
       policies: {}
 """,

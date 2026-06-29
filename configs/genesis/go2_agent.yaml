@@ -1,4 +1,4 @@
-type: genesis_scene
+type: genesis
 backend: cpu
 show_viewer: true
 sim_options:
@@ -28,14 +28,14 @@ agents:
   alias:
   - 七仔
   config:
-    type: go2_agent
+    type: go2
     max_retry: 5
     reset_mode: never
     record_execute: true
     policy: runner
     horizon: 1000
     robot:
-      type: genesis_go2_robot
+      type: genesis_go2
       video_fmt: mp4
       seed: 7
       reset_time: 0

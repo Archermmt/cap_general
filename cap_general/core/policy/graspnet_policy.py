@@ -1,14 +1,14 @@
 """Local Contact-GraspNet model implementation."""
 
-import os
-import yaml
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 
 from cap_general.core.policy.base_policy import BasePolicy
 
@@ -112,11 +112,7 @@ class GraspNetPolicy(BasePolicy):
     name = "GraspNet Policy"
     config_cls = GraspNetPolicyConfig
 
-    def __init__(
-        self,
-        config: GraspNetPolicyConfig,
-        logger: logging.Logger,
-    ):
+    def __init__(self, config: GraspNetPolicyConfig, logger: logging.Logger):
         super().__init__(config=config, logger=logger)
         self._vendor_root = Path(config.vendor_root)
         self._checkpoint_root = (
@@ -151,7 +147,7 @@ class GraspNetPolicy(BasePolicy):
             from contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
         except ImportError as exc:
             raise ImportError(
-                "GraspNetPolicy requires contact_graspnet_pytorch. " f"Checked vendor_root={self._vendor_root}"
+                f"GraspNetPolicy requires contact_graspnet_pytorch. Checked vendor_root={self._vendor_root}"
             ) from exc
 
         config = load_contact_graspnet_config(self._checkpoint_root)

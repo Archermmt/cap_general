@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class GraspAgentConfig(BaseAgentConfig):
     """Configuration for GraspAgent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     rl_policy: str = "runner"
     bc_policy: str = "bc"
@@ -42,7 +42,7 @@ class GraspAgent(BaseAgent):
 
     @classmethod
     def agent_type(cls) -> str:
-        return "grasp_agent"
+        return "grasp"
 
     def _execute_rules(self) -> str:
         return (
@@ -70,7 +70,7 @@ class GraspAgent(BaseAgent):
         obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":
-                action = self._run_policy(self._rl_policy_name, env=self._robot, obs=obs)
+                action = self._run_policy(self._rl_policy_name, obs=obs)
             elif current_stage == "bc":
                 rgb_obs = self._robot.get_stereo_rgb_images(normalize=True).float()
                 ee_pose = env.robot.ee_pose.float()
@@ -351,7 +351,18 @@ class GraspAgent(BaseAgent):
             summary["history"].append(dict(summary["latest"]))
         return summary
 
-    def _train(self, policy: Any, epoch: int, method: str, options: dict) -> dict:
+    @staticmethod
+    def _load_policy_to_runner(policy: Any, runner: Any, env: Any) -> None:
+        """Load an agent policy's current weights into a training runner."""
+        if policy._policy is None:
+            policy._ensure_loaded(env)
+        if hasattr(runner, "alg"):
+            runner_policy = runner.alg.get_policy().to(env.device)
+        else:
+            runner_policy = runner._policy
+        runner_policy.load_state_dict(policy._policy.state_dict())
+
+    def _train(self, policy: Any, epoch: int, method: str, options: dict) -> tuple[dict, dict]:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
         try:
             from rsl_rl.runners import OnPolicyRunner
@@ -445,10 +456,10 @@ class GraspAgent(BaseAgent):
 
         if stage == "bc":
             rl_runner = OnPolicyRunner(env, rl_cfg, str(log_dir), device=env.device)
-            self._run_policy(self._rl_policy_name, method="load_to_runner", env=env, runner=rl_runner)
+            self._load_policy_to_runner(self._policies[self._rl_policy_name], rl_runner, env)
             teacher_policy = rl_runner.get_inference_policy(device=env.device)
             runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
-            self._run_policy(policy_name, method="load_to_runner", env=env, runner=runner)
+            self._load_policy_to_runner(policy, runner, env)
             summary = self._capture_bc_summary(
                 runner,
                 behavior_cloning_module,
@@ -456,24 +467,27 @@ class GraspAgent(BaseAgent):
                 num_learning_iterations=epoch,
                 log_dir=str(log_dir),
             )
-            self._update_policy(policy_name, env=env, runner=runner)
+            new_policy = {"state_dict": runner._policy.state_dict()}
         else:
             runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
-            self._run_policy(policy_name, method="load_to_runner", env=env, runner=runner)
+            self._load_policy_to_runner(policy, runner, env)
             summary = self._capture_rl_summary(
                 runner,
                 interval=record_epoch,
                 num_learning_iterations=epoch,
                 init_at_random_ep_len=True,
             )
-            self._update_policy(policy_name, env=env, runner=runner)
+            new_policy = {"state_dict": runner.alg.get_policy().state_dict()}
 
-        return {
-            "policy_name": policy_name,
-            "stage": stage,
-            "method": method,
-            "train_dir": str(log_dir),
-            "epoch": epoch,
-            "seed": seed,
-            "summary": summary,
-        }
+        return (
+            {
+                "policy_name": policy_name,
+                "stage": stage,
+                "method": method,
+                "train_dir": str(log_dir),
+                "epoch": epoch,
+                "seed": seed,
+                "summary": summary,
+            },
+            new_policy,
+        )

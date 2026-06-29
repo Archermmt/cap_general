@@ -27,7 +27,7 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "robosuite_robot"
+        return "robosuite"
 
     def __init__(self, config: RobosuiteCubeRobotConfig, logger: logging.Logger) -> None:
         if config is None:

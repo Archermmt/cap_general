@@ -16,7 +16,7 @@ class DummyRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "dummy_robot"
+        return "dummy"
 
     def _reset(
         self,
@@ -140,5 +140,5 @@ def test_grasp_robot_train_restores_training_episode_length_and_resets():
 
 
 def test_robot_base_registry():
-    assert BaseRobot.robot_type() == "base_robot"
-    assert BaseRobot.get_registered_class("dummy_robot") is DummyRobot
+    assert BaseRobot.robot_type() == "base"
+    assert BaseRobot.get_registered_class("dummy") is DummyRobot

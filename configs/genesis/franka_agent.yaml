@@ -1,4 +1,4 @@
-type: genesis_scene
+type: genesis
 backend: cpu
 show_viewer: false
 viewer_options:
@@ -28,13 +28,13 @@ agents:
   - cap
   - 七仔
   config:
-    type: franka_agent
+    type: franka
     max_retry: 5
     reset_mode: never
     record_execute: true
     horizon: 100
     robot:
-      type: genesis_franka_robot
+      type: genesis_franka
       seed: 7
       reset_time: 0
       video_fmt: mp4

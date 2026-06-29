@@ -70,7 +70,7 @@ class Go2Robot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "genesis_go2_robot"
+        return "genesis_go2"
 
     @property
     def example_env(self) -> Any:

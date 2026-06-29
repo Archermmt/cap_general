@@ -1,4 +1,4 @@
-type: scene
+type: base
 record_dir: ./outputs
 agents:
   - name: robosuite
@@ -11,7 +11,7 @@ agents:
       reset_mode: never
       record_execute: true
       robot:
-        type: robosuite_robot
+        type: robosuite
         controller_cfg: /home/genie_store/nfs_datas/tm/codes/cap_general/cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json
         seed: 7
         reset_time: 0

@@ -84,7 +84,7 @@ class GraspRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "genesis_grasp_robot"
+        return "genesis_grasp"
 
     @property
     def example_env(self) -> Any:

@@ -17,18 +17,19 @@ class RegisteredBase(ABC):
         """Register a subclass using its registry key class method."""
 
         def decorator(subclass: Type["RegisteredBase"]) -> Type["RegisteredBase"]:
-            key_method = getattr(subclass, cls.registry_key_method, None)
+            registry_key_method = subclass.registry_key_method
+            key_method = getattr(subclass, registry_key_method, None)
             if key_method is None or not callable(key_method):
                 raise TypeError(
                     f"Subclass {subclass.__name__} must define "
-                    f"{cls.registry_key_method}() class method"
+                    f"{registry_key_method}() class method"
                 )
             if not getattr(subclass, "name", None):
                 raise TypeError(
                     f"Subclass {subclass.__name__} must define name class attribute"
                 )
 
-            cls._registry[key_method()] = subclass
+            subclass._registry[key_method()] = subclass
             return subclass
 
         return decorator

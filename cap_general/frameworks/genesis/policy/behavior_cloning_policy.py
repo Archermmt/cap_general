@@ -54,17 +54,9 @@ class BehaviorCloningPolicy(BasePolicy):
         self._policy.eval()
         return self._policy(rgb_obs, ee_pose)
 
-    def load_to_runner(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Load the current policy weights into a BC training runner."""
-        self._ensure_loaded(env)
-        runner._policy.load_state_dict(self._policy.state_dict())
-        return {}
-
-    def update(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Update the current policy from a trained BC runner."""
-        self._policy = runner._policy
-        self._policy.eval()
-        self._loaded_env_id = id(env)
+    def update(self, *, state_dict: dict[str, Any]) -> dict[str, Any]:
+        """Load trained weights into the current policy."""
+        self._policy.load_state_dict(state_dict)
         return {}
 
     def _ensure_loaded(self, env: Any) -> None:

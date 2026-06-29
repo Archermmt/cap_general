@@ -15,7 +15,7 @@ from cap_general.frameworks.libero.robot.libero_robot import _binarize_gripper_o
 class LiberoAgentConfig(BaseAgentConfig):
     """Configuration for LiberoAgent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "libero_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "libero"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 

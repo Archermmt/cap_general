@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class Go2AgentConfig(BaseAgentConfig):
     """Configuration for Go2Agent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_go2_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_go2"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     policy: str = "runner"
     horizon: int = 1000
@@ -36,7 +36,7 @@ class Go2Agent(BaseAgent):
 
     @classmethod
     def agent_type(cls) -> str:
-        return "go2_agent"
+        return "go2"
 
     def _execute_rules(self) -> str:
         return (
@@ -98,7 +98,7 @@ class Go2Agent(BaseAgent):
     ) -> int:
         obs = self._robot.policy_obs
         for _ in range(max(int(steps), 0)):
-            action = self._run_policy(self._policy_name, env=env, obs=obs)
+            action = self._run_policy(self._policy_name, obs=obs)
             action = self._robot.apply_turn_to_action(action, turn_angle)
             obs, _reward, terminated, truncated, _info = self._robot.step(action)
             after_step()

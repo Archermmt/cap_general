@@ -1,4 +1,4 @@
-type: scene
+type: base
 record_dir: ./outputs
 agents:
   - name: libero
@@ -10,7 +10,7 @@ agents:
       reset_mode: per_trial
       record_execute: true
       robot:
-        type: libero_robot
+        type: libero
         task_suite_name: libero_goal
         task_id: 1
         seed: 7

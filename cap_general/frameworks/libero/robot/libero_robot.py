@@ -140,7 +140,7 @@ class LiberoRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "libero_robot"
+        return "libero"
 
     @staticmethod
     def _resolve_libero_home(configured_home: str | None) -> str:

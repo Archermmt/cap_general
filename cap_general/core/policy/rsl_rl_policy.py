@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import pickle
 import re
 from dataclasses import dataclass
@@ -35,64 +36,72 @@ class RslRlPolicy(BasePolicy):
 
     def __init__(self, config: RslRlPolicyConfig, logger: Logger):
         super().__init__(config=config, logger=logger)
-        self._policy = None
-        self._loaded_env_id: int | None = None
-        self._train_cfg: dict[str, Any] | None = None
+        self._policy = self._load_policy()
 
     @classmethod
     def policy_type(cls) -> str:
         return "rsl_rl"
 
     def reset(self, *args: Any, **kwargs: Any) -> None:
-        """Clear loaded inference policy; it is reloaded lazily for the active env."""
-        self._policy = None
-        self._loaded_env_id = None
-        self._train_cfg = None
+        """Reset the loaded policy to evaluation mode."""
+        self._policy.eval()
 
-    def inference(self, obs: Any = None, *, env: Any | None = None) -> Any:
+    def inference(self, obs: Any = None) -> Any:
         """Run inference for an observation tensor dict."""
-        if env is None:
-            raise ValueError("RslRlPolicy.inference requires env=...")
-        self._ensure_loaded(env)
+        obs_device = getattr(obs, "device", None)
+        if obs_device is not None:
+            self._policy.to(obs_device)
         self._policy.eval()
         return self._policy(obs)
 
-    def load_to_runner(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Load the current policy weights into a training runner."""
-        self._ensure_loaded(env)
-        runner_policy = runner.alg.get_policy().to(env.device)
-        runner_policy.load_state_dict(self._policy.state_dict())
+    def update(self, *, state_dict: dict[str, Any]) -> dict[str, Any]:
+        """Load trained weights into the current policy."""
+        self._policy.load_state_dict(state_dict)
         return {}
 
-    def update(self, *, env: Any, runner: Any) -> dict[str, Any]:
-        """Update the current policy from a trained runner."""
-        self._policy = runner.get_inference_policy(device=env.device)
-        self._loaded_env_id = id(env)
-        self._train_cfg = getattr(runner, "cfg", None)
-        return {}
-
-    def _ensure_loaded(self, env: Any) -> None:
-        if self._policy is not None and self._loaded_env_id == id(env):
-            return
+    def _load_policy(self) -> Any:
         try:
-            import genesis as gs
-            from rsl_rl.runners import OnPolicyRunner
+            import torch
+            from rsl_rl.utils import resolve_callable
+            from tensordict import TensorDict
         except ImportError as exc:
-            raise ImportError("RslRlPolicy requires genesis and rsl-rl-lib") from exc
+            raise ImportError("RslRlPolicy requires torch, tensordict, and rsl-rl-lib") from exc
 
         log_dir = Path(self._config.log_dir).expanduser()
-        train_cfg = self._load_train_cfg(log_dir)
-        runner_device = self._config.device or gs.device
-        runner = OnPolicyRunner(env, train_cfg, str(log_dir), device=runner_device)
-        runner.load(str(self._checkpoint_path(log_dir)))
-        self._policy = runner.get_inference_policy(device=runner_device)
-        self._loaded_env_id = id(env)
-        self._train_cfg = train_cfg
-
-    def _load_train_cfg(self, log_dir: Path) -> dict[str, Any]:
         with (log_dir / self._config.cfgs_filename).open("rb") as file:
-            cfgs = pickle.load(file)
-        return cfgs[self._config.train_cfg_index]
+            train_cfg = copy.deepcopy(pickle.load(file)[self._config.train_cfg_index])
+        actor_cfg = train_cfg["actor"]
+        actor_class = resolve_callable(actor_cfg.pop("class_name"))
+        checkpoint = torch.load(
+            self._checkpoint_path(log_dir),
+            map_location=self._config.device or "cpu",
+            weights_only=False,
+        )
+        actor_state = checkpoint["actor_state_dict"]
+        mlp_weights = sorted(
+            (
+                (int(key.split(".")[1]), value)
+                for key, value in actor_state.items()
+                if key.startswith("mlp.") and key.endswith(".weight") and value.ndim == 2
+            ),
+            key=lambda item: item[0],
+        )
+        if not mlp_weights:
+            raise ValueError("RSL-RL checkpoint contains no MLP actor weights")
+        input_dim = int(mlp_weights[0][1].shape[1])
+        output_dim = int(actor_state.get("distribution.std_param", mlp_weights[-1][1]).shape[0])
+        actor_obs_groups = train_cfg["obs_groups"]["actor"]
+        if len(actor_obs_groups) != 1:
+            raise ValueError("RslRlPolicy requires exactly one actor observation group")
+        device = self._config.device or "cpu"
+        obs = TensorDict(
+            {actor_obs_groups[0]: torch.zeros((1, input_dim), device=device)},
+            batch_size=[1],
+        )
+        policy = actor_class(obs, train_cfg["obs_groups"], "actor", output_dim, **actor_cfg).to(device)
+        policy.load_state_dict(actor_state)
+        policy.eval()
+        return policy
 
     def _checkpoint_path(self, log_dir: Path) -> Path:
         if self._config.ckpt is not None:

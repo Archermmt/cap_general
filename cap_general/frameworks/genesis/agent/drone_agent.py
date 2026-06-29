@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class DroneAgentConfig(BaseAgentConfig):
     """Configuration for DroneAgent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_drone_hover_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_drone_hover"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     policy: str = "runner"
     horizon: int = 1000
@@ -36,7 +36,7 @@ class DroneAgent(BaseAgent):
 
     @classmethod
     def agent_type(cls) -> str:
-        return "drone_agent"
+        return "drone"
 
     def _execute_rules(self) -> str:
         return (
@@ -89,7 +89,7 @@ class DroneAgent(BaseAgent):
         obs = self._robot.policy_obs
         executed_steps = 0
         for _ in range(max(int(steps), 0)):
-            action = self._run_policy(self._policy_name, env=env, obs=obs)
+            action = self._run_policy(self._policy_name, obs=obs)
             obs, _reward, terminated, truncated, _info = self._robot.step(action)
             executed_steps += 1
             if terminated or truncated:

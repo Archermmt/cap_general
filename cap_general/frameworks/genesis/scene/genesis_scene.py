@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.scene import BaseScene, BaseSceneConfig
+from cap_general.core.scene import AgentSpec, BaseScene, BaseSceneConfig
 from cap_general.core.utils import save_image
 
 
@@ -88,6 +88,7 @@ def _resolve_options(options: dict[str, Any], gs: Any) -> dict[str, Any]:
     return resolved
 
 
+@BaseScene.register()
 class GenesisScene(BaseScene):
     """Scene that owns one shared Genesis scene plus optional observation camera."""
 
@@ -97,7 +98,7 @@ class GenesisScene(BaseScene):
     @classmethod
     def scene_type(cls) -> str:
         """Return the registry key for Genesis scene configs."""
-        return "genesis_scene"
+        return "genesis"
 
     def __init__(self, config: GenesisSceneConfig | dict[str, Any], logger=None):
         self._scene = None
@@ -113,21 +114,29 @@ class GenesisScene(BaseScene):
         self._agent_locks: dict[Any, asyncio.Lock] = {}
         super().__init__(config=config, logger=logger)
 
-    @staticmethod
-    def _coerce_config(config: GenesisSceneConfig | dict[str, Any]) -> GenesisSceneConfig:
-        if isinstance(config, GenesisSceneConfig):
-            return config
-        if isinstance(config, dict):
-            return GenesisSceneConfig(**{key: value for key, value in config.items() if key != "type"})
-        raise TypeError(f"Expected GenesisSceneConfig or dict, got {type(config).__name__}")
-
-    def _before_build_agents(self) -> None:
+    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
         self._scene = self._create_scene()
         if self._scene is not None:
             self._scene._cap_step_scene = self.step_scene
             self._scene._cap_register_pre_step_callback = self.register_pre_step_callback
         self._add_default_ground_plane()
         self._defer_scene_build = True
+        super()._build_agents(specs)
+        self._defer_scene_build = False
+        if self._scene is None or self._scene_built:
+            return
+        if self._build_kwargs is None:
+            return
+        self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
+        self._scene.build(**self._build_kwargs)
+        self._scene_built = True
+        self._lock_viewer_rotation()
+        callbacks = list(self._post_build_callbacks)
+        self._post_build_callbacks.clear()
+        for callback in callbacks:
+            callback()
+        if self._config.show_viewer and self._config.idle_render_fps > 0:
+            self._start_idle_render_loop()
 
     def register_pre_step_callback(self, callback: Callable[[], bool | None]) -> None:
         """Register a callback to run before each scene step."""
@@ -171,23 +180,6 @@ class GenesisScene(BaseScene):
         except ImportError:
             return
         self._scene.add_entity(gs.morphs.Plane())
-
-    def _after_build_agents(self) -> None:
-        self._defer_scene_build = False
-        if self._scene is None or self._scene_built:
-            return
-        if self._build_kwargs is None:
-            return
-        self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
-        self._scene.build(**self._build_kwargs)
-        self._scene_built = True
-        self._lock_viewer_rotation()
-        callbacks = list(self._post_build_callbacks)
-        self._post_build_callbacks.clear()
-        for callback in callbacks:
-            callback()
-        if self._config.show_viewer and self._config.idle_render_fps > 0:
-            self._start_idle_render_loop()
 
     def _start_idle_render_loop(self) -> None:
         """Schedule the idle render loop on the running event loop, if available."""
@@ -333,6 +325,3 @@ class GenesisScene(BaseScene):
         agent_lock = self._agent_locks.setdefault(method.__self__, asyncio.Lock())
         async with agent_lock:
             return method(**kwargs)
-
-
-GenesisScene._registry[GenesisScene.scene_type()] = GenesisScene

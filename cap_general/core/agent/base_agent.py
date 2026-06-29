@@ -91,7 +91,7 @@ class BaseAgent(RegisteredBase):
     @classmethod
     def agent_type(cls) -> str:
         """Return the registry key for this agent."""
-        return "base_agent"
+        return "base"
 
     def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
         """Initialize an agent from config."""
@@ -248,7 +248,8 @@ class BaseAgent(RegisteredBase):
         policy.train()
         self._robot.train()
         try:
-            result = self._train(policy=policy, epoch=epoch, method=method, options=options)
+            result, new_policy = self._train(policy=policy, epoch=epoch, method=method, options=options)
+            self._update_policy(policy_name, **new_policy)
             response = {"ok": True, "result": result}
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
@@ -391,7 +392,13 @@ class BaseAgent(RegisteredBase):
             return None
         return policy_method(**kwargs)
 
-    def _train(self, policy: Any, epoch: int, method: str, options: dict[str, Any]) -> Any:
+    def _train(
+        self,
+        policy: Any,
+        epoch: int,
+        method: str,
+        options: dict[str, Any],
+    ) -> tuple[Any, dict[str, Any]]:
         """Hook for subclasses to implement the actual training logic.
 
         Args:
@@ -401,13 +408,13 @@ class BaseAgent(RegisteredBase):
             options: Training options/hyperparameters.
 
         Returns:
-            Subclass-defined training result.
+            A pair containing the subclass-defined result and new policy data.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement _train")
 
-    def _update_policy(self, policy_name: str, **kwargs: Any) -> Any:
+    def _update_policy(self, policy_name: str, **new_policy: Any) -> Any:
         """Update a configured policy by name."""
-        return self._run_policy(policy_name, method="update", **kwargs)
+        return self._run_policy(policy_name, method="update", **new_policy)
 
     def _compute_reward(self) -> float:
         """Compute the current reward."""

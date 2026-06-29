@@ -32,7 +32,7 @@ Write ONLY executable Python code (no code fences). Import numpy if needed.
 class RobosuiteAgentConfig(BaseAgentConfig):
     """Configuration for RobosuiteAgent."""
 
-    robot: dict[str, Any] = field(default_factory=lambda: {"type": "robosuite_robot"})
+    robot: dict[str, Any] = field(default_factory=lambda: {"type": "robosuite"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     sam3_policy: str = "sam3"
     graspnet_policy: str = "graspnet"

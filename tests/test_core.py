@@ -94,7 +94,7 @@ def test_policy_base_cannot_instantiate():
 
 def test_core_registries_include_common_components():
     """Test that common core implementations are registered by type."""
-    assert BaseAgent.agent_type() == "base_agent"
+    assert BaseAgent.agent_type() == "base"
     assert BasePolicy.get_registered_class("sam3") is SAM3Policy
     assert BasePolicy.get_registered_class("graspnet") is GraspNetPolicy
     assert BasePolicy.get_registered_class("pyroki") is PyrokiPolicy
@@ -109,9 +109,9 @@ def test_agent_register_decorator():
 
         @classmethod
         def agent_type(cls) -> str:
-            return "registered_agent"
+            return "registered"
 
         def functions(self):
             return {}
 
-    assert BaseAgent.get_registered_class("registered_agent") is RegisteredAgent
+    assert BaseAgent.get_registered_class("registered") is RegisteredAgent

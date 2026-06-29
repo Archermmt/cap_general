@@ -53,11 +53,7 @@ class SAM3Policy(BasePolicy):
     name = "SAM3 Policy"
     config_cls = SAM3PolicyConfig
 
-    def __init__(
-        self,
-        config: SAM3PolicyConfig,
-        logger: logging.Logger,
-    ):
+    def __init__(self, config: SAM3PolicyConfig, logger: logging.Logger):
         super().__init__(config=config, logger=logger)
         self._device = config.device
         self._checkpoint_path = config.checkpoint_path

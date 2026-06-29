@@ -75,7 +75,7 @@ class DroneHoverRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "genesis_drone_hover_robot"
+        return "genesis_drone_hover"
 
     @property
     def example_env(self) -> Any:
@@ -576,7 +576,11 @@ class _GenesisDroneHoverCoreRobot:
         )
 
     def get_observations(self):
-        return TensorDict({"policy": self.obs_buf}, batch_size=[self.num_envs])
+        return TensorDict(
+            {"policy": self.obs_buf},
+            batch_size=[self.num_envs],
+            device=self.device,
+        )
 
     def reset_idx(self, envs_idx):
         if len(envs_idx) == 0:

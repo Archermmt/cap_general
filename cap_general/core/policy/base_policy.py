@@ -48,7 +48,7 @@ class BasePolicy(RegisteredBase):
     @classmethod
     def policy_type(cls) -> str:
         """Return the registry key for this policy."""
-        return "base_policy"
+        return "base"
 
     def reset(self, *args: Any, **kwargs: Any) -> None:
         """Load or initialize policy resources and reset transient state."""

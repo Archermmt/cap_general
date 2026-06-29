@@ -83,7 +83,7 @@ class FrankaRobot(BaseRobot):
 
     @classmethod
     def robot_type(cls) -> str:
-        return "genesis_franka_robot"
+        return "genesis_franka"
 
     @property
     def robot(self) -> Any | None:

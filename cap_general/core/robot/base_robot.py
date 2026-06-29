@@ -42,7 +42,7 @@ class BaseRobot(RegisteredBase, GymEnv):
     @classmethod
     def robot_type(cls) -> str:
         """Return the registry key for this robot controller."""
-        return "base_robot"
+        return "base"
 
     def __init__(self, config: BaseRobotConfig, logger: logging.Logger):
         self._config, self._logger = config, logger

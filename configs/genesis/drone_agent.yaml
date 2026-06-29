@@ -1,4 +1,4 @@
-type: genesis_scene
+type: genesis
 show_viewer: true
 sim_options:
   dt: 0.01
@@ -28,14 +28,14 @@ agents:
   alias:
   - 七仔
   config:
-    type: drone_agent
+    type: drone
     max_retry: 5
     reset_mode: never
     record_execute: true
     policy: runner
     horizon: 1000
     robot:
-      type: genesis_drone_hover_robot
+      type: genesis_drone_hover
       video_fmt: mp4
       seed: 7
       reset_time: 0

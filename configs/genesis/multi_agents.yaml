@@ -1,4 +1,4 @@
-type: genesis_scene
+type: genesis
 backend: cpu
 show_viewer: true
 sim_options:
@@ -33,7 +33,7 @@ record_dir: ./outputs/genesis/all
 agents:
 - name: grasp_0
   config:
-    type: grasp_agent
+    type: grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
@@ -43,7 +43,7 @@ agents:
     bc_policy: bc
     run_demo_after_episode: true
     robot:
-      type: genesis_grasp_robot
+      type: genesis_grasp
       video_fmt: mp4
       image_keys:
       - hand_camera_image
@@ -77,7 +77,7 @@ agents:
         bc_cfg_index: 4
 - name: grasp_1
   config:
-    type: grasp_agent
+    type: grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
@@ -87,7 +87,7 @@ agents:
     bc_policy: bc
     run_demo_after_episode: true
     robot:
-      type: genesis_grasp_robot
+      type: genesis_grasp
       video_fmt: mp4
       image_keys:
       - hand_camera_image
@@ -121,7 +121,7 @@ agents:
         bc_cfg_index: 4
 - name: grasp_2
   config:
-    type: grasp_agent
+    type: grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
@@ -131,7 +131,7 @@ agents:
     bc_policy: bc
     run_demo_after_episode: true
     robot:
-      type: genesis_grasp_robot
+      type: genesis_grasp
       video_fmt: mp4
       image_keys:
       - hand_camera_image

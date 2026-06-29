@@ -160,15 +160,13 @@ if __name__ == "__main__":
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
-    parser.add_argument("--trial-num", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--remote", action="store_true", default=False)
     args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
-    task_num = args.trial_num if args.trial_num is not None else args.task_num
 
     result = run_go2_test(
         config=args.config,
         max_steps=args.max_steps,
-        task_num=task_num,
+        task_num=args.task_num,
         remote=args.remote,
         config_overrides=config_overrides,
     )

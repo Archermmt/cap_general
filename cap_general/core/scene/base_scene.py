@@ -58,6 +58,7 @@ class BaseSceneConfig:
     record_dir: str | Path = "outputs/scene"
 
 
+@RegisteredBase.register()
 class BaseScene(RegisteredBase):
     """A scene contains multiple named agents."""
 
@@ -69,7 +70,7 @@ class BaseScene(RegisteredBase):
     @classmethod
     def scene_type(cls) -> str:
         """Return the registry key for this scene."""
-        return "base_scene"
+        return "base"
 
     def __init__(self, config: BaseSceneConfig, logger: logging.Logger | None = None):
         self._config = config
@@ -110,7 +111,6 @@ class BaseScene(RegisteredBase):
         return cap_utils.build_file_logger(record_dir, logger_name="scene")
 
     def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
-        self._before_build_agents()
         for spec_data in specs:
             spec = spec_data if isinstance(spec_data, AgentSpec) else AgentSpec(**spec_data)
             if spec.name in self._agents:
@@ -130,13 +130,6 @@ class BaseScene(RegisteredBase):
                     )
                     continue
                 self._agent_aliases[alias] = spec.name
-        self._after_build_agents()
-
-    def _before_build_agents(self) -> None:
-        """Hook for subclasses to initialize state before agents."""
-
-    def _after_build_agents(self) -> None:
-        """Hook for subclasses to finalize state after agents."""
 
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""
@@ -438,6 +431,3 @@ class BaseScene(RegisteredBase):
     def agents(self) -> dict[str, BaseAgent]:
         """Return agents keyed by canonical name."""
         return {name: info.agent for name, info in self._agents.items()}
-
-
-BaseScene._registry[BaseScene.scene_type()] = BaseScene
