@@ -36,7 +36,7 @@ class RslRlPolicy(BasePolicy):
 
     def __init__(self, config: RslRlPolicyConfig, logger: Logger):
         super().__init__(config=config, logger=logger)
-        self._policy = self._load_policy()
+        self._actor = self._load_actor()
 
     @classmethod
     def policy_type(cls) -> str:
@@ -44,22 +44,22 @@ class RslRlPolicy(BasePolicy):
 
     def reset(self, *args: Any, **kwargs: Any) -> None:
         """Reset the loaded policy to evaluation mode."""
-        self._policy.eval()
+        self._actor.eval()
 
     def inference(self, obs: Any = None) -> Any:
         """Run inference for an observation tensor dict."""
         obs_device = getattr(obs, "device", None)
         if obs_device is not None:
-            self._policy.to(obs_device)
-        self._policy.eval()
-        return self._policy(obs)
+            self._actor.to(obs_device)
+        self._actor.eval()
+        return self._actor(obs)
 
     def update(self, *, state_dict: dict[str, Any]) -> dict[str, Any]:
         """Load trained weights into the current policy."""
-        self._policy.load_state_dict(state_dict)
+        self._actor.load_state_dict(state_dict)
         return {}
 
-    def _load_policy(self) -> Any:
+    def _load_actor(self) -> Any:
         try:
             import torch
             from rsl_rl.utils import resolve_callable
@@ -98,10 +98,10 @@ class RslRlPolicy(BasePolicy):
             {actor_obs_groups[0]: torch.zeros((1, input_dim), device=device)},
             batch_size=[1],
         )
-        policy = actor_class(obs, train_cfg["obs_groups"], "actor", output_dim, **actor_cfg).to(device)
-        policy.load_state_dict(actor_state)
-        policy.eval()
-        return policy
+        actor = actor_class(obs, train_cfg["obs_groups"], "actor", output_dim, **actor_cfg).to(device)
+        actor.load_state_dict(actor_state)
+        actor.eval()
+        return actor
 
     def _checkpoint_path(self, log_dir: Path) -> Path:
         if self._config.ckpt is not None:

@@ -354,13 +354,16 @@ class GraspAgent(BaseAgent):
     @staticmethod
     def _load_policy_to_runner(policy: Any, runner: Any, env: Any) -> None:
         """Load an agent policy's current weights into a training runner."""
-        if policy._policy is None:
-            policy._ensure_loaded(env)
+        source_policy = getattr(policy, "_actor", None)
+        if source_policy is None:
+            if policy._policy is None:
+                policy._ensure_loaded(env)
+            source_policy = policy._policy
         if hasattr(runner, "alg"):
             runner_policy = runner.alg.get_policy().to(env.device)
         else:
             runner_policy = runner._policy
-        runner_policy.load_state_dict(policy._policy.state_dict())
+        runner_policy.load_state_dict(source_policy.state_dict())
 
     def _train(self, policy: Any, epoch: int, method: str, options: dict) -> tuple[dict, dict]:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""

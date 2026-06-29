@@ -101,7 +101,7 @@ class GenesisScene(BaseScene):
         return "genesis"
 
     def __init__(self, config: GenesisSceneConfig | dict[str, Any], logger=None):
-        self._scene = None
+        self._gs_scene = None
         self._camera = None
         self._camera_failed = False
         self._defer_scene_build = False
@@ -115,20 +115,20 @@ class GenesisScene(BaseScene):
         super().__init__(config=config, logger=logger)
 
     def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
-        self._scene = self._create_scene()
-        if self._scene is not None:
-            self._scene._cap_step_scene = self.step_scene
-            self._scene._cap_register_pre_step_callback = self.register_pre_step_callback
+        self._gs_scene = self._create_scene()
+        if self._gs_scene is not None:
+            self._gs_scene._cap_step_scene = self.step_scene
+            self._gs_scene._cap_register_pre_step_callback = self.register_pre_step_callback
         self._add_default_ground_plane()
         self._defer_scene_build = True
         super()._build_agents(specs)
         self._defer_scene_build = False
-        if self._scene is None or self._scene_built:
+        if self._gs_scene is None or self._scene_built:
             return
         if self._build_kwargs is None:
             return
         self._logger.info("Building Genesis scene with kwargs=%s", self._build_kwargs)
-        self._scene.build(**self._build_kwargs)
+        self._gs_scene.build(**self._build_kwargs)
         self._scene_built = True
         self._lock_viewer_rotation()
         callbacks = list(self._post_build_callbacks)
@@ -151,7 +151,7 @@ class GenesisScene(BaseScene):
     def _lock_viewer_rotation(self) -> None:
         if not self._config.lock_viewer_rotation:
             return
-        viewer = getattr(getattr(self._scene, "_visualizer", None), "_viewer", None)
+        viewer = getattr(getattr(self._gs_scene, "_visualizer", None), "_viewer", None)
         pyrender_viewer = getattr(viewer, "_pyrender_viewer", None)
         viewer_flags = getattr(pyrender_viewer, "viewer_flags", None)
         if isinstance(viewer_flags, dict):
@@ -159,27 +159,27 @@ class GenesisScene(BaseScene):
 
     def step_scene(self) -> None:
         """Step the Genesis scene."""
-        if self._scene is None:
+        if self._gs_scene is None:
             return
         self._real_step()
 
     def _real_step(self) -> None:
         """Unconditional scene step."""
-        if self._scene is None:
+        if self._gs_scene is None:
             return
         with self._step_lock:
             self._lock_viewer_rotation()
             if not self._run_pre_step_callbacks():
-                self._scene.step()
+                self._gs_scene.step()
 
     def _add_default_ground_plane(self) -> None:
-        if self._scene is None:
+        if self._gs_scene is None:
             return
         try:
             import genesis as gs
         except ImportError:
             return
-        self._scene.add_entity(gs.morphs.Plane())
+        self._gs_scene.add_entity(gs.morphs.Plane())
 
     def _start_idle_render_loop(self) -> None:
         """Schedule the idle render loop on the running event loop, if available."""
@@ -204,7 +204,7 @@ class GenesisScene(BaseScene):
     @property
     def scene(self) -> Any | None:
         """Return the Genesis scene owned by this scene wrapper."""
-        return self._scene
+        return self._gs_scene
 
     def _create_scene(self) -> Any | None:
         try:
@@ -262,7 +262,7 @@ class GenesisScene(BaseScene):
         if self._camera_failed:
             return None
         try:
-            scene = self._scene
+            scene = self._gs_scene
             if scene is None:
                 return None
             camera = self._ensure_camera(scene)
