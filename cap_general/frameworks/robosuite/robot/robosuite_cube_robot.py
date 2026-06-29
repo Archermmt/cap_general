@@ -103,15 +103,15 @@ class RobosuiteCubeRobot(RobosuiteBaseRobot):
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if seed is not None:
             self._rng = np.random.default_rng(seed)
-            self._seed = seed
+            self._config.seed = seed
         return BaseRobot.reset(self, options=options)
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         return self._run_on_sim_thread(self._reset_on_sim_thread, options)
 
     def _reset_on_sim_thread(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-        if self._seed is not None:
-            self.robosuite_robot.rng = np.random.default_rng(self._seed)
+        if self._config.seed is not None:
+            self.robosuite_robot.rng = np.random.default_rng(self._config.seed)
             self.robosuite_robot.placement_initializer.rng = self.robosuite_robot.rng
         self.robosuite_robot.reset()
         self.robosuite_robot.sim.data.qpos[6] -= np.pi

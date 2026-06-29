@@ -19,13 +19,47 @@ def print_execution_summary(prefix: str, result: dict[str, Any]) -> None:
 
 def print_train_summary(prefix: str, result: dict[str, Any]) -> None:
     train_result = result.get("result", {})
-    print(
-        f"{prefix} Train summary: "
-        f"epoch: {result.get('train_epoch')}, "
-        f"method: {train_result.get('method')}, "
-        f"epoch: {train_result.get('epoch')}, "
-        f"dir: {train_result.get('train_dir')}"
-    )
+    summary = train_result.get("summary") or {}
+    latest = summary.get("latest") or {}
+    best = summary.get("best") or {}
+
+    parts = [
+        f"{prefix} Train summary:",
+        f"method: {train_result.get('method')}",
+        f"stage: {train_result.get('stage')}",
+        f"epoch: {train_result.get('epoch')}",
+        f"dir: {train_result.get('train_dir')}",
+    ]
+
+    if latest:
+        parts.append(f"latest_iter: {latest.get('iteration')}")
+        parts.append(f"latest_steps: {latest.get('total_steps')}")
+        for key in (
+            "mean_reward",
+            "mean_episode_rew_keypoints",
+            "mean_value_loss",
+            "mean_surrogate_loss",
+            "mean_entropy_loss",
+            "total_loss",
+            "action_loss",
+            "pose_loss",
+            "fps",
+        ):
+            value = latest.get(key)
+            if value is not None:
+                parts.append(f"{key}: {value}")
+
+    history = summary.get("history") or []
+    if history:
+        parts.append(f"samples: {len(history)}")
+        parts.append(f"interval: {summary.get('sampling_interval')}")
+
+    if best:
+        parts.append(
+            f"best: {best.get('by')}={best.get('value')}@iter{best.get('iteration')}"
+        )
+
+    print(", ".join(parts))
 
 
 def print_record(prefix: str, record: dict[str, Any]) -> None:

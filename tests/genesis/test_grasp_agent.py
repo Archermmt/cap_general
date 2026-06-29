@@ -43,7 +43,7 @@ RESULT = grasp_episode(stage="rl", max_steps={max_steps})
 
 def _make_train_request(train_ep: int) -> dict:
     """Build a lightweight GraspAgent training request for smoke tests."""
-    return {"policy_name": "smoke_test", "epoch": train_ep}
+    return {"policy_name": "runner", "epoch": train_ep, "options": {"record_epoch": 50}}
 
 
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
@@ -74,7 +74,6 @@ async def _run_local(
         test_utils.print_train_summary("[test]", result)
         record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
         test_utils.print_record("[test]", record)
-        return record
 
     for task_idx in range(task_num):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num} ---")

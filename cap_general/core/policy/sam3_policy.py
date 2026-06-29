@@ -50,6 +50,7 @@ class SAM3PolicyConfig(BasePolicyConfig):
 class SAM3Policy(BasePolicy):
     """Local SAM3 image segmentation model."""
 
+    name = "SAM3 Policy"
     config_cls = SAM3PolicyConfig
 
     def __init__(

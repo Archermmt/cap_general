@@ -126,7 +126,6 @@ class LiberoRobot(BaseRobot):
         super().__init__(config=config, logger=logger)
         self._task_suite_name = config.task_suite_name
         self._task_id = int(config.task_id)
-        self._seed = int(config.seed)
         self._resolution = int(config.resolution)
         self._libero_home = self._resolve_libero_home(config.libero_home)
         self._reset_settle_steps = int(config.reset_settle_steps)
@@ -191,7 +190,7 @@ class LiberoRobot(BaseRobot):
             camera_heights=self._resolution,
             camera_widths=self._resolution,
         )
-        self._task_env.seed(self._seed)
+        self._task_env.seed(self._config.seed)
 
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(7,), dtype="float32")
         img_space = spaces.Box(
@@ -228,7 +227,7 @@ class LiberoRobot(BaseRobot):
         options = options or {}
         reset_level = _coerce_env_reset_level(options.get("reset_level"))
         info = {
-            "seed": self._seed,
+            "seed": self._config.seed,
             "options": options,
             "task_description": self.task_description,
             "task_suite_name": self._task_suite_name,

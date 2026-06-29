@@ -17,7 +17,7 @@ def to_json_safe(value: Any) -> Any:
     if isinstance(value, bool):
         return value
     if isinstance(value, float | int):
-        return float(value)
+        return value
     return value
 
 

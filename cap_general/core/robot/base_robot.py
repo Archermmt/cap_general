@@ -19,7 +19,6 @@ except ImportError:  # pragma: no cover - fallback for minimal test environments
 
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.scene.context import get_current_scene
 from cap_general.core.utils import ActType, ObsType, ResetLevel, save_image, save_video
 
 
@@ -46,33 +45,26 @@ class BaseRobot(RegisteredBase, GymEnv):
         return "base_robot"
 
     def __init__(self, config: BaseRobotConfig, logger: logging.Logger):
-        self._logger = logger
-        self._seed = config.seed
-        self._reset_time = config.reset_time
+        self._config, self._logger = config, logger
         self._video_fmt = config.video_fmt
         self._image_keys = list(config.image_keys or [])
+        self._video_enabled = True
         self._video_frames: dict[str, list[Any]] = {key: [] for key in self._image_keys}
-        self._scene = get_current_scene()
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
         self._training = False
 
-    @property
-    def cap_scene(self) -> Any | None:
-        """Return the top-level CAP scene that owns this robot."""
-        return self._scene
-
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the robot and return the initial observation and info."""
         if self._training:
-            return self._train_reset(options=options)
+            return self._reset(options=options)
         reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
         if reset_level >= ResetLevel.AGENT:
             self._step_cnt = 0
             self._video_frames = {key: [] for key in self._image_keys}
         self._last_obs, info = self._reset(options=options)
-        if self._reset_time > 0:
-            time.sleep(self._reset_time)
+        if self._config.reset_time > 0:
+            time.sleep(self._config.reset_time)
         return self._last_obs, info
 
     @abstractmethod
@@ -87,32 +79,30 @@ class BaseRobot(RegisteredBase, GymEnv):
             observation, reward, terminated, truncated, info.
         """
         if self._training:
-            return self._train_step(action)
+            return self._step(action)
         self._step_cnt += 1
         self._last_obs, _reward, terminated, truncated, info = self._step(action)
         reward = self.compute_reward()
-        self._record_frame(self._last_obs)
+        if self._video_enabled and self._video_fmt and self._image_keys and isinstance(self._last_obs, dict):
+            for key in self._image_keys:
+                frame = self._last_obs.get(key)
+                if frame is not None:
+                    self._video_frames.setdefault(key, []).append(frame)
         return self._last_obs, reward, terminated, truncated, info
 
     def train(self) -> "BaseRobot":
         """Switch to training reset and step semantics."""
         self._training = True
+        self.disable_video()
         self._on_train()
         return self
 
     def eval(self) -> "BaseRobot":
         """Switch to evaluation reset and step semantics."""
         self._training = False
+        self.enable_video()
         self._on_eval()
         return self
-
-    def _train_reset(self, options: dict[str, Any] | None = None) -> Any:
-        """Reset hook used in training mode."""
-        return self._reset(options=options)
-
-    def _train_step(self, action: ActType) -> Any:
-        """Step hook used in training mode."""
-        return self._step(action)
 
     def _on_train(self) -> None:
         """Hook called after entering training mode."""
@@ -120,10 +110,22 @@ class BaseRobot(RegisteredBase, GymEnv):
     def _on_eval(self) -> None:
         """Hook called after entering evaluation mode."""
 
+    def enable_video(self, *, clear: bool = False) -> None:
+        """Enable image and video recording."""
+        self._video_enabled = True
+        if clear:
+            self._video_frames = {key: [] for key in self._image_keys}
+
+    def disable_video(self, *, clear: bool = False) -> None:
+        """Disable image and video recording."""
+        self._video_enabled = False
+        if clear:
+            self._video_frames = {key: [] for key in self._image_keys}
+
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
         images = {}
-        if self._image_keys and isinstance(self._last_obs, dict):
+        if self._video_enabled and self._image_keys and isinstance(self._last_obs, dict):
             image_dir = Path(folder)
             image_dir.mkdir(parents=True, exist_ok=True)
             for image_key in self._image_keys:
@@ -162,7 +164,7 @@ class BaseRobot(RegisteredBase, GymEnv):
         return {}
 
     def _record_frame(self, obs: ObsType) -> None:
-        if not self._video_fmt or not self._image_keys:
+        if not self._video_enabled or not self._video_fmt or not self._image_keys:
             return
         if not isinstance(obs, dict):
             return
@@ -170,11 +172,6 @@ class BaseRobot(RegisteredBase, GymEnv):
             frame = obs.get(key)
             if frame is not None:
                 self._video_frames.setdefault(key, []).append(frame)
-
-    @property
-    def logger(self) -> logging.Logger:
-        """Shared logger for this robot."""
-        return self._logger
 
     @abstractmethod
     def _step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
@@ -205,3 +202,8 @@ class BaseRobot(RegisteredBase, GymEnv):
     def training(self) -> bool:
         """Whether the robot uses training semantics."""
         return self._training
+
+    @property
+    def logger(self) -> logging.Logger:
+        """Shared logger for this robot."""
+        return self._logger

@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -33,7 +34,7 @@ def _load_genesis_deps():
 class DroneHoverRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis drone hover example."""
 
-    example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/drone"
+    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/drone"
     log_dir: str | Path = "logs/drone-hovering"
     num_envs: int = 1
     visualize_target: bool = True
@@ -86,7 +87,9 @@ class DroneHoverRobot(BaseRobot):
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
         if self._last_policy_obs is None and self._example_env is not None:
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
+                self._example_env, "get_observations"
+            ):
                 self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
 
@@ -147,7 +150,9 @@ class DroneHoverRobot(BaseRobot):
         if target.shape == (3,):
             target = target.reshape(1, 3).expand_as(env.commands)
         if target.shape != env.commands.shape:
-            raise ValueError(f"target_pos must have shape (3,) or {tuple(env.commands.shape)}, got {tuple(target.shape)}")
+            raise ValueError(
+                f"target_pos must have shape (3,) or {tuple(env.commands.shape)}, got {tuple(target.shape)}"
+            )
         return target
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -187,11 +192,7 @@ class DroneHoverRobot(BaseRobot):
     def _normalize_states(self) -> dict:
         if self._last_obs is None or not isinstance(self._last_obs, dict):
             return {}
-        return {
-            key: value
-            for key, value in self._last_obs.items()
-            if key not in set(self._image_keys)
-        }
+        return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
     def _ensure_example_env(self) -> None:
         if self._example_env is not None or self._mock_reason is not None:
@@ -204,7 +205,8 @@ class DroneHoverRobot(BaseRobot):
             return
 
         try:
-            scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+            current_scene = get_current_scene()
+            scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
             scene = getattr(scene_resource, "scene", None)
             if scene is None:
                 self._mock_reason = "genesis scene resource is not enabled or failed"
@@ -358,6 +360,7 @@ class DroneHoverRobot(BaseRobot):
                 array = array * 255.0
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
 
 # Embedded genesis-world drone env implementation.
 def gs_rand_float(lower, upper, shape, device):

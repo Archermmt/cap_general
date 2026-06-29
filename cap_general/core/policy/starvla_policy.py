@@ -36,6 +36,7 @@ class StarVLAPolicyConfig(BasePolicyConfig):
 class StarVLAPolicy(BasePolicy):
     """Local in-process StarVLA action policy."""
 
+    name = "StarVLA Policy"
     config_cls = StarVLAPolicyConfig
 
     def __init__(

@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -32,7 +33,7 @@ def _load_genesis_deps():
 class Go2RobotConfig(BaseRobotConfig):
     """Configuration for the Genesis GO2 locomotion example."""
 
-    example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion"
+    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/locomotion"
     log_dir: str | Path = "logs/go2-walking"
     num_envs: int = 1
     image_keys: list[str] = field(default_factory=lambda: ["body_camera_image"])
@@ -81,7 +82,9 @@ class Go2Robot(BaseRobot):
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
         if self._last_policy_obs is None and self._example_env is not None:
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
+                self._example_env, "get_observations"
+            ):
                 self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
 
@@ -217,11 +220,7 @@ class Go2Robot(BaseRobot):
     def _normalize_states(self) -> dict:
         if self._last_obs is None or not isinstance(self._last_obs, dict):
             return {}
-        return {
-            key: value
-            for key, value in self._last_obs.items()
-            if key not in set(self._image_keys)
-        }
+        return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
     def _ensure_example_env(self) -> None:
         if self._example_env is not None or self._mock_reason is not None:
@@ -234,7 +233,8 @@ class Go2Robot(BaseRobot):
             return
 
         try:
-            scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+            current_scene = get_current_scene()
+            scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
             scene = getattr(scene_resource, "scene", None)
             if scene is None:
                 self._mock_reason = "genesis scene resource is not enabled or failed"
@@ -257,7 +257,9 @@ class Go2Robot(BaseRobot):
                 reward_cfg=reward_cfg,
                 command_cfg=command_cfg,
             )
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
+                self._example_env, "get_observations"
+            ):
                 self._last_policy_obs = self._example_env.get_observations()
         except Exception as exc:  # pragma: no cover - depends on Genesis runtime
             self._mock_reason = str(exc)
@@ -382,6 +384,7 @@ class Go2Robot(BaseRobot):
                 array = array * 255.0
             array = np.clip(array, 0, 255).astype(np.uint8)
         return array
+
 
 # Embedded genesis-world go2 env implementation.
 def gs_rand(lower, upper, batch_shape):
@@ -606,9 +609,7 @@ class _GenesisGo2CoreRobot:
                 mask[envs_idx_int] = True
             torch.where(mask[:, None], self.init_base_pos, self.base_pos, out=self.base_pos)
             torch.where(mask[:, None], self.init_base_quat, self.base_quat, out=self.base_quat)
-            torch.where(
-                mask[:, None], self.init_projected_gravity, self.projected_gravity, out=self.projected_gravity
-            )
+            torch.where(mask[:, None], self.init_projected_gravity, self.projected_gravity, out=self.projected_gravity)
             torch.where(mask[:, None], self.init_dof_pos, self.dof_pos, out=self.dof_pos)
             self.base_lin_vel.masked_fill_(mask[:, None], 0.0)
             self.base_ang_vel.masked_fill_(mask[:, None], 0.0)

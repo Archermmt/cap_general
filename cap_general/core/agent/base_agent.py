@@ -12,6 +12,7 @@ import traceback
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -43,14 +44,14 @@ class BaseAgentConfig:
 
     robot: BaseRobotConfig
     policies: dict[str, BasePolicyConfig] = field(default_factory=dict)
+    name: str | None = None
+    alias: str | None = None
     record_dir: str | Path = "outputs"
     max_steps: int = 5000
     max_retry: int = 5
+    debug: bool = False
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
     trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
-    debug: bool = False
-    name: str | None = None
-    alias: str | None = None
 
 
 class BaseAgent(RegisteredBase):
@@ -71,26 +72,18 @@ class BaseAgent(RegisteredBase):
             bound.apply_defaults()
             trace_args = dict(bound.arguments)
             trace_args.pop("self", None)
-            response = method(self, *args, **kwargs)
-
-            level = self._trace_level
-            if level is cap_utils.TraceLevel.NEVER:
-                return response
-            if level is cap_utils.TraceLevel.ALL:
-                self.update_history(
-                    {
-                        "role": "user",
-                        "tool": method.__name__,
-                        "request": cap_utils.to_json_safe(trace_args),
-                    }
-                )
-            self.update_history(
-                {
-                    "role": self.mark,
-                    "tool": method.__name__,
-                    "response": cap_utils.to_json_safe(response),
-                }
+            should_trace = self._trace_level is cap_utils.TraceLevel.ALL or (
+                self._trace_level is cap_utils.TraceLevel.TASK and method.__name__ in {"execute", "retry"}
             )
+            if should_trace:
+                self.update_history(
+                    {"role": "user", "tool": method.__name__, "request": cap_utils.to_json_safe(trace_args)}
+                )
+            response = method(self, *args, **kwargs)
+            if should_trace:
+                self.update_history(
+                    {"role": self.mark, "tool": method.__name__, "response": cap_utils.to_json_safe(response)}
+                )
             return response
 
         return wrapper
@@ -102,18 +95,16 @@ class BaseAgent(RegisteredBase):
 
     def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
         """Initialize an agent from config."""
-        self._config = config
+        self._config, self._logger = config, logger
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._logger = logger
         self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
         self._policies = self._build_policies(self._config.policies, self._logger)
         self._exec_globals: dict[str, Any] = {}
-        self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._task_start = 0
         self._history: list[dict[str, Any]] = []
-        self._train_epoch = 0
+        self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._trace_level = cap_utils.TraceLevel(self._config.trace_level)
         self._clear_record_dir_contents()
 
@@ -121,15 +112,19 @@ class BaseAgent(RegisteredBase):
     def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
         robot = BaseRobot.from_config(config, logger=logger)
         robot.reset()
+        robot.eval()
         return robot
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
         from cap_general.core.policy import BasePolicy
 
-        policies = {n: BasePolicy.from_config(c, logger=logger) for n, c in configs.items()}
+        policies = {
+            name: BasePolicy.from_config({**config, "name": name}, logger=logger) for name, config in configs.items()
+        }
         for policy in policies.values():
             policy.reset()
+            policy.eval()
         return policies
 
     def reset(self, options: dict[str, Any] | None = None):
@@ -223,18 +218,12 @@ class BaseAgent(RegisteredBase):
         return self._execute_once(self._step_codes[-1])
 
     @trace_result
-    def train(
-        self,
-        policy_name: str,
-        epoch: int,
-        method: str = "train",
-        options: dict[str, Any] | None = None,
-    ):
+    def train(self, policy_name: str, epoch: int, method: str = "train", options: dict[str, Any] | None = None):
         """Train a configured policy.
 
-        Performs simple bookkeeping (logging and incrementing ``train_epoch``)
-        and delegates the actual training logic to :meth:`_train`, which
-        subclasses should override.
+        Validates the requested policy, switches both the policy and robot into
+        training mode for the duration of the run, and delegates the actual
+        training logic to :meth:`_train`, which subclasses should override.
 
         Args:
             policy_name: Name of the policy to train, as configured in
@@ -245,40 +234,29 @@ class BaseAgent(RegisteredBase):
             options: [_options_doc()]
 
         Returns:
-            A dict with ``ok`` and the result of ``_train``, plus the updated
-            ``train_epoch`` count.
+            A dict with ``ok`` and the result of ``_train``.
         """
         if epoch <= 0:
             raise ValueError("epoch must be a positive integer")
+        policy = self._policies.get(policy_name)
+        if policy is None:
+            raise ValueError(f"Unknown policy requested: {policy_name!r}")
         options = dict(options or {})
         self._logger.info(
             "Starting train: policy=%s epoch=%s method=%s options=%s", policy_name, epoch, method, options
         )
-        self._train_epoch += epoch
+        policy.train()
         self._robot.train()
         try:
-            result = self._train(policy_name=policy_name, epoch=epoch, method=method, options=options)
-            response = {"ok": True, "train_epoch": self._train_epoch, "result": result}
+            result = self._train(policy=policy, epoch=epoch, method=method, options=options)
+            response = {"ok": True, "result": result}
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
-            response = {"ok": False, "train_epoch": self._train_epoch, "error": str(exc)}
+            response = {"ok": False, "error": str(exc)}
         finally:
+            policy.eval()
             self._robot.eval()
         return response
-
-    def _train(self, policy_name: str, epoch: int, method: str, options: dict[str, Any]) -> Any:
-        """Hook for subclasses to implement the actual training logic.
-
-        Args:
-            policy_name: Name of the policy to train.
-            epoch: Number of training epochs to run.
-            method: Training method/stage identifier.
-            options: Training options/hyperparameters.
-
-        Returns:
-            Subclass-defined training result.
-        """
-        raise NotImplementedError(f"{type(self).__name__} does not implement _train")
 
     def record(self, step_idx: int = -1):
         """Persist execution artifacts and return their metadata.
@@ -297,13 +275,18 @@ class BaseAgent(RegisteredBase):
                 "executes": self._step_infos,
                 "total_execute": len(self._step_infos),
                 "total_step": self._robot.step_cnt,
-                "total_duration": self._format_duration(time.time() - self._task_start),
+                "total_duration": f"{time.time() - self._task_start:.2f}s",
             }
-            code = self._join_codes()
+            code = "\n".join(
+                f"# {self._step_dir_name(info['exec_cnt'], info['trial_cnt'])}\n{code.rstrip()}\n"
+                for info, code in zip(self._step_infos, self._step_codes, strict=False)
+            )
             start_frm, end_frm = 0, self._robot.step_cnt
             record_path = self._record_dir
         else:
-            info, code = self._get_step_record(step_idx)
+            if step_idx < 0 or step_idx >= len(self._step_infos):
+                raise IndexError(f"step_idx {step_idx} out of range for {len(self._step_infos)} records")
+            info, code = self._step_infos[step_idx], self._step_codes[step_idx]
             start_frm, end_frm = info["step_start"], info["step_end"]
             record_path = self._record_dir / self._step_dir_name(info["exec_cnt"], info["trial_cnt"])
         record_path.mkdir(parents=True, exist_ok=True)
@@ -328,11 +311,11 @@ class BaseAgent(RegisteredBase):
         """
         if not isinstance(message, dict):
             raise TypeError("message must be a history message dictionary")
-        self._history.append(message)
+        hist_message = {"timestamp": datetime.now().strftime("%Y-%m-%d:%H-%M-%S.%f")[:-3], **message}
+        self._history.append(hist_message)
         history_path = self._record_dir / "history.json"
-        history_path.parent.mkdir(parents=True, exist_ok=True)
         with history_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(cap_utils.to_json_safe(message), ensure_ascii=False) + "\n")
+            f.write(json.dumps(cap_utils.to_json_safe(hist_message), ensure_ascii=False) + "\n")
         return {"ok": True, "updated": len(self._history)}
 
     def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
@@ -351,7 +334,7 @@ class BaseAgent(RegisteredBase):
 
     def _execute_once(self, code: str):
         """Execute generated code and return a Gymnasium-style transition tuple."""
-        self._clear_current_step_dir()
+        cap_utils.remove_path(self._current_step_dir_path())
         if self._reset_mode is cap_utils.ResetMode.PER_TRIAL:
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         step_start, time_start = self._robot.step_cnt, time.time()
@@ -361,7 +344,7 @@ class BaseAgent(RegisteredBase):
             **exec_result,
             "step_start": step_start,
             "step_end": self._robot.step_cnt,
-            "duration": self._format_duration(time.time() - time_start),
+            "duration": f"{time.time() - time_start:.2f}s",
             "exec_cnt": self._exec_cnt,
             "trial_cnt": self._trial_cnt,
             "reward": self._compute_reward(),
@@ -375,7 +358,10 @@ class BaseAgent(RegisteredBase):
         return info
 
     def _execute_code(self, code: str) -> dict[str, Any]:
-        self._init_exec_globals()
+        g: dict[str, Any] = {"__name__": "__main__", "robot": self._robot, "INPUTS": {}, "RESULT": None}
+        for fn_name, fn in self.functions().items():
+            g[fn_name] = fn
+        self._exec_globals = g
         stdout_buffer = io.StringIO()
         tee_out = Tee(sys.stdout, stdout_buffer)
         stderr_buffer = io.StringIO()
@@ -394,13 +380,6 @@ class BaseAgent(RegisteredBase):
             "result": self._exec_globals.get("RESULT"),
         }
 
-    def _init_exec_globals(self) -> None:
-        """Initialize the persistent globals dictionary for generated code."""
-        g: dict[str, Any] = {"__name__": "__main__", "robot": self._robot, "INPUTS": {}, "RESULT": None}
-        for fn_name, fn in self.functions().items():
-            g[fn_name] = fn
-        self._exec_globals = g
-
     def _run_policy(self, policy_name: str, method="inference", **kwargs) -> Any:
         """Run a configured policy by name."""
         if policy_name not in self._policies:
@@ -411,6 +390,20 @@ class BaseAgent(RegisteredBase):
             self._logger.warning("Policy %r has no callable method %r", policy_name, method)
             return None
         return policy_method(**kwargs)
+
+    def _train(self, policy: Any, epoch: int, method: str, options: dict[str, Any]) -> Any:
+        """Hook for subclasses to implement the actual training logic.
+
+        Args:
+            policy: Configured policy object to train.
+            epoch: Number of training epochs to run.
+            method: Training method/stage identifier.
+            options: Training options/hyperparameters.
+
+        Returns:
+            Subclass-defined training result.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement _train")
 
     def _update_policy(self, policy_name: str, **kwargs: Any) -> Any:
         """Update a configured policy by name."""
@@ -479,21 +472,6 @@ class BaseAgent(RegisteredBase):
         """Return capability descriptions for configured policies."""
         return {name: policy.describe for name, policy in self._policies.items()}
 
-    def _get_step_record(self, step_idx: int) -> tuple[dict[str, Any], str]:
-        if step_idx < 0 or step_idx >= len(self._step_infos):
-            raise IndexError(f"step_idx {step_idx} out of range for {len(self._step_infos)} records")
-        return self._step_infos[step_idx], self._step_codes[step_idx]
-
-    def _join_codes(self) -> str:
-        chunks = []
-        for info, code in zip(self._step_infos, self._step_codes):
-            chunks.append(f"# {self._step_dir_name(info['exec_cnt'], info['trial_cnt'])}\n{code.rstrip()}\n")
-        return "\n".join(chunks)
-
-    def _clear_current_step_dir(self) -> None:
-        """Remove artifacts for the current execute/trial slot before writing new ones."""
-        cap_utils.remove_path(self._current_step_dir_path())
-
     @staticmethod
     def _step_dir_name(exec_cnt: int, trial_cnt: int) -> str:
         return "step_{}/trial_{}".format(exec_cnt, trial_cnt)
@@ -506,10 +484,6 @@ class BaseAgent(RegisteredBase):
         self._record_dir.mkdir(parents=True, exist_ok=True)
         for child in self._record_dir.iterdir():
             cap_utils.remove_path(child)
-
-    @staticmethod
-    def _format_duration(seconds: float) -> str:
-        return f"{seconds:.2f}s"
 
     def _execute_rules(self) -> str:
         """Return generic execution guidance for agents without custom rules."""

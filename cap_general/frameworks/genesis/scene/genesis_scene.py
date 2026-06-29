@@ -205,7 +205,7 @@ class GenesisScene(BaseScene):
         while True:
             await asyncio.sleep(interval)
             # Skip when an agent task is actively executing
-            if any(t is not None and not t.done() for t in self._agent_tasks.values()):
+            if any(info.task is not None and not info.task.done() for info in self._agents.values()):
                 continue
             self._real_step()
 

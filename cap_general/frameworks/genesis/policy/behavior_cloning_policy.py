@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class BehaviorCloningPolicyConfig(BasePolicyConfig):
     """Configuration for Genesis manipulation BehaviorCloning checkpoints."""
 
-    example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation"
+    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/manipulation"
     log_dir: str | Path = "logs/grasp_bc"
     checkpoint: str | Path | None = None
     cfgs_filename: str = "cfgs.pkl"

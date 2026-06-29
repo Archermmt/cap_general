@@ -4,14 +4,34 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from cap_general.core.policy.base_policy import (
-    BasePolicy,
-    PolicyResult,
-    apply_stop_sequences,
-    normalize_prompt,
-)
+from cap_general.core.policy.base_policy import BasePolicy, PolicyResult
 
 from .base_policy import BasePolicyConfig
+
+
+def apply_stop_sequences(text: str, stop: list[str] | None = None) -> str:
+    """Truncate text at the earliest stop sequence."""
+    if not stop:
+        return text
+
+    earliest = None
+    for sequence in stop:
+        if not sequence:
+            continue
+        index = text.find(sequence)
+        if index >= 0 and (earliest is None or index < earliest):
+            earliest = index
+
+    return text if earliest is None else text[:earliest]
+
+
+def normalize_prompt(prompt: str | list[dict[str, Any]]) -> str | list[dict[str, Any]]:
+    """Normalize supported prompt inputs for local model backends."""
+    if isinstance(prompt, str):
+        return prompt
+    if isinstance(prompt, list):
+        return prompt
+    raise TypeError(f"Unsupported prompt type: {type(prompt).__name__}")
 
 
 @dataclass
@@ -47,6 +67,7 @@ class HuggingFacePolicyConfig(BasePolicyConfig):
 class HuggingFacePolicy(BasePolicy):
     """A local Transformers policy loaded from a Hugging Face checkpoint."""
 
+    name = "HuggingFace Policy"
     config_cls = HuggingFacePolicyConfig
 
     def __init__(

@@ -1,12 +1,12 @@
 """Test a Genesis scene with three Grasp agents.
 
 Local mode:
-    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py
-    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --parallel
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --parallel
 
 Remote mode:
     capcmd server --config configs/genesis/multi_agents.yaml
-    /Users/tongmeng/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --remote --config configs/genesis/multi_agents.yaml
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --remote --config configs/genesis/multi_agents.yaml
 """
 
 from __future__ import annotations
@@ -96,9 +96,7 @@ async def _run_remote(
             await session.initialize()
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
-            await test_utils.call_tool(
-                session, "reset", {"agent_options": {agent: {} for agent in _AGENTS}}
-            )
+            await test_utils.call_tool(session, "reset", {"agent_options": {agent: {} for agent in _AGENTS}})
             agent_docs = await test_utils.call_tool(session, "agent_doc", {"agents": list(_AGENTS)})
             for response_key, agent_doc in agent_docs.items():
                 print(f"[mcp_test] {response_key} agent_doc {agent_doc}")
@@ -119,9 +117,7 @@ async def _run_remote(
                 for agent, status in statuses.items():
                     test_utils.print_execution_summary(f"[mcp_test][{agent}]", status["result"])
 
-            records = await test_utils.call_tool(
-                session, "record", {"agents": list(_AGENTS)}
-            )
+            records = await test_utils.call_tool(session, "record", {"agents": list(_AGENTS)})
             for agent, record in records.items():
                 test_utils.print_record(f"[mcp_test][{agent}]", record)
             return records

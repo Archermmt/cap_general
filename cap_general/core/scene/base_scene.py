@@ -41,6 +41,15 @@ class AgentSpec:
 
 
 @dataclass
+class AgentInfo:
+    """Runtime state for one scene agent."""
+
+    agent: BaseAgent
+    status: dict[str, Any]
+    task: asyncio.Future[Any] | asyncio.Task[Any] | None = None
+
+
+@dataclass
 class BaseSceneConfig:
     """Configuration for a scene containing one or more agents."""
 
@@ -67,10 +76,8 @@ class BaseScene(RegisteredBase):
         self._server_config = self._config.server
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
         self._logger = logger or self._build_logger(self._record_dir)
-        self._agents: dict[str, BaseAgent] = {}
         self._agent_aliases: dict[str, str] = {}
-        self._agent_status: dict[str, dict[str, Any]] = {}
-        self._agent_tasks: dict[str, asyncio.Future[Any] | asyncio.Task[Any]] = {}
+        self._agents: dict[str, AgentInfo] = {}
         set_current_scene(self)
         try:
             self._build_agents(self._config.agents)
@@ -114,7 +121,7 @@ class BaseScene(RegisteredBase):
             agent_config["name"] = spec.name
             agent_config["alias"] = aliases[0] if aliases else None
             agent = BaseAgent.from_config(agent_config, logger=self._logger)
-            self._agents[spec.name] = agent
+            self._agents[spec.name] = AgentInfo(agent=agent, status=self._get_status(spec.name))
             for alias in aliases:
                 existing = self._agent_aliases.get(alias)
                 if existing is not None and existing != spec.name:
@@ -173,10 +180,7 @@ class BaseScene(RegisteredBase):
             await asyncio.gather(*(self._wait_task(agent, wait_ms) for agent in canonical_agents))
         return self._format_results(
             canonical_agents,
-            [
-                cap_utils.to_json_safe(self._agent_status.get(agent, self._get_status(agent)))
-                for agent in canonical_agents
-            ],
+            [cap_utils.to_json_safe(self._agents[agent].status) for agent in canonical_agents],
         )
 
     def record(self, agents: list[str]) -> dict[str, Any]:
@@ -207,8 +211,8 @@ class BaseScene(RegisteredBase):
     def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
         """Set the history trace level for all agents."""
         level = cap_utils.TraceLevel(level)
-        for agent in self._agents.values():
-            agent.set_trace_level(level)
+        for agent_info in self._agents.values():
+            agent_info.agent.set_trace_level(level)
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
@@ -247,7 +251,7 @@ class BaseScene(RegisteredBase):
                     return await result
                 return result
 
-            _wrapped.__doc__ = self._mcp_tool_doc(method_name, method)
+            _wrapped.__doc__ = inspect.getdoc(method) or method_name
             _wrapped.__signature__ = inspect.signature(method)  # type: ignore[attr-defined]
             server.tool()(_wrapped)
 
@@ -259,15 +263,13 @@ class BaseScene(RegisteredBase):
         anyio.run(self._run_server_async, server, transport)
 
     async def _start_task(self, canonical: str, method_name: str, **kwargs: Any) -> dict[str, Any]:
-        task = self._agent_tasks.get(canonical)
+        agent_info = self._agents[canonical]
+        task = agent_info.task
         if task is not None and not task.done():
-            return cap_utils.to_json_safe(self._agent_status.get(canonical, self._get_status(canonical)))
+            return cap_utils.to_json_safe(agent_info.status)
         started_at = time.time()
-        self._agent_status[canonical] = self._get_status(
-            canonical, method=method_name, running=True, started_at=started_at
-        )
-        agent = self._get_agent(canonical)
-        method = getattr(agent, method_name)
+        agent_info.status = self._get_status(canonical, method=method_name, running=True, started_at=started_at)
+        method = getattr(agent_info.agent, method_name)
 
         async def _run() -> dict[str, Any]:
             try:
@@ -284,18 +286,18 @@ class BaseScene(RegisteredBase):
                 duration=f"{finished_at - started_at:.2f}s",
                 result=cap_utils.to_json_safe(result),
             )
-            self._agent_status[canonical] = status
+            agent_info.status = status
             return status
 
-        self._agent_tasks[canonical] = asyncio.create_task(_run())
-        return cap_utils.to_json_safe(self._agent_status.get(canonical, self._get_status(canonical)))
+        agent_info.task = asyncio.create_task(_run())
+        return cap_utils.to_json_safe(agent_info.status)
 
     async def _dispatch_task(self, method: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
         """Dispatch a synchronous agent method without blocking the event loop."""
         return await asyncio.to_thread(method, **kwargs)
 
     async def _wait_task(self, canonical: str, wait_ms: int) -> None:
-        task = self._agent_tasks.get(canonical)
+        task = self._agents[canonical].task
         if task is None or task.done():
             return
         if wait_ms < 0:
@@ -348,7 +350,7 @@ class BaseScene(RegisteredBase):
 
     def _get_agent(self, agent: str | None = None) -> BaseAgent:
         """Return an agent by name or alias."""
-        return self._agents[self._resolve_name(agent)]
+        return self._agents[self._resolve_name(agent)].agent
 
     def _resolve_name(self, agent: str | None = None) -> str:
         """Return the canonical agent name for a name or alias."""
@@ -427,10 +429,6 @@ class BaseScene(RegisteredBase):
                 shutil.copy2(source_path, target_path)
         return target_dir
 
-    @staticmethod
-    def _mcp_tool_doc(method_name: str, method: Callable[..., Any]) -> str:
-        return inspect.getdoc(method) or method_name
-
     @property
     def server_config(self) -> ServerConfig:
         """Return this scene's MCP server configuration."""
@@ -439,7 +437,7 @@ class BaseScene(RegisteredBase):
     @property
     def agents(self) -> dict[str, BaseAgent]:
         """Return agents keyed by canonical name."""
-        return dict(self._agents)
+        return {name: info.agent for name, info in self._agents.items()}
 
 
 BaseScene._registry[BaseScene.scene_type()] = BaseScene

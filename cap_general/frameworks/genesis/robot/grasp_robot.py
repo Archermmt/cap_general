@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -40,7 +41,7 @@ def _load_genesis_deps():
 class GraspRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis grasp manipulation example."""
 
-    example_root: str | Path = "/Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation"
+    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/manipulation"
     log_dir: str | Path = "logs/grasp_rl"
     stage: str = "rl"
     num_envs: int = 1
@@ -95,7 +96,9 @@ class GraspRobot(BaseRobot):
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
         if self._last_policy_obs is None and self._example_env is not None:
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(self._example_env, "get_observations"):
+            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
+                self._example_env, "get_observations"
+            ):
                 self._last_policy_obs = self._example_env.get_observations()
         return self._last_policy_obs
 
@@ -150,6 +153,9 @@ class GraspRobot(BaseRobot):
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         self._ensure_example_env()
+        if self._training:
+            del options
+            return self._require_example_env().reset()
         if self._example_env is None:
             obs = self._mock_observation()
             return obs, {"mock": True, "reason": self._mock_reason}
@@ -163,6 +169,8 @@ class GraspRobot(BaseRobot):
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         self._ensure_example_env()
+        if self._training:
+            return self._require_example_env().step(action)
         if self._example_env is None:
             return self._mock_observation(), 0.0, False, False, {"mock": True}
         if getattr(self._example_env, "_deferred_build", False):
@@ -175,15 +183,6 @@ class GraspRobot(BaseRobot):
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
         return self._build_observation(), 0.0, self._last_done, False, info
-
-    def _train_reset(self, options: dict[str, Any] | None = None) -> Any:
-        """Reset the raw vector environment for policy training."""
-        del options
-        return self._require_example_env().reset()
-
-    def _train_step(self, action: Any) -> Any:
-        """Step the raw vector environment without evaluation wrapping."""
-        return self._require_example_env().step(action)
 
     def _on_train(self) -> None:
         env = self._require_example_env()
@@ -238,7 +237,8 @@ class GraspRobot(BaseRobot):
             return
 
         try:
-            scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+            current_scene = get_current_scene()
+            scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
             scene = getattr(scene_resource, "scene", None)
             if scene is None:
                 self._mock_reason = "genesis scene resource is not enabled or failed"

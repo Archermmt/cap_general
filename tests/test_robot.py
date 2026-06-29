@@ -22,22 +22,20 @@ class DummyRobot(BaseRobot):
         self,
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return {"step": self.step_cnt}, {"seed": self._seed, "options": options or {}}
+        if self.training:
+            return {"mode": "train", "options": options or {}}
+        return {"step": self.step_cnt}, {"seed": self._config.seed, "options": options or {}}
 
     def _step(
         self,
         action: Any,
     ) -> tuple[dict[str, Any], SupportsFloat, bool, bool, dict[str, Any]]:
+        if self.training:
+            return {"mode": "train"}, 1.0, False, {"action": action}
         return {"step": self.step_cnt}, 0.0, False, False, {"action": action}
 
     def get_observation(self, folder) -> dict[str, Any]:
         return {"step": self.step_cnt}
-
-    def _train_reset(self, options=None):
-        return {"mode": "train", "options": options or {}}
-
-    def _train_step(self, action):
-        return {"mode": "train"}, 1.0, False, {"action": action}
 
 
 class RewardDummyRobot(DummyRobot):

@@ -109,6 +109,7 @@ class GraspNetPolicyConfig(BasePolicyConfig):
 class GraspNetPolicy(BasePolicy):
     """Local Contact-GraspNet grasp planning model."""
 
+    name = "GraspNet Policy"
     config_cls = GraspNetPolicyConfig
 
     def __init__(

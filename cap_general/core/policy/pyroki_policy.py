@@ -49,6 +49,7 @@ class PyrokiPolicyConfig(BasePolicyConfig):
 class PyrokiPolicy(BasePolicy):
     """Local PyRoKi IK and simple trajectory planning model."""
 
+    name = "PyRoKi Policy"
     config_cls = PyrokiPolicyConfig
 
     def __init__(

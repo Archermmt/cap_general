@@ -27,7 +27,7 @@ class CoreDummyRobot(BaseRobot):
         return "core_dummy"
 
     def _reset(self, options=None):
-        return {"step": self.step_cnt}, {"seed": self._seed, "options": options or {}}
+        return {"step": self.step_cnt}, {"seed": self._config.seed, "options": options or {}}
 
     def _step(self, action):
         return {"step": self.step_cnt}, 0.0, False, False, {"action": action}

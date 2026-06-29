@@ -9,6 +9,7 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
+from cap_general.core.scene.context import get_current_scene
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 from cap_general.frameworks.genesis.utils import step_scene
 
@@ -73,7 +74,7 @@ class FrankaRobot(BaseRobot):
         self._config = config
         self._robot = config.robot
         self._object_configs = [self._coerce_obj_config(obj) for obj in config.objects]
-        self._rng = np.random.default_rng(self._seed)
+        self._rng = np.random.default_rng(self._config.seed)
 
         self._scene = None
         self._objects: list[Any] = []
@@ -213,7 +214,7 @@ class FrankaRobot(BaseRobot):
             self._robot.reset()
         self._reset_objects()
         obs = self._build_observation()
-        return obs, {"seed": self._seed, "options": options, "object_count": len(self._object_specs)}
+        return obs, {"seed": self._config.seed, "options": options, "object_count": len(self._object_specs)}
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], SupportsFloat, bool, bool, dict[str, Any]]:
         """Apply one low-level action and return a Gymnasium step tuple."""
@@ -252,7 +253,8 @@ class FrankaRobot(BaseRobot):
                 self._genesis_unavailable_logged = True
             return
 
-        scene_resource = self.cap_scene.get_resource("genesis_scene") if self.cap_scene is not None else None
+        current_scene = get_current_scene()
+        scene_resource = current_scene.get_resource("genesis_scene") if current_scene is not None else None
         self._scene = getattr(scene_resource, "scene", None)
         if self._scene is None:
             if not self._genesis_unavailable_logged:
