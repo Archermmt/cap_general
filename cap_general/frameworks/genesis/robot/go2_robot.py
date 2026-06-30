@@ -184,8 +184,6 @@ class Go2Robot(BaseRobot):
             self.reward_functions[name] = getattr(self, "_reward_" + name)
             self.episode_sums[name] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
 
-        self.rl_reset()
-
     @property
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
@@ -249,6 +247,8 @@ class Go2Robot(BaseRobot):
         return adjusted
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        self._reset_idx()
+        self._update_observation()
         self._last_policy_obs = self._get_observations()
         self._last_reward = 0.0
         self._last_done = False
@@ -260,7 +260,11 @@ class Go2Robot(BaseRobot):
         from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
 
         if action is None:
-            action = self._zero_action()
+            action = torch.zeros(
+                (self.num_envs, self.num_actions),
+                dtype=gs.tc_float,
+                device=gs.device,
+            )
 
         self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
@@ -386,16 +390,6 @@ class Go2Robot(BaseRobot):
             self._body_camera = camera
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self.logger.warning("Failed to add GO2 body camera: %s", exc)
-
-    def _zero_action(self):
-        import genesis as gs
-        import torch
-
-        return torch.zeros(
-            (self.num_envs, self.num_actions),
-            dtype=gs.tc_float,
-            device=gs.device,
-        )
 
     def _build_observation(self) -> dict[str, Any]:
         obs = {
@@ -527,42 +521,3 @@ class Go2Robot(BaseRobot):
             ),
             dim=-1,
         )
-
-    def rl_reset(self) -> Any:
-        self._reset_idx()
-        self._update_observation()
-        return self._get_observations()
-
-    # ------------ reward functions ----------------
-
-    def _reward_tracking_lin_vel(self):
-        import torch
-
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-        return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
-
-    def _reward_tracking_ang_vel(self):
-        import torch
-
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
-
-    def _reward_lin_vel_z(self):
-        import torch
-
-        return torch.square(self.base_lin_vel[:, 2])
-
-    def _reward_action_rate(self):
-        import torch
-
-        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-
-    def _reward_similar_to_default(self):
-        import torch
-
-        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
-
-    def _reward_base_height(self):
-        import torch
-
-        return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])

@@ -105,7 +105,6 @@ def test_grasp_robot_train_restores_training_episode_length_and_resets():
 
     robot = GraspRobot(config=GraspRobotConfig(), logger=LOGGER)
     # Simulate a fully-built genesis state without actual Genesis deps
-    robot._post_built = True
     robot.ctrl_dt = 0.01
     robot._env_cfg = {"episode_length_s": 10_000.0}
     robot.max_episode_length = 1_000_000
@@ -123,7 +122,7 @@ def test_grasp_robot_train_restores_training_episode_length_and_resets():
         obs_calls.append(1)
         return {"policy": "eval"}
 
-    robot.rl_reset = fake_reset
+    robot._reset = fake_reset
     robot._get_observations = fake_get_obs
 
     robot.train()

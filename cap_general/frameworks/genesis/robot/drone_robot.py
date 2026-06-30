@@ -151,8 +151,6 @@ class DroneHoverRobot(BaseRobot):
         self._hover_rpm = torch.ones(self.num_envs, 4, device=gs.device) * 14468.429183500699
         self._scene.register_pre_step_callback(self._pre_step_maintain_hover)
 
-        self.rl_reset()
-
     @property
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
@@ -186,8 +184,13 @@ class DroneHoverRobot(BaseRobot):
         return target
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        import torch
+
         self.lock_commands = False
-        self._last_policy_obs = self.rl_reset()
+        self.reset_buf[:] = True
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self._update_observation()
+        self._last_policy_obs = self._get_observations()
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"options": options or {}}
@@ -198,7 +201,11 @@ class DroneHoverRobot(BaseRobot):
         from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
 
         if action is None:
-            action = self._zero_action()
+            action = torch.zeros(
+                (self.num_envs, self.num_actions),
+                dtype=gs.tc_float,
+                device=gs.device,
+            )
 
         self._being_stepped = True
         self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]).detach()
@@ -369,16 +376,6 @@ class DroneHoverRobot(BaseRobot):
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self.logger.warning("Failed to add Genesis drone body camera: %s", exc)
 
-    def _zero_action(self):
-        import genesis as gs
-        import torch
-
-        return torch.zeros(
-            (self.num_envs, self.num_actions),
-            dtype=gs.tc_float,
-            device=gs.device,
-        )
-
     def _build_observation(self) -> dict[str, Any]:
         obs = {
             "base_pos": tensor_to_list(self.base_pos),
@@ -480,11 +477,3 @@ class DroneHoverRobot(BaseRobot):
         self._resample_commands(envs_idx)
         self.rel_pos = self.commands - self.base_pos
         self.last_rel_pos = self.commands - self.last_base_pos
-
-    def rl_reset(self) -> Any:
-        import torch
-
-        self.reset_buf[:] = True
-        self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        self._update_observation()
-        return self._get_observations()

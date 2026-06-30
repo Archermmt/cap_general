@@ -111,7 +111,6 @@ class GraspRobot(BaseRobot):
             self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
         self.keypoints_offset = self.get_keypoint_offsets(batch_size=self.num_envs, device=self.device, unit_length=0.5)
         self._init_buffers()
-        self.rl_reset()
 
     @property
     def policy_obs(self) -> Any:
@@ -125,10 +124,12 @@ class GraspRobot(BaseRobot):
         return self._get_observations()
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        self._reset_idx()
+        obs = self._get_observations()
         if self._training:
             del options
-            return self.rl_reset()
-        self._last_policy_obs = self.rl_reset()
+            return obs
+        self._last_policy_obs = obs
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"options": options or {}}
@@ -138,7 +139,11 @@ class GraspRobot(BaseRobot):
         import torch
 
         if action is None:
-            action = self._zero_action()
+            action = torch.zeros(
+                (self.num_envs, self.num_actions),
+                dtype=gs.tc_float,
+                device=gs.device,
+            )
         actions = self.rescale_action(action)
         self.robot.apply_action(actions, open_gripper=True)
         self._scene.step_scene()
@@ -165,7 +170,7 @@ class GraspRobot(BaseRobot):
 
     def _on_train(self) -> None:
         self._set_episode_length(self._train_episode_length_s)
-        self._last_policy_obs = self.rl_reset()
+        self._last_policy_obs = self._reset()
 
     def _on_eval(self) -> None:
         self._set_episode_length(self._eval_episode_length_s)
@@ -353,16 +358,6 @@ class GraspRobot(BaseRobot):
                     continue
         return None
 
-    def _zero_action(self):
-        import genesis as gs
-        import torch
-
-        return torch.zeros(
-            (self.num_envs, self.num_actions),
-            dtype=gs.tc_float,
-            device=gs.device,
-        )
-
     def _build_observation(self) -> dict[str, Any]:
         obs = {
             "ee_pose": tensor_to_list(getattr(self.robot, "ee_pose", None)),
@@ -465,10 +460,6 @@ class GraspRobot(BaseRobot):
                 value.zero_()
             else:
                 value.masked_fill_(envs_idx, 0.0)
-
-    def rl_reset(self) -> Any:
-        self._reset_idx()
-        return self._get_observations()
 
     def _get_observations(self) -> Any:
         import torch
