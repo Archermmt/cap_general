@@ -57,7 +57,7 @@ class GraspRobot(BaseRobot):
         self._last_reward = 0.0
         self._last_done = False
 
-        # RL environment attributes (populated by _setup_genesis_state)
+        # RL environment attributes (populated by init_genesis)
         self.num_envs: int = config.num_envs
         self.num_actions: int = 0
         self.device: Any = None
@@ -81,8 +81,7 @@ class GraspRobot(BaseRobot):
         self.scene_offset: Any = None
         self._env_cfg: dict = {}
 
-        # raw genesis scene (gs.Scene) — set during _setup_genesis_state
-        # hand camera (set during _setup_genesis_state if visualize_camera)
+        # hand camera (set during init_genesis if visualize_camera)
         self._hand_camera: Any = None
         self._hand_camera_failed = False
 
@@ -135,11 +134,30 @@ class GraspRobot(BaseRobot):
         return self._build_observation(), {"options": options or {}}
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
-        if self._training:
-            return self.rl_step(action)
+        import genesis as gs
+        import torch
+
         if action is None:
             action = self._zero_action()
-        obs, reward, done, info = self.rl_step(action)
+        actions = self.rescale_action(action)
+        self.robot.apply_action(actions, open_gripper=True)
+        self._scene.step_scene()
+
+        self.episode_length_buf += 1
+        self.reset_buf = self.episode_length_buf > self.max_episode_length
+        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
+        self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
+
+        reward = torch.zeros(self.num_envs, device=gs.device, dtype=gs.tc_float)
+        for name, reward_func in self.reward_functions.items():
+            rew = reward_func() * self.reward_scales[name]
+            reward += rew
+            self.episode_sums[name] += rew
+
+        self._reset_idx(self.reset_buf)
+        obs, done, info = self._get_observations(), self.reset_buf, self.extras
+        if self._training:
+            return obs, reward, done, info
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
@@ -181,6 +199,10 @@ class GraspRobot(BaseRobot):
         return True
 
     def init_genesis(self, gs_scene: Any) -> None:
+        import genesis as gs
+        import torch
+        from genesis.vis.camera import Camera
+
         env_cfg, reward_cfg, robot_cfg, *_ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         self._train_episode_length_s = float(env_cfg["episode_length_s"])
@@ -196,15 +218,7 @@ class GraspRobot(BaseRobot):
             env_cfg["robot_pos"] = list(self._config.robot_pos)
         if self._config.object_pos_offset is not None:
             env_cfg["object_pos_offset"] = list(self._config.object_pos_offset)
-        self._setup_genesis_state(gs_scene, env_cfg, dict(reward_cfg), robot_cfg)
-
-    def _setup_genesis_state(
-        self, gs_scene: Any, env_cfg: dict, reward_cfg: dict, robot_cfg: dict
-    ) -> None:
-        import genesis as gs
-        import torch
-        from genesis.vis.camera import Camera
-
+        reward_cfg = dict(reward_cfg)
         self.num_actions = env_cfg["num_actions"]
         self.cfg = env_cfg
         self._env_cfg = env_cfg
@@ -455,31 +469,6 @@ class GraspRobot(BaseRobot):
     def rl_reset(self) -> Any:
         self._reset_idx()
         return self._get_observations()
-
-    def rl_step(self, actions: Any) -> tuple[Any, Any, Any, dict]:
-        import genesis as gs
-        import torch
-
-        actions = self.rescale_action(actions)
-        self.robot.apply_action(actions, open_gripper=True)
-        self._scene.step_scene()
-
-        self.episode_length_buf += 1
-
-        self.reset_buf = self.episode_length_buf > self.max_episode_length
-        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
-
-        self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
-
-        reward = torch.zeros(self.num_envs, device=gs.device, dtype=gs.tc_float)
-        for name, reward_func in self.reward_functions.items():
-            rew = reward_func() * self.reward_scales[name]
-            reward += rew
-            self.episode_sums[name] += rew
-
-        self._reset_idx(self.reset_buf)
-
-        return self._get_observations(), reward, self.reset_buf, self.extras
 
     def _get_observations(self) -> Any:
         import torch

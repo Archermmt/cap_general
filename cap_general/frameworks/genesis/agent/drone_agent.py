@@ -64,8 +64,8 @@ class DroneAgent(BaseAgent):
     def hover(self, time_s: float) -> dict[str, Any]:
         """Keep the drone hovering at its current position for time_s seconds."""
         duration = max(float(time_s), 0.0)
-        if not self._robot.target_locked():
-            self._robot.hold_current_position()
+        if not self._robot.lock_commands:
+            self._robot.set_target_position(self._robot.base_pos)
         steps = int(round(duration / max(float(self._robot.dt), 1e-6)))
         executed_steps = self._run_policy_steps(steps=steps)
         return {"duration": duration, "steps": executed_steps}

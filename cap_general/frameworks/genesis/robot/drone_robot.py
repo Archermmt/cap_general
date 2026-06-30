@@ -62,7 +62,7 @@ class DroneHoverRobot(BaseRobot):
         self._last_reward = 0.0
         self._last_done = False
 
-        # RL environment attributes (populated by _setup_genesis_state)
+        # RL environment attributes (populated by init_genesis)
         self.num_envs: int = config.num_envs
         self.num_actions: int = 0
         self.num_commands: int = 0
@@ -160,19 +160,6 @@ class DroneHoverRobot(BaseRobot):
             self._last_policy_obs = self._get_observations()
         return self._last_policy_obs
 
-    def unlock_target(self) -> bool:
-        """Allow the hover env to resample target commands."""
-        self.lock_commands = False
-        return True
-
-    def target_locked(self) -> bool:
-        """Return whether the drone currently has a fixed target command."""
-        return self.lock_commands
-
-    def hold_current_position(self) -> bool:
-        """Set the current drone position as the hover target command."""
-        return self.set_target_position(self.base_pos)
-
     def set_target_position(self, target_pos: Any) -> bool:
         """Set a fixed target position command for the drone."""
         target = self._target_tensor(target_pos)
@@ -206,9 +193,65 @@ class DroneHoverRobot(BaseRobot):
         return self._build_observation(), {"options": options or {}}
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
+        import genesis as gs
+        import torch
+        from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
+
         if action is None:
             action = self._zero_action()
-        obs, reward, done, info = self.rl_step(action)
+
+        self._being_stepped = True
+        self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]).detach()
+        rpm = ((1 + self.actions * 0.8) * 14468.429183500699).detach()
+        self.drone.set_propellers_rpm(rpm)
+        if self.target is not None:
+            all_envs_idx = torch.arange(self.num_envs, device=self.device)
+            self.target.set_pos(self.commands.detach(), zero_velocity=True, envs_idx=all_envs_idx)
+        self._scene.step_scene()
+
+        self.episode_length_buf += 1
+        self.last_base_pos[:] = self.base_pos[:]
+        self.base_pos[:] = self.drone.get_pos()
+        self.rel_pos = self.commands - self.base_pos
+        self.last_rel_pos = self.commands - self.last_base_pos
+        self.base_quat[:] = self.drone.get_quat()
+        self.base_euler = quat_to_xyz(
+            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
+        )
+        inv_base_quat = inv_quat(self.base_quat)
+        self.base_lin_vel[:] = transform_by_quat(self.drone.get_vel(), inv_base_quat)
+        self.base_ang_vel[:] = transform_by_quat(self.drone.get_ang(), inv_base_quat)
+
+        envs_idx = self._at_target()
+        if not self.lock_commands:
+            self._resample_commands(envs_idx)
+
+        self.crash_condition = (
+            (torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"])
+            | (torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"])
+            | (torch.abs(self.rel_pos[:, 0]) > self.env_cfg["termination_if_x_greater_than"])
+            | (torch.abs(self.rel_pos[:, 1]) > self.env_cfg["termination_if_y_greater_than"])
+            | (torch.abs(self.rel_pos[:, 2]) > self.env_cfg["termination_if_z_greater_than"])
+            | (self.base_pos[:, 2] < self.env_cfg["termination_if_close_to_ground"])
+        )
+        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
+        time_out_idx = (self.episode_length_buf > self.max_episode_length).nonzero(as_tuple=False).reshape((-1,))
+        self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=gs.device, dtype=gs.tc_float)
+        self.extras["time_outs"][time_out_idx] = 1.0
+
+        if self.env_cfg.get("auto_reset", True):
+            self.reset_idx(self.reset_buf.nonzero(as_tuple=False).reshape((-1,)))
+
+        self.rew_buf[:] = 0.0
+        for name, reward_func in self.reward_functions.items():
+            rew = reward_func() * self.reward_scales[name]
+            self.rew_buf += rew
+            self.episode_sums[name] += rew
+
+        self._update_observation()
+        self.last_actions[:] = self.actions[:]
+        self._being_stepped = False
+        obs, reward, done, info = self._get_observations(), self.rew_buf, self.reset_buf, self.extras
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
@@ -227,6 +270,10 @@ class DroneHoverRobot(BaseRobot):
         return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
     def init_genesis(self, gs_scene: Any) -> None:
+        import genesis as gs
+        import torch
+        from genesis.utils.geom import inv_quat
+
         env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         env_cfg["visualize_target"] = self._config.visualize_target
@@ -239,23 +286,7 @@ class DroneHoverRobot(BaseRobot):
             env_cfg["base_init_pos"] = list(self._config.base_init_pos)
         reward_cfg = dict(reward_cfg)
         reward_cfg["reward_scales"] = {}
-        self._setup_genesis_state(
-            gs_scene=gs_scene,
-            num_envs=self._config.num_envs,
-            env_cfg=env_cfg,
-            obs_cfg=obs_cfg,
-            reward_cfg=reward_cfg,
-            command_cfg=command_cfg,
-        )
-
-    def _setup_genesis_state(
-        self, gs_scene: Any, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
-    ) -> None:
-        import genesis as gs
-        import torch
-        from genesis.utils.geom import inv_quat
-
-        self.num_envs = num_envs
+        self.num_envs = self._config.num_envs
         self.num_actions = env_cfg["num_actions"]
         self.num_commands = command_cfg["num_commands"]
         self.cfg = env_cfg
@@ -377,10 +408,6 @@ class DroneHoverRobot(BaseRobot):
             self.logger.warning("Disabled Genesis drone camera after read failure: %s", exc)
             return None
 
-    # ------------------------------------------------------------------ #
-    # RL environment interface
-    # ------------------------------------------------------------------ #
-
     def _resample_commands(self, envs_idx):
         self.commands[envs_idx, 0] = gs_rand_float(*self.command_cfg["pos_x_range"], (len(envs_idx),), self.device)
         self.commands[envs_idx, 1] = gs_rand_float(*self.command_cfg["pos_y_range"], (len(envs_idx),), self.device)
@@ -404,66 +431,6 @@ class DroneHoverRobot(BaseRobot):
                 all_envs_idx = torch.arange(self.num_envs, device=self.device)
                 self.target.set_pos(self.commands.detach(), zero_velocity=True, envs_idx=all_envs_idx)
         return False
-
-    def rl_step(self, actions: Any) -> tuple[Any, Any, Any, dict]:
-        import genesis as gs
-        import torch
-        from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
-
-        self._being_stepped = True
-        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]).detach()
-
-        rpm = ((1 + self.actions * 0.8) * 14468.429183500699).detach()
-        self.drone.set_propellers_rpm(rpm)
-        if self.target is not None:
-            all_envs_idx = torch.arange(self.num_envs, device=self.device)
-            self.target.set_pos(self.commands.detach(), zero_velocity=True, envs_idx=all_envs_idx)
-        self._scene.step_scene()
-
-        self.episode_length_buf += 1
-        self.last_base_pos[:] = self.base_pos[:]
-        self.base_pos[:] = self.drone.get_pos()
-        self.rel_pos = self.commands - self.base_pos
-        self.last_rel_pos = self.commands - self.last_base_pos
-        self.base_quat[:] = self.drone.get_quat()
-        self.base_euler = quat_to_xyz(
-            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
-        )
-        inv_base_quat = inv_quat(self.base_quat)
-        self.base_lin_vel[:] = transform_by_quat(self.drone.get_vel(), inv_base_quat)
-        self.base_ang_vel[:] = transform_by_quat(self.drone.get_ang(), inv_base_quat)
-
-        envs_idx = self._at_target()
-        if not self.lock_commands:
-            self._resample_commands(envs_idx)
-
-        self.crash_condition = (
-            (torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"])
-            | (torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"])
-            | (torch.abs(self.rel_pos[:, 0]) > self.env_cfg["termination_if_x_greater_than"])
-            | (torch.abs(self.rel_pos[:, 1]) > self.env_cfg["termination_if_y_greater_than"])
-            | (torch.abs(self.rel_pos[:, 2]) > self.env_cfg["termination_if_z_greater_than"])
-            | (self.base_pos[:, 2] < self.env_cfg["termination_if_close_to_ground"])
-        )
-        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
-
-        time_out_idx = (self.episode_length_buf > self.max_episode_length).nonzero(as_tuple=False).reshape((-1,))
-        self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=gs.device, dtype=gs.tc_float)
-        self.extras["time_outs"][time_out_idx] = 1.0
-
-        if self.env_cfg.get("auto_reset", True):
-            self.reset_idx(self.reset_buf.nonzero(as_tuple=False).reshape((-1,)))
-
-        self.rew_buf[:] = 0.0
-        for name, reward_func in self.reward_functions.items():
-            rew = reward_func() * self.reward_scales[name]
-            self.rew_buf += rew
-            self.episode_sums[name] += rew
-
-        self._update_observation()
-        self.last_actions[:] = self.actions[:]
-        self._being_stepped = False
-        return self._get_observations(), self.rew_buf, self.reset_buf, self.extras
 
     def _update_observation(self):
         import torch
@@ -521,35 +488,3 @@ class DroneHoverRobot(BaseRobot):
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self._update_observation()
         return self._get_observations()
-
-    # ------------ reward functions ----------------
-
-    def _reward_target(self):
-        import torch
-
-        return torch.sum(torch.square(self.last_rel_pos), dim=1) - torch.sum(torch.square(self.rel_pos), dim=1)
-
-    def _reward_smooth(self):
-        import torch
-
-        return torch.sum(torch.square(self.actions - self.last_actions), dim=1)
-
-    def _reward_yaw(self):
-        import torch
-
-        yaw = self.base_euler[:, 2]
-        yaw = torch.where(yaw > 180, yaw - 360, yaw) / 180 * 3.14159
-        return torch.exp(self.reward_cfg["yaw_lambda"] * torch.abs(yaw))
-
-    def _reward_angular(self):
-        import torch
-
-        return torch.norm(self.base_ang_vel / 3.14159, dim=1)
-
-    def _reward_crash(self):
-        import genesis as gs
-        import torch
-
-        crash_rew = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
-        crash_rew[self.crash_condition] = 1
-        return crash_rew

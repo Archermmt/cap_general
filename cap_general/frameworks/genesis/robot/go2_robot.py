@@ -60,7 +60,7 @@ class Go2Robot(BaseRobot):
         self._last_reward = 0.0
         self._last_done = False
 
-        # RL environment attributes (populated by _setup_genesis_state)
+        # RL environment attributes (populated by init_genesis)
         self.num_envs: int = config.num_envs
         self.num_actions: int = 0
         self.num_commands: int = 0
@@ -255,9 +255,52 @@ class Go2Robot(BaseRobot):
         return self._build_observation(), {"mock": False, "options": options or {}}
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
+        import genesis as gs
+        import torch
+        from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
+
         if action is None:
             action = self._zero_action()
-        obs, reward, done, info = self.rl_step(action)
+
+        self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+        exec_actions = self.last_actions if self.simulate_action_latency else self.actions
+        target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
+        self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
+        self._scene.step_scene()
+
+        self.episode_length_buf += 1
+        self.base_pos = self.robot.get_pos()
+        self.base_quat = self.robot.get_quat()
+        self.base_euler = quat_to_xyz(
+            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
+        )
+        inv_base_quat = inv_quat(self.base_quat)
+        self.base_lin_vel = transform_by_quat(self.robot.get_vel(), inv_base_quat)
+        self.base_ang_vel = transform_by_quat(self.robot.get_ang(), inv_base_quat)
+        self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
+        self.dof_pos = self.robot.get_dofs_position(self.motors_dof_idx)
+        self.dof_vel = self.robot.get_dofs_velocity(self.motors_dof_idx)
+
+        self.rew_buf.zero_()
+        for name, reward_func in self.reward_functions.items():
+            rew = reward_func() * self.reward_scales[name]
+            self.rew_buf += rew
+            self.episode_sums[name] += rew
+
+        self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
+
+        self.reset_buf = self.episode_length_buf > self.max_episode_length
+        self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
+        self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
+        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
+        self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
+
+        self._reset_idx(self.reset_buf)
+        self._update_observation()
+        self.last_actions.copy_(self.actions)
+        self.last_dof_vel.copy_(self.dof_vel)
+
+        obs, reward, done, info = self._get_observations(), self.rew_buf, self.reset_buf, self.extras
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
@@ -276,6 +319,8 @@ class Go2Robot(BaseRobot):
         return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
     def init_genesis(self, gs_scene: Any) -> None:
+        import genesis as gs
+
         env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         if self._config.max_episode_steps is not None:
@@ -284,21 +329,7 @@ class Go2Robot(BaseRobot):
             env_cfg["base_init_pos"] = list(self._config.base_init_pos)
         reward_cfg = dict(reward_cfg)
         reward_cfg["reward_scales"] = {}
-        self._setup_genesis_state(
-            gs_scene=gs_scene,
-            num_envs=self._config.num_envs,
-            env_cfg=env_cfg,
-            obs_cfg=obs_cfg,
-            reward_cfg=reward_cfg,
-            command_cfg=command_cfg,
-        )
-
-    def _setup_genesis_state(
-        self, gs_scene: Any, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
-    ) -> None:
-        import genesis as gs
-
-        self.num_envs = num_envs
+        self.num_envs = self._config.num_envs
         self.num_actions = env_cfg["num_actions"]
         self.num_commands = command_cfg["num_commands"]
         self.cfg = env_cfg
@@ -396,10 +427,6 @@ class Go2Robot(BaseRobot):
             self.logger.warning("Disabled GO2 body camera after read failure: %s", exc)
             return None
 
-    # ------------------------------------------------------------------ #
-    # RL environment interface (called by training runners directly)
-    # ------------------------------------------------------------------ #
-
     def _resample_commands(self, envs_idx):
         import torch
 
@@ -408,53 +435,6 @@ class Go2Robot(BaseRobot):
             self.commands.copy_(commands)
         else:
             torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
-
-    def rl_step(self, actions: Any) -> tuple[Any, Any, Any, dict]:
-        import genesis as gs
-        import torch
-        from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
-
-        self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
-        exec_actions = self.last_actions if self.simulate_action_latency else self.actions
-        target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
-        self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
-        self._scene.step_scene()
-
-        self.episode_length_buf += 1
-        self.base_pos = self.robot.get_pos()
-        self.base_quat = self.robot.get_quat()
-        self.base_euler = quat_to_xyz(
-            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
-        )
-        inv_base_quat = inv_quat(self.base_quat)
-        self.base_lin_vel = transform_by_quat(self.robot.get_vel(), inv_base_quat)
-        self.base_ang_vel = transform_by_quat(self.robot.get_ang(), inv_base_quat)
-        self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
-        self.dof_pos = self.robot.get_dofs_position(self.motors_dof_idx)
-        self.dof_vel = self.robot.get_dofs_velocity(self.motors_dof_idx)
-
-        self.rew_buf.zero_()
-        for name, reward_func in self.reward_functions.items():
-            rew = reward_func() * self.reward_scales[name]
-            self.rew_buf += rew
-            self.episode_sums[name] += rew
-
-        self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
-
-        self.reset_buf = self.episode_length_buf > self.max_episode_length
-        self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
-        self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
-
-        self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
-
-        self._reset_idx(self.reset_buf)
-        self._update_observation()
-
-        self.last_actions.copy_(self.actions)
-        self.last_dof_vel.copy_(self.dof_vel)
-
-        return self._get_observations(), self.rew_buf, self.reset_buf, self.extras
 
     def _get_observations(self) -> Any:
         from tensordict import TensorDict
