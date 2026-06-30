@@ -12,20 +12,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
-from cap_general.frameworks.genesis.utils import step_scene
-
-
-def _load_genesis_deps():
-    global gs, inv_quat, quat_to_xyz, torch, TensorDict
-
-    import genesis as gs
-    import torch
-    from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
-    from tensordict import TensorDict
-
-    globals()["transform_by_quat"] = transform_by_quat
-    globals()["transform_quat_by_quat"] = transform_quat_by_quat
-    return gs
+from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 
 
 @dataclass
@@ -49,6 +36,14 @@ class Go2RobotConfig(BaseRobotConfig):
     base_init_pos: tuple[float, float, float] | None = None
 
 
+def gs_rand(lower, upper, batch_shape):
+    import genesis as gs
+    import torch
+
+    assert lower.shape == upper.shape
+    return (upper - lower) * torch.rand(size=(*batch_shape, *lower.shape), dtype=gs.tc_float, device=gs.device) + lower
+
+
 @BaseRobot.register()
 class Go2Robot(BaseRobot):
     """Genesis GO2 locomotion eval environment."""
@@ -59,50 +54,150 @@ class Go2Robot(BaseRobot):
     def __init__(self, config: Go2RobotConfig, logger: logging.Logger):
         super().__init__(config=config, logger=logger)
         self._config = config
-        self._gs_scene = None
-        self._example_env = None
+
+        # policy / episode state
         self._last_policy_obs = None
         self._last_reward = 0.0
         self._last_done = False
-        self._mock_reason: str | None = None
-        self._body_camera = None
+
+        # RL environment attributes (populated by _setup_genesis_state)
+        self.num_envs: int = config.num_envs
+        self.num_actions: int = 0
+        self.num_commands: int = 0
+        self.cfg: dict[str, Any] = {}
+        self.env_cfg: dict[str, Any] = {}
+        self.obs_cfg: dict[str, Any] = {}
+        self.reward_cfg: dict[str, Any] = {}
+        self.command_cfg: dict[str, Any] = {}
+        self.device: Any = None
+        self.simulate_action_latency: bool = True
+        self.dt: float = 0.02
+        self.max_episode_length: int = 0
+        self.obs_scales: dict[str, float] = {}
+        self.reward_scales: dict[str, float] = {}
+
+        # genesis entities
+        self._gs_scene: Any = None
+        self.robot: Any = None
+
+        # buffers (set in post_build)
+        self.base_lin_vel: Any = None
+        self.base_ang_vel: Any = None
+        self.projected_gravity: Any = None
+        self.rew_buf: Any = None
+        self.reset_buf: Any = None
+        self.episode_length_buf: Any = None
+        self.commands: Any = None
+        self.commands_scale: Any = None
+        self.commands_limits: Any = None
+        self.actions: Any = None
+        self.last_actions: Any = None
+        self.dof_pos: Any = None
+        self.dof_vel: Any = None
+        self.last_dof_vel: Any = None
+        self.base_pos: Any = None
+        self.base_quat: Any = None
+        self.base_euler: Any = None
+        self.default_dof_pos: Any = None
+        self.extras: dict = {}
+        self.obs_buf: Any = None
+        self.motors_dof_idx: Any = None
+        self.actions_dof_idx: Any = None
+        self.reward_functions: dict = {}
+        self.episode_sums: dict = {}
+
+        # body camera
+        self._body_camera: Any = None
         self._body_camera_failed = False
+        self._post_built = False
 
     @classmethod
     def robot_type(cls) -> str:
         return "genesis_go2"
 
-    def bind_scene(self, scene: Any | None) -> None:
-        if scene is None:
-            raise RuntimeError("Go2Robot requires a Genesis scene")
-        self._gs_scene = scene
+    def post_build(self, ctx: Any) -> None:
+        super().post_build(ctx)
+        self._init_genesis()
 
-    def post_build(self) -> None:
-        if self._example_env is not None and getattr(self._example_env, "_deferred_build", False):
-            self._example_env._post_build()
-            self._last_policy_obs = self._example_env.get_observations()
+    def after_build(self) -> None:
+        import genesis as gs
+        import torch
+        from genesis.utils.geom import inv_quat, transform_by_quat
 
-    @property
-    def example_env(self) -> Any:
-        """Return the underlying genesis-world Go2Robot."""
-        self._ensure_example_env()
-        return self._example_env
+        robot_dof_start = self.robot.dof_start
+        self.motors_dof_idx = torch.tensor(
+            [self.robot.get_joint(name).dof_start - robot_dof_start for name in self.env_cfg["joint_names"]],
+            dtype=gs.tc_int,
+            device=gs.device,
+        )
+        self.actions_dof_idx = torch.argsort(self.motors_dof_idx)
+
+        self.robot.set_dofs_kp([self.env_cfg["kp"]] * self.num_actions, self.motors_dof_idx)
+        self.robot.set_dofs_kv([self.env_cfg["kd"]] * self.num_actions, self.motors_dof_idx)
+
+        self.global_gravity = torch.tensor([0.0, 0.0, -1.0], dtype=gs.tc_float, device=gs.device)
+
+        self.init_base_pos = torch.tensor(self.env_cfg["base_init_pos"], dtype=gs.tc_float, device=gs.device)
+        self.init_base_quat = torch.tensor(self.env_cfg["base_init_quat"], dtype=gs.tc_float, device=gs.device)
+        self.inv_base_init_quat = inv_quat(self.init_base_quat)
+        self.init_dof_pos = torch.tensor(
+            [self.env_cfg["default_joint_angles"][joint.name] for joint in self.robot.joints[1:]],
+            dtype=gs.tc_float,
+            device=gs.device,
+        )
+        self.init_qpos = torch.concatenate((self.init_base_pos, self.init_base_quat, self.init_dof_pos))
+        self.init_projected_gravity = transform_by_quat(self.global_gravity, self.inv_base_init_quat)
+
+        self.base_lin_vel = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.base_ang_vel = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.projected_gravity = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.rew_buf = torch.empty((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+        self.reset_buf = torch.ones((self.num_envs,), dtype=gs.tc_bool, device=gs.device)
+        self.episode_length_buf = torch.empty((self.num_envs,), dtype=gs.tc_int, device=gs.device)
+        self.commands = torch.empty((self.num_envs, self.num_commands), dtype=gs.tc_float, device=gs.device)
+        self.commands_scale = torch.tensor(
+            [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
+            device=gs.device,
+            dtype=gs.tc_float,
+        )
+        self.commands_limits = tuple(
+            torch.tensor(values, dtype=gs.tc_float, device=gs.device)
+            for values in zip(
+                self.command_cfg["lin_vel_x_range"],
+                self.command_cfg["lin_vel_y_range"],
+                self.command_cfg["ang_vel_range"],
+            )
+        )
+        self.actions = torch.zeros((self.num_envs, self.num_actions), dtype=gs.tc_float, device=gs.device)
+        self.last_actions = torch.zeros_like(self.actions)
+        self.dof_pos = torch.empty_like(self.actions)
+        self.dof_vel = torch.empty_like(self.actions)
+        self.last_dof_vel = torch.zeros_like(self.actions)
+        self.base_pos = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.base_quat = torch.empty((self.num_envs, 4), dtype=gs.tc_float, device=gs.device)
+        self.base_euler = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.default_dof_pos = torch.tensor(
+            [self.env_cfg["default_joint_angles"][name] for name in self.env_cfg["joint_names"]],
+            dtype=gs.tc_float,
+            device=gs.device,
+        )
+        self.extras = {}
+
+        self.reward_functions, self.episode_sums = {}, {}
+        for name in self.reward_scales.keys():
+            self.reward_scales[name] *= self.dt
+            self.reward_functions[name] = getattr(self, "_reward_" + name)
+            self.episode_sums[name] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+
+        self.rl_reset()
+        self._post_built = True
 
     @property
     def policy_obs(self) -> Any:
         """Return the latest policy observation."""
-        if self._last_policy_obs is None and self._example_env is not None:
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
-                self._example_env, "get_observations"
-            ):
-                self._last_policy_obs = self._example_env.get_observations()
+        if self._last_policy_obs is None:
+            self._last_policy_obs = self._get_observations()
         return self._last_policy_obs
-
-    @property
-    def dt(self) -> float:
-        """Return the GO2 policy control period in seconds."""
-        env = self._example_env
-        return float(getattr(env, "dt", 1.0)) if env is not None else 1.0
 
     def set_walk_command(
         self,
@@ -111,68 +206,34 @@ class Go2Robot(BaseRobot):
         steps: int | None = None,
         forward_speed: float | None = None,
     ) -> bool:
-        """Set the GO2 forward walking command.
-
-        ``turn_angle`` is the target yaw angle in radians over ``steps`` policy
-        steps. It is converted to the yaw-rate command consumed by the
-        genesis-world GO2 policy.
-        """
-        self._ensure_example_env()
-        env = self._example_env
-        if env is None:
-            return False
-
-        commands = getattr(env, "commands", None)
-        if commands is None:
-            return False
-
+        """Set the GO2 forward walking command."""
         if forward_speed is not None:
-            commands[:, 0] = float(forward_speed)
-        commands[:, 1] = 0.0
+            self.commands[:, 0] = float(forward_speed)
+        self.commands[:, 1] = 0.0
         if steps and steps > 0:
-            dt = float(getattr(env, "dt", 1.0))
-            commands[:, 2] = float(turn_angle) / max(float(steps) * dt, 1e-6)
+            self.commands[:, 2] = float(turn_angle) / max(float(steps) * self.dt, 1e-6)
         else:
-            commands[:, 2] = 0.0
-
-        if hasattr(env, "_update_observation"):
-            env._update_observation()
-        if hasattr(env, "get_observations"):
-            self._last_policy_obs = env.get_observations()
+            self.commands[:, 2] = 0.0
+        self._update_observation()
+        self._last_policy_obs = self._get_observations()
         return True
 
     def stop_command(self) -> bool:
         """Set all GO2 velocity commands to zero."""
-        self._ensure_example_env()
-        env = self._example_env
-        if env is None:
-            return False
-
-        commands = getattr(env, "commands", None)
-        if commands is None:
-            return False
-        commands.zero_()
-
-        if hasattr(env, "_update_observation"):
-            env._update_observation()
-        if hasattr(env, "get_observations"):
-            self._last_policy_obs = env.get_observations()
+        self.commands.zero_()
+        self._update_observation()
+        self._last_policy_obs = self._get_observations()
         return True
 
     def apply_turn_to_action(self, action: Any, turn_angle: float) -> Any:
         """Bias policy action so GO2 walks while turning smoothly."""
+        import torch
+
         if not turn_angle:
             return action
 
-        env = self._example_env
-        env_cfg = getattr(env, "env_cfg", {}) if env is not None else {}
-        joint_names = list(env_cfg.get("joint_names", []))
+        joint_names = list(self.env_cfg.get("joint_names", []))
         if not joint_names:
-            return action
-
-        try:
-            import torch
-        except ImportError:
             return action
 
         turn_value = (float(turn_angle) + math.pi) % (2.0 * math.pi) - math.pi
@@ -194,27 +255,17 @@ class Go2Robot(BaseRobot):
         return adjusted
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-        self._ensure_example_env()
-        if self._example_env is None:
-            obs = self._mock_observation()
-            return obs, {"mock": True, "reason": self._mock_reason}
-        if getattr(self._example_env, "_deferred_build", False):
-            obs = self._mock_observation()
-            return obs, {"mock": False, "pending_build": True, "options": options or {}}
-        if hasattr(self._example_env, "get_observations"):
-            self._last_policy_obs = self._example_env.get_observations()
+        if not self._post_built:
+            return {}, {"pending_build": True}
+        self._last_policy_obs = self._get_observations()
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
-        self._ensure_example_env()
-        if self._example_env is None:
-            return self._mock_observation(), 0.0, False, False, {"mock": True}
-
         if action is None:
             action = self._zero_action()
-        obs, reward, done, info = self._example_env.step(action)
+        obs, reward, done, info = self.rl_step(action)
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
@@ -224,7 +275,7 @@ class Go2Robot(BaseRobot):
         return self._last_reward
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
-        self._last_obs = self._mock_observation() if self._example_env is None else self._build_observation()
+        self._last_obs = self._build_observation()
         return super().get_observation(folder)
 
     def _normalize_states(self) -> dict:
@@ -232,57 +283,62 @@ class Go2Robot(BaseRobot):
             return {}
         return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
-    def _ensure_example_env(self) -> None:
-        if self._example_env is not None or self._mock_reason is not None:
-            return
-        try:
-            gs = _load_genesis_deps()
-        except ImportError as exc:
-            self._mock_reason = f"genesis import failed: {exc}"
-            self.logger.warning("Genesis GO2 env running in mock mode: %s", self._mock_reason)
-            return
+    def _init_genesis(self) -> None:
+        env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
+        env_cfg = dict(env_cfg)
+        if self._config.max_episode_steps is not None:
+            env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
+        if self._config.base_init_pos is not None:
+            env_cfg["base_init_pos"] = list(self._config.base_init_pos)
+        env_cfg["_scene"] = self._scene
+        reward_cfg = dict(reward_cfg)
+        reward_cfg["reward_scales"] = {}
+        self._setup_genesis_state(
+            num_envs=self._config.num_envs,
+            env_cfg=env_cfg,
+            obs_cfg=obs_cfg,
+            reward_cfg=reward_cfg,
+            command_cfg=command_cfg,
+        )
 
-        try:
-            env_cfg, obs_cfg, reward_cfg, command_cfg, _train_cfg = self._load_cfgs()
-            env_cfg = dict(env_cfg)
-            if self._config.max_episode_steps is not None:
-                env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
-            if self._config.base_init_pos is not None:
-                env_cfg["base_init_pos"] = list(self._config.base_init_pos)
-            env_cfg["_scene"] = self._gs_scene
-            reward_cfg = dict(reward_cfg)
-            reward_cfg["reward_scales"] = {}
-            self._example_env = self._build_example_env_with_camera(
-                num_envs=self._config.num_envs,
-                env_cfg=env_cfg,
-                obs_cfg=obs_cfg,
-                reward_cfg=reward_cfg,
-                command_cfg=command_cfg,
-            )
-            if not getattr(self._example_env, "_deferred_build", False) and hasattr(
-                self._example_env, "get_observations"
-            ):
-                self._last_policy_obs = self._example_env.get_observations()
-        except Exception as exc:  # pragma: no cover - depends on Genesis runtime
-            self._mock_reason = str(exc)
-            self.logger.warning("Genesis GO2 env running in mock mode: %s", exc)
+    def _setup_genesis_state(
+        self, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
+    ) -> None:
+        import genesis as gs
 
-    def _build_example_env_with_camera(self, **kwargs: Any) -> Any:
-        env_cfg = dict(kwargs["env_cfg"])
-        if not self._config.camera_enabled:
-            kwargs["env_cfg"] = env_cfg
-            return _GenesisGo2CoreRobot(**kwargs)
+        self.num_envs = num_envs
+        self.num_actions = env_cfg["num_actions"]
+        self.num_commands = command_cfg["num_commands"]
+        self.cfg = env_cfg
+        self.env_cfg = env_cfg
+        self.obs_cfg = obs_cfg
+        self.reward_cfg = reward_cfg
+        self.command_cfg = command_cfg
+        self.device = gs.device
+        self.simulate_action_latency = True
+        self.dt = 0.02
+        self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
+        self.obs_scales = obs_cfg["obs_scales"]
+        self.reward_scales = reward_cfg["reward_scales"]
 
-        camera_holder: dict[str, Any] = {}
-        env_cfg["_before_scene_build"] = lambda scene: self._add_body_camera(scene, camera_holder)
-        kwargs["env_cfg"] = env_cfg
-        example_env = _GenesisGo2CoreRobot(**kwargs)
-        self._body_camera = camera_holder.get("camera")
-        return example_env
+        self._gs_scene = env_cfg["_scene"].gs_scene
 
-    def _add_body_camera(self, scene: Any, camera_holder: dict[str, Any]) -> None:
-        if camera_holder.get("camera") is not None:
-            return
+        self.robot = self._gs_scene.add_entity(
+            gs.morphs.URDF(
+                file="urdf/go2/urdf/go2.urdf",
+                pos=self.env_cfg["base_init_pos"],
+                quat=self.env_cfg["base_init_quat"],
+            ),
+        )
+
+        if self._config.camera_enabled:
+            self._add_body_camera(self._gs_scene)
+
+    def _load_cfgs(self):
+        with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
+            return pickle.load(file)
+
+    def _add_body_camera(self, scene: Any) -> None:
         try:
             robot = scene.entities[-1]
             camera = scene.add_camera(
@@ -306,50 +362,34 @@ class Go2Robot(BaseRobot):
                     np.asarray((0.0, 0.0, 1.0), dtype=np.float32),
                 )
                 camera.attach(base_link, offset_T)
-            camera_holder["camera"] = camera
+            self._body_camera = camera
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self.logger.warning("Failed to add GO2 body camera: %s", exc)
-
-    def _load_cfgs(self):
-        with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
-            return pickle.load(file)
 
     def _zero_action(self):
         import genesis as gs
         import torch
 
         return torch.zeros(
-            (self._example_env.num_envs, self._example_env.num_actions),
+            (self.num_envs, self.num_actions),
             dtype=gs.tc_float,
             device=gs.device,
         )
 
     def _build_observation(self) -> dict[str, Any]:
-        env = self._example_env
         obs = {
-            "base_pos": self._to_list(getattr(env, "base_pos", None)),
-            "base_quat": self._to_list(getattr(env, "base_quat", None)),
-            "commands": self._to_list(getattr(env, "commands", None)),
+            "base_pos": tensor_to_list(self.base_pos),
+            "base_quat": tensor_to_list(self.base_quat),
+            "base_lin_vel": tensor_to_list(self.base_lin_vel),
+            "base_ang_vel": tensor_to_list(self.base_ang_vel),
+            "commands": tensor_to_list(self.commands),
             "reward": self._last_reward,
             "done": self._last_done,
-            "mock": False,
         }
         body_camera_image = self._read_body_camera_image()
         if body_camera_image is not None:
             obs["body_camera_image"] = body_camera_image
         return obs
-
-    def _mock_observation(self) -> dict[str, Any]:
-        return {
-            "base_pos": [0.0, 0.0, 0.0],
-            "base_quat": [1.0, 0.0, 0.0, 0.0],
-            "commands": [],
-            "body_camera_image": None,
-            "reward": self._last_reward,
-            "done": self._last_done,
-            "mock": True,
-            "reason": self._mock_reason,
-        }
 
     def _read_body_camera_image(self) -> Any | None:
         if self._body_camera is None or self._body_camera_failed:
@@ -360,169 +400,36 @@ class Go2Robot(BaseRobot):
             rgb = self._body_camera.render(rgb=True, force_render=True)[0]
             if getattr(rgb, "ndim", 0) > 3:
                 rgb = rgb[0]
-            return self._to_image_array(rgb)
+            return tensor_to_image_array(rgb)
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self._body_camera_failed = True
             self.logger.warning("Disabled GO2 body camera after read failure: %s", exc)
             return None
 
-    @staticmethod
-    def _to_list(value: Any) -> Any:
-        if value is None:
-            return None
-        if hasattr(value, "detach"):
-            value = value.detach().cpu().numpy()
-        if isinstance(value, np.ndarray):
-            return value.tolist()
-        return value
-
-    @staticmethod
-    def _to_image_array(value: Any) -> np.ndarray:
-        if hasattr(value, "detach"):
-            value = value.detach().cpu().numpy()
-        array = np.asarray(value)
-        if array.dtype != np.uint8:
-            if array.size and float(np.nanmax(array)) <= 1.0:
-                array = array * 255.0
-            array = np.clip(array, 0, 255).astype(np.uint8)
-        return array
-
-
-# Embedded genesis-world go2 env implementation.
-def gs_rand(lower, upper, batch_shape):
-    assert lower.shape == upper.shape
-    return (upper - lower) * torch.rand(size=(*batch_shape, *lower.shape), dtype=gs.tc_float, device=gs.device) + lower
-
-
-class _GenesisGo2CoreRobot:
-    def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg):
-        self.num_envs: int = num_envs
-        self.num_actions = env_cfg["num_actions"]
-        self.cfg = env_cfg
-        self.num_commands = command_cfg["num_commands"]
-        self.device = gs.device
-
-        self.simulate_action_latency = True  # there is a 1 step latency on real robot
-        self.dt = 0.02  # control frequency on real robot is 50hz
-        self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
-
-        self.env_cfg = env_cfg
-        self.obs_cfg = obs_cfg
-        self.reward_cfg = reward_cfg
-        self.command_cfg = command_cfg
-        self._deferred_build = False
-
-        self.obs_scales: dict[str, float] = obs_cfg["obs_scales"]
-        self.reward_scales: dict[str, float] = reward_cfg["reward_scales"]
-
-        # use scene owned by the top-level CAP scene resource
-        self.scene = env_cfg["_scene"]
-
-        # add robot
-        self.robot = self.scene.add_entity(
-            gs.morphs.URDF(
-                file="urdf/go2/urdf/go2.urdf",
-                pos=self.env_cfg["base_init_pos"],
-                quat=self.env_cfg["base_init_quat"],
-            ),
-        )
-
-        # build
-        before_scene_build = env_cfg.get("_before_scene_build")
-        if before_scene_build is not None:
-            before_scene_build(self.scene)
-        self._deferred_build = True
-
-    def _post_build(self) -> None:
-        self._deferred_build = False
-        # names to indices
-        robot_dof_start = self.robot.dof_start
-        self.motors_dof_idx = torch.tensor(
-            [self.robot.get_joint(name).dof_start - robot_dof_start for name in self.env_cfg["joint_names"]],
-            dtype=gs.tc_int,
-            device=gs.device,
-        )
-        self.actions_dof_idx = torch.argsort(self.motors_dof_idx)
-
-        # PD control parameters
-        self.robot.set_dofs_kp([self.env_cfg["kp"]] * self.num_actions, self.motors_dof_idx)
-        self.robot.set_dofs_kv([self.env_cfg["kd"]] * self.num_actions, self.motors_dof_idx)
-
-        # Define global gravity direction vector
-        self.global_gravity = torch.tensor([0.0, 0.0, -1.0], dtype=gs.tc_float, device=gs.device)
-
-        # Initial state
-        self.init_base_pos = torch.tensor(self.env_cfg["base_init_pos"], dtype=gs.tc_float, device=gs.device)
-        self.init_base_quat = torch.tensor(self.env_cfg["base_init_quat"], dtype=gs.tc_float, device=gs.device)
-        self.inv_base_init_quat = inv_quat(self.init_base_quat)
-        self.init_dof_pos = torch.tensor(
-            [self.env_cfg["default_joint_angles"][joint.name] for joint in self.robot.joints[1:]],
-            dtype=gs.tc_float,
-            device=gs.device,
-        )
-        self.init_qpos = torch.concatenate((self.init_base_pos, self.init_base_quat, self.init_dof_pos))
-        self.init_projected_gravity = transform_by_quat(self.global_gravity, self.inv_base_init_quat)
-
-        # initialize buffers
-        self.base_lin_vel = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
-        self.base_ang_vel = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
-        self.projected_gravity = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
-        self.rew_buf = torch.empty((self.num_envs,), dtype=gs.tc_float, device=gs.device)
-        self.reset_buf = torch.ones((self.num_envs,), dtype=gs.tc_bool, device=gs.device)
-        self.episode_length_buf = torch.empty((self.num_envs,), dtype=gs.tc_int, device=gs.device)
-        self.commands = torch.empty((self.num_envs, self.num_commands), dtype=gs.tc_float, device=gs.device)
-        self.commands_scale = torch.tensor(
-            [self.obs_scales["lin_vel"], self.obs_scales["lin_vel"], self.obs_scales["ang_vel"]],
-            device=gs.device,
-            dtype=gs.tc_float,
-        )
-        self.commands_limits: tuple[torch.Tensor, torch.Tensor] = tuple(
-            torch.tensor(values, dtype=gs.tc_float, device=gs.device)
-            for values in zip(
-                self.command_cfg["lin_vel_x_range"],
-                self.command_cfg["lin_vel_y_range"],
-                self.command_cfg["ang_vel_range"],
-            )
-        )
-        self.actions = torch.zeros((self.num_envs, self.num_actions), dtype=gs.tc_float, device=gs.device)
-        self.last_actions = torch.zeros_like(self.actions)
-        self.dof_pos = torch.empty_like(self.actions)
-        self.dof_vel = torch.empty_like(self.actions)
-        self.last_dof_vel = torch.zeros_like(self.actions)
-        self.base_pos = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
-        self.base_quat = torch.empty((self.num_envs, 4), dtype=gs.tc_float, device=gs.device)
-        self.base_euler = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
-        self.default_dof_pos = torch.tensor(
-            [self.env_cfg["default_joint_angles"][name] for name in self.env_cfg["joint_names"]],
-            dtype=gs.tc_float,
-            device=gs.device,
-        )
-        self.extras = dict()  # extra information for logging
-
-        # prepare reward functions and multiply reward scales by dt
-        self.reward_functions, self.episode_sums = dict(), dict()
-        for name in self.reward_scales.keys():
-            self.reward_scales[name] *= self.dt
-            self.reward_functions[name] = getattr(self, "_reward_" + name)
-            self.episode_sums[name] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
-
-        self.reset()
+    # ------------------------------------------------------------------ #
+    # RL environment interface (called by training runners directly)
+    # ------------------------------------------------------------------ #
 
     def _resample_commands(self, envs_idx):
+        import torch
+
         commands = gs_rand(*self.commands_limits, (self.num_envs,))
         if envs_idx is None:
             self.commands.copy_(commands)
         else:
             torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
 
-    def step(self, actions):
+    def rl_step(self, actions: Any) -> tuple[Any, Any, Any, dict]:
+        import genesis as gs
+        import torch
+        from genesis.utils.geom import inv_quat, quat_to_xyz, transform_by_quat, transform_quat_by_quat
+
         self.actions = torch.clip(actions, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
-        step_scene(self.scene)
+        self._scene.step_scene()
 
-        # update buffers
         self.episode_length_buf += 1
         self.base_pos = self.robot.get_pos()
         self.base_quat = self.robot.get_quat()
@@ -536,41 +443,37 @@ class _GenesisGo2CoreRobot:
         self.dof_pos = self.robot.get_dofs_position(self.motors_dof_idx)
         self.dof_vel = self.robot.get_dofs_velocity(self.motors_dof_idx)
 
-        # compute reward
         self.rew_buf.zero_()
         for name, reward_func in self.reward_functions.items():
             rew = reward_func() * self.reward_scales[name]
             self.rew_buf += rew
             self.episode_sums[name] += rew
 
-        # resample commands
         self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
 
-        # check termination and reset
         self.reset_buf = self.episode_length_buf > self.max_episode_length
         self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
         self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        self.reset_buf |= self.scene.rigid_solver.get_error_envs_mask()
+        self.reset_buf |= self._gs_scene.rigid_solver.get_error_envs_mask()
 
-        # Compute timeout
         self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
 
-        # Reset environment if necessary
         self._reset_idx(self.reset_buf)
-
-        # update observations
         self._update_observation()
 
         self.last_actions.copy_(self.actions)
         self.last_dof_vel.copy_(self.dof_vel)
 
-        return self.get_observations(), self.rew_buf, self.reset_buf, self.extras
+        return self._get_observations(), self.rew_buf, self.reset_buf, self.extras
 
-    def get_observations(self):
+    def _get_observations(self) -> Any:
+        from tensordict import TensorDict
+
         return TensorDict({"policy": self.obs_buf}, batch_size=[self.num_envs])
 
     def _reset_idx(self, envs_idx=None):
-        # envs_idx may be a bool mask (from reset_buf) or None (reset all).
+        import torch
+
         if envs_idx is not None and envs_idx.dtype == torch.bool:
             envs_idx_bool = envs_idx
             envs_idx_int = envs_idx.nonzero(as_tuple=False).reshape(-1)
@@ -581,10 +484,8 @@ class _GenesisGo2CoreRobot:
         if envs_idx_int is not None and len(envs_idx_int) == 0:
             return
 
-        # reset state
         self.robot.set_qpos(self.init_qpos, envs_idx=envs_idx_int, zero_velocity=True, skip_forward=True)
 
-        # reset buffers
         if envs_idx is None:
             self.base_pos.copy_(self.init_base_pos)
             self.base_quat.copy_(self.init_base_quat)
@@ -616,7 +517,6 @@ class _GenesisGo2CoreRobot:
             self.episode_length_buf.masked_fill_(mask, 0)
             self.reset_buf.masked_fill_(mask, True)
 
-        # fill extras
         self.extras["episode"] = {}
         for key, value in self.episode_sums.items():
             if envs_idx is None:
@@ -634,7 +534,6 @@ class _GenesisGo2CoreRobot:
             else:
                 value[envs_idx_int] = 0.0
 
-        # random sample command upon reset
         if envs_idx_bool is not None:
             self._resample_commands(envs_idx_bool)
         elif envs_idx_int is not None:
@@ -645,46 +544,55 @@ class _GenesisGo2CoreRobot:
             self._resample_commands(None)
 
     def _update_observation(self):
+        import torch
+
         self.obs_buf = torch.concatenate(
             (
-                self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
-                self.projected_gravity,  # 3
-                self.commands * self.commands_scale,  # 3
-                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],  # 12
-                self.dof_vel * self.obs_scales["dof_vel"],  # 12
-                self.actions,  # 12
+                self.base_ang_vel * self.obs_scales["ang_vel"],
+                self.projected_gravity,
+                self.commands * self.commands_scale,
+                (self.dof_pos - self.default_dof_pos) * self.obs_scales["dof_pos"],
+                self.dof_vel * self.obs_scales["dof_vel"],
+                self.actions,
             ),
             dim=-1,
         )
 
-    def reset(self):
+    def rl_reset(self) -> Any:
         self._reset_idx()
         self._update_observation()
-        return self.get_observations()
+        return self._get_observations()
 
-    # ------------ reward functions----------------
+    # ------------ reward functions ----------------
+
     def _reward_tracking_lin_vel(self):
-        # Tracking of linear velocity commands (xy axes)
+        import torch
+
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
 
     def _reward_tracking_ang_vel(self):
-        # Tracking of angular velocity commands (yaw)
+        import torch
+
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
 
     def _reward_lin_vel_z(self):
-        # Penalize z axis base linear velocity
+        import torch
+
         return torch.square(self.base_lin_vel[:, 2])
 
     def _reward_action_rate(self):
-        # Penalize changes in actions
+        import torch
+
         return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
 
     def _reward_similar_to_default(self):
-        # Penalize joint poses far away from default pose
+        import torch
+
         return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
 
     def _reward_base_height(self):
-        # Penalize base height away from target
+        import torch
+
         return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])

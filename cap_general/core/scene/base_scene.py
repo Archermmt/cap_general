@@ -104,7 +104,8 @@ class BaseScene(RegisteredBase):
     def _build_logger(record_dir: Path) -> logging.Logger:
         return cap_utils.build_file_logger(record_dir, logger_name="scene")
 
-    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]], scene: Any | None = None) -> None:
+    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
+        self._pre_build()
         for spec_data in specs:
             spec = spec_data if isinstance(spec_data, AgentSpec) else AgentSpec(**spec_data)
             if spec.name in self._agents:
@@ -114,10 +115,7 @@ class BaseScene(RegisteredBase):
             aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
             agent_config["name"] = spec.name
             agent_config["alias"] = aliases[0] if aliases else None
-            agent_kwargs = {"logger": self._logger}
-            if scene is not None:
-                agent_kwargs["scene"] = scene
-            agent = BaseAgent.from_config(agent_config, **agent_kwargs)
+            agent = BaseAgent.from_config(agent_config, logger=self._logger)
             self._agents[spec.name] = AgentInfo(agent=agent, status=self._get_status(spec.name))
             for alias in aliases:
                 existing = self._agent_aliases.get(alias)
@@ -127,6 +125,17 @@ class BaseScene(RegisteredBase):
                     )
                     continue
                 self._agent_aliases[alias] = spec.name
+        self._post_build()
+
+    def _pre_build(self) -> None:
+        """Hook called before agents are constructed."""
+
+    def _post_build(self) -> None:
+        """Hook called after all agents are constructed."""
+        for agent_info in self._agents.values():
+            agent_info.agent.post_build(ctx=self)
+        for agent_info in self._agents.values():
+            agent_info.agent.after_build()
 
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""

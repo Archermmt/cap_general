@@ -29,14 +29,14 @@ class Go2Agent(BaseAgent):
     name = "Genesis GO2 Agent"
     config_cls = Go2AgentConfig
 
-    def __init__(self, config: Go2AgentConfig, logger: Logger, scene: Any | None = None):
+    def __init__(self, config: Go2AgentConfig, logger: Logger):
         self._policy_name = config.policy
         self.horizon = int(config.horizon)
-        super().__init__(config=config, logger=logger, scene=scene)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:
-        return "go2"
+        return "genesis_go2"
 
     def _execute_rules(self) -> str:
         return (
@@ -53,18 +53,8 @@ class Go2Agent(BaseAgent):
     def walk_forward(self, max_steps: int | None = None, turn_angle: float = 0.0) -> dict[str, Any]:
         """Make GO2 walk forward and smoothly turn by biasing policy actions."""
         steps = int(max_steps or self.horizon)
-        env = self._robot.example_env
-        if env is None:
-            return {
-                "steps": 0,
-                "turn_angle": float(turn_angle),
-                "obs": self._robot.get_observation(self.step_dir),
-                "mock": True,
-            }
-
         self._robot.set_walk_command(turn_angle=0.0, steps=steps)
         self._run_policy_steps(
-            env=env,
             steps=steps,
             after_step=lambda: self._robot.set_walk_command(turn_angle=0.0, steps=steps),
             turn_angle=float(turn_angle),
@@ -74,24 +64,14 @@ class Go2Agent(BaseAgent):
     def stand_still(self, time_s: float) -> dict[str, Any]:
         """Keep GO2 standing still for time_s seconds."""
         duration = max(float(time_s), 0.0)
-        env = self._robot.example_env
-        if env is None:
-            return {
-                "duration": duration,
-                "steps": 0,
-                "obs": self._robot.get_observation(self.step_dir),
-                "mock": True,
-            }
-
         steps = int(round(duration / max(float(self._robot.dt), 1e-6)))
         self._robot.stop_command()
-        self._run_policy_steps(env=env, steps=steps, after_step=self._robot.stop_command)
+        self._run_policy_steps(steps=steps, after_step=self._robot.stop_command)
         return {"duration": duration}
 
     def _run_policy_steps(
         self,
         *,
-        env: Any,
         steps: int,
         after_step: Callable[[], Any],
         turn_angle: float = 0.0,

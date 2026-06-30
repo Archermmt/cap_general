@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 
-from cap_general.core.scene import AgentSpec, BaseScene, BaseSceneConfig
-from cap_general.core.utils import save_image
+from cap_general.core.scene import BaseScene, BaseSceneConfig
+from cap_general.core.utils import save_image, tensor_to_image_array
 
 
 @dataclass
@@ -65,12 +65,12 @@ class GenesisScene(BaseScene):
         self._camera = None
         self._camera_failed = False
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
-        self._idle_render_task: asyncio.Task | None = None
+        self._render_task: asyncio.Task | None = None
         self._step_lock = threading.Lock()
         self._agent_locks: dict[Any, asyncio.Lock] = {}
         super().__init__(config=config, logger=logger)
 
-    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
+    def _pre_build(self) -> None:
         import genesis as gs
 
         if self._config.backend:
@@ -94,27 +94,27 @@ class GenesisScene(BaseScene):
                 **_resolve_options(self._config.profiling_options, gs)
             )
         self._gs_scene = gs.Scene(**scene_kwargs)
-        self._gs_scene._cap_step_scene = self.step_scene
-        self._gs_scene._cap_register_pre_step_callback = self.register_pre_step_callback
         self._gs_scene.add_entity(gs.morphs.Plane())
-        super()._build_agents(specs, scene=self._gs_scene)
+
+    def _post_build(self) -> None:
+        for agent_info in self._agents.values():
+            agent_info.agent.post_build(self)
         self._logger.info("Building Genesis scene with kwargs=%s", self._config.build_kwargs)
         self._gs_scene.build(**self._config.build_kwargs)
         self._lock_viewer_rotation()
-        for agent_info in self._agents.values():
-            agent_info.agent.post_build()
         if self._config.show_viewer and self._config.idle_render_fps > 0:
-            self._start_idle_render_loop()
+            if self._render_task is None:
+                try:
+                    loop = asyncio.get_running_loop()
+                    self._render_task = loop.create_task(self._render_loop())
+                except RuntimeError:
+                    pass
+        for agent_info in self._agents.values():
+            agent_info.agent.after_build()
 
     def register_pre_step_callback(self, callback: Callable[[], bool | None]) -> None:
         """Register a callback to run before each scene step."""
         self._pre_step_callbacks.append(callback)
-
-    def _run_pre_step_callbacks(self) -> bool:
-        veto_step = False
-        for callback in list(self._pre_step_callbacks):
-            veto_step = bool(callback()) or veto_step
-        return veto_step
 
     def _lock_viewer_rotation(self) -> None:
         if not self._config.lock_viewer_rotation:
@@ -133,20 +133,13 @@ class GenesisScene(BaseScene):
         """Unconditional scene step."""
         with self._step_lock:
             self._lock_viewer_rotation()
-            if not self._run_pre_step_callbacks():
+            veto_step = False
+            for callback in list(self._pre_step_callbacks):
+                veto_step = bool(callback()) or veto_step
+            if not veto_step:
                 self._gs_scene.step()
 
-    def _start_idle_render_loop(self) -> None:
-        """Schedule the idle render loop on the running event loop, if available."""
-        if self._idle_render_task is not None:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._idle_render_task = loop.create_task(self._idle_render_loop())
-
-    async def _idle_render_loop(self) -> None:
+    async def _render_loop(self) -> None:
         """Continuously step the scene while no agent task is running."""
         interval = 1.0 / self._config.idle_render_fps
         while True:
@@ -157,7 +150,7 @@ class GenesisScene(BaseScene):
             self._real_step()
 
     @property
-    def scene(self) -> Any:
+    def gs_scene(self) -> Any:
         """Return the Genesis scene owned by this scene wrapper."""
         return self._gs_scene
 
@@ -180,7 +173,7 @@ class GenesisScene(BaseScene):
             rgb = camera.render(rgb=True, force_render=True)[0]
             if getattr(rgb, "ndim", 0) > 3:
                 rgb = rgb[0]
-            return self._to_image_array(rgb)
+            return tensor_to_image_array(rgb)
         except Exception as exc:  # pragma: no cover - depends on Genesis renderer/runtime
             self._camera_failed = True
             self._logger.warning("Disabled Genesis scene camera after render failure: %s", exc)
@@ -206,17 +199,6 @@ class GenesisScene(BaseScene):
         self._camera = camera
         return camera
 
-    @staticmethod
-    def _to_image_array(value: Any) -> np.ndarray:
-        if hasattr(value, "detach"):
-            value = value.detach().cpu().numpy()
-        array = np.asarray(value)
-        if array.dtype != np.uint8:
-            if array.size and float(np.nanmax(array)) <= 1.0:
-                array = array * 255.0
-            array = np.clip(array, 0, 255).astype(np.uint8)
-        return array
-
     def get_resource(self, name: str) -> Any:
         """Return this Genesis scene by resource name."""
         if name == "genesis_scene":
@@ -225,7 +207,8 @@ class GenesisScene(BaseScene):
 
     async def _on_server_started(self) -> None:
         """Start the idle render loop once the MCP server's event loop is live."""
-        self._start_idle_render_loop()
+        if self._render_task is None:
+            self._render_task = asyncio.get_running_loop().create_task(self._render_loop())
 
     async def _dispatch_task(
         self,

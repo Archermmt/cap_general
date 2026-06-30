@@ -10,7 +10,6 @@ from typing import Any, SupportsFloat
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
-from cap_general.frameworks.genesis.utils import step_scene
 
 _DEFAULT_COLORS = [
     (0.95, 0.12, 0.14, 1.0),
@@ -75,7 +74,6 @@ class FrankaRobot(BaseRobot):
         self._object_configs = [self._coerce_obj_config(obj) for obj in config.objects]
         self._rng = np.random.default_rng(self._config.seed)
 
-        self._scene = None
         self._scene_built = False
         self._entities_added = False
         self._objects: list[Any] = []
@@ -85,12 +83,11 @@ class FrankaRobot(BaseRobot):
     def robot_type(cls) -> str:
         return "genesis_franka"
 
-    def bind_scene(self, scene: Any | None) -> None:
-        if scene is None:
-            raise RuntimeError("FrankaRobot requires a Genesis scene")
-        self._scene = scene
+    def post_build(self, ctx: Any) -> None:
+        super().post_build(ctx)
+        self._ensure_scene()
 
-    def post_build(self) -> None:
+    def after_build(self) -> None:
         self._scene_built = True
         self._reset_objects()
 
@@ -102,7 +99,7 @@ class FrankaRobot(BaseRobot):
     @property
     def scene(self) -> Any | None:
         """Return the Genesis scene when it is available."""
-        return self._scene
+        return self._scene.gs_scene if self._scene is not None else None
 
     @property
     def objects(self) -> list[Any]:
@@ -216,13 +213,14 @@ class FrankaRobot(BaseRobot):
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset the Genesis scene and return the initial observation."""
         options = options or {}
+        if not self._scene_built:
+            return {}, {"seed": self._config.seed, "options": options, "object_count": 0}
         self._ensure_scene()
-        if self._scene_built and hasattr(self._scene, "reset"):
-            self._scene.reset()
-        elif self._scene_built and self._robot is not None and hasattr(self._robot, "reset"):
+        if hasattr(self._scene.gs_scene, "reset"):
+            self._scene.gs_scene.reset()
+        elif self._robot is not None and hasattr(self._robot, "reset"):
             self._robot.reset()
-        if self._scene_built:
-            self._reset_objects()
+        self._reset_objects()
         obs = self._build_observation()
         return obs, {"seed": self._config.seed, "options": options, "object_count": len(self._object_specs)}
 
@@ -246,7 +244,7 @@ class FrankaRobot(BaseRobot):
     def step_simulation(self) -> None:
         """Advance the Genesis simulation by one timestep."""
         if self._scene is not None:
-            step_scene(self._scene)
+            self._scene.step_scene()
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
         """Return the latest robot and object state."""
@@ -261,11 +259,11 @@ class FrankaRobot(BaseRobot):
         import genesis as gs
 
         if self._robot is None:
-            self._robot = self._scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
+            self._robot = self._scene.gs_scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
 
         self._object_specs = self._sample_object_specs()
         self._objects = [
-            self._scene.add_entity(
+            self._scene.gs_scene.add_entity(
                 self._build_morph(gs, spec),
                 surface=gs.surfaces.Default(color=spec["color"]),
             )

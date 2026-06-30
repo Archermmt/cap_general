@@ -28,7 +28,7 @@ agents:
   alias:
   - 七仔
   config:
-    type: go2
+    type: genesis_go2
     max_retry: 5
     reset_mode: never
     record_execute: true

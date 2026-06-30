@@ -28,14 +28,14 @@ agents:
   alias:
   - 七仔
   config:
-    type: drone
+    type: genesis_drone
     max_retry: 5
     reset_mode: never
     record_execute: true
     policy: runner
     horizon: 1000
     robot:
-      type: genesis_drone_hover
+      type: genesis_drone
       video_fmt: mp4
       seed: 7
       reset_time: 0

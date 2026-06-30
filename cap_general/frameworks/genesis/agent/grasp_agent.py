@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.utils import tensor_mean_value, tensor_to_scalar
 
 if TYPE_CHECKING:
     from logging import Logger
@@ -34,16 +35,16 @@ class GraspAgent(BaseAgent):
     name = "Genesis Grasp Agent"
     config_cls = GraspAgentConfig
 
-    def __init__(self, config: GraspAgentConfig, logger: Logger, scene: Any | None = None):
+    def __init__(self, config: GraspAgentConfig, logger: Logger):
         self._rl_policy_name = config.rl_policy
         self._bc_policy_name = config.bc_policy
         self._stage = config.stage
         self._run_demo_after_episode = bool(config.run_demo_after_episode)
-        super().__init__(config=config, logger=logger, scene=scene)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:
-        return "grasp"
+        return "genesis_grasp"
 
     def _execute_rules(self) -> str:
         return (
@@ -59,22 +60,13 @@ class GraspAgent(BaseAgent):
         """Run one Genesis grasp episode with an RL or BC policy."""
         current_stage = stage or self._stage
         steps = int(max_steps or self._config.horizon)
-        env = self._robot.example_env
-        if env is None:
-            return {
-                "steps": 0,
-                "stage": current_stage,
-                "obs": self._robot.get_observation(self.step_dir),
-                "mock": True,
-            }
-
         obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":
                 action = self._run_policy(self._rl_policy_name, obs=obs)
             elif current_stage == "bc":
                 rgb_obs = self._robot.get_stereo_rgb_images(normalize=True).float()
-                ee_pose = env.robot.ee_pose.float()
+                ee_pose = self._robot.robot.ee_pose.float()
                 action = self._run_policy(
                     self._bc_policy_name,
                     env=self._robot,
@@ -103,44 +95,6 @@ class GraspAgent(BaseAgent):
             "summary_interval: Backward-compatible alias for record_epoch."
         )
 
-    @staticmethod
-    def _to_scalar(value: Any) -> int | float | str | bool | None:
-        if value is None:
-            return None
-        if isinstance(value, (bool, int, float, str)):
-            return value
-        if hasattr(value, "detach"):
-            value = value.detach()
-        if hasattr(value, "cpu"):
-            value = value.cpu()
-        if hasattr(value, "mean"):
-            try:
-                value = value.mean()
-            except Exception:
-                pass
-        if hasattr(value, "item"):
-            try:
-                value = value.item()
-            except Exception:
-                pass
-        if isinstance(value, (bool, int, float, str)):
-            return value
-        return None
-
-    def _mean_value(self, values: Any) -> float | None:
-        if values is None:
-            return None
-        if isinstance(values, (list, tuple)):
-            numeric = [self._to_scalar(value) for value in values]
-            numeric = [float(value) for value in numeric if isinstance(value, (int, float))]
-            if not numeric:
-                return None
-            return sum(numeric) / len(numeric)
-        value = self._to_scalar(values)
-        if isinstance(value, (int, float)):
-            return float(value)
-        return None
-
     def _summary(self, *, stage: str, interval: int) -> dict[str, Any]:
         return {
             "stage": stage,
@@ -160,7 +114,7 @@ class GraspAgent(BaseAgent):
         best_metric: str,
         best_mode: str,
     ) -> None:
-        clean = {key: self._to_scalar(value) for key, value in point.items()}
+        clean = {key: tensor_to_scalar(value) for key, value in point.items()}
         clean = {key: value for key, value in clean.items() if value is not None}
         if not clean:
             return
@@ -190,7 +144,7 @@ class GraspAgent(BaseAgent):
             if not isinstance(ep_info, dict):
                 continue
             for key, value in ep_info.items():
-                scalar = self._mean_value(value)
+                scalar = tensor_mean_value(value)
                 if scalar is None:
                     continue
                 metric_name = f"mean_episode_{str(key).replace('/', '_')}"
@@ -237,12 +191,12 @@ class GraspAgent(BaseAgent):
                     if done_iterations > 0
                     else None
                 ),
-                "mean_action_std": self._mean_value(kwargs.get("action_std")),
-                "mean_reward": self._mean_value(getattr(runner.logger, "rewbuffer", None)),
-                "mean_episode_length": self._mean_value(getattr(runner.logger, "lenbuffer", None)),
+                "mean_action_std": tensor_mean_value(kwargs.get("action_std")),
+                "mean_reward": tensor_mean_value(getattr(runner.logger, "rewbuffer", None)),
+                "mean_episode_length": tensor_mean_value(getattr(runner.logger, "lenbuffer", None)),
             }
             for key, value in (kwargs.get("loss_dict", {}) or {}).items():
-                point[f"mean_{key}_loss"] = self._mean_value(value)
+                point[f"mean_{key}_loss"] = tensor_mean_value(value)
             point.update(extras)
             self._merge_summary(summary, point, best_metric="mean_episode_rew_keypoints", best_mode="max")
             iteration = point["iteration"]
@@ -316,7 +270,7 @@ class GraspAgent(BaseAgent):
                         iteration,
                         {"stage": "bc", "iteration": iteration, "total_steps": total_steps},
                     )
-                    point[metric_name] = GraspAgent._to_scalar(scalar_value)
+                    point[metric_name] = tensor_to_scalar(scalar_value)
                 return result
 
             def __getattr__(self, name: str) -> Any:
@@ -342,7 +296,7 @@ class GraspAgent(BaseAgent):
                 "stage": "bc",
                 "iteration": final_iteration if final_iteration > 0 else num_learning_iterations,
                 "total_steps": max(final_iteration, num_learning_iterations) * num_steps_per_env * num_envs,
-                "mean_reward": self._mean_value(getattr(runner, "_rewbuffer", None)),
+                "mean_reward": tensor_mean_value(getattr(runner, "_rewbuffer", None)),
             }
             self._merge_summary(summary, point, best_metric="total_loss", best_mode="min")
             summary["notes"].append("BC runner exposed no periodic scalar writes; returning final summary only")

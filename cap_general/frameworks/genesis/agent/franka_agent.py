@@ -28,9 +28,9 @@ class FrankaAgent(BaseAgent):
     name = "Genesis Franka Agent"
     config_cls = FrankaAgentConfig
 
-    def __init__(self, config: FrankaAgentConfig, logger: Logger, scene: Any | None = None):
+    def __init__(self, config: FrankaAgentConfig, logger: Logger):
         self.horizon = int(config.horizon)
-        super().__init__(config=config, logger=logger, scene=scene)
+        super().__init__(config=config, logger=logger)
 
     @classmethod
     def agent_type(cls) -> str:

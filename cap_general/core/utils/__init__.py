@@ -16,6 +16,12 @@ from cap_general.core.utils.namespace import (
     TraceLevel,
 )
 from cap_general.core.utils.serialization import summarize_value, to_json_safe
+from cap_general.core.utils.tensor_utils import (
+    tensor_mean_value,
+    tensor_to_image_array,
+    tensor_to_list,
+    tensor_to_scalar,
+)
 from cap_general.core.utils.typing import ActType, ObsType
 
 __all__ = [
@@ -37,6 +43,10 @@ __all__ = [
     "depth_to_rgb",
     "to_json_safe",
     "summarize_value",
+    "tensor_to_list",
+    "tensor_to_image_array",
+    "tensor_to_scalar",
+    "tensor_mean_value",
     "ObsType",
     "ActType",
     "load_yaml_config",

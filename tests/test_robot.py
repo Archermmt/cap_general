@@ -103,39 +103,42 @@ def test_robot_train_and_eval_switch_reset_and_step_semantics():
 def test_grasp_robot_train_restores_training_episode_length_and_resets():
     from cap_general.frameworks.genesis.robot.grasp_robot import GraspRobot, GraspRobotConfig
 
-    class FakeGraspEnv:
-        def __init__(self):
-            self.ctrl_dt = 0.01
-            self.env_cfg = {"episode_length_s": 10_000.0}
-            self.max_episode_length = 1_000_000
-            self.reset_count = 0
-
-        def reset(self):
-            self.reset_count += 1
-            return {"policy": "reset"}
-
-        def get_observations(self):
-            return {"policy": "eval"}
-
     robot = GraspRobot(config=GraspRobotConfig(), logger=LOGGER)
-    env = FakeGraspEnv()
-    robot._example_env = env
+    # Simulate a fully-built genesis state without actual Genesis deps
+    robot._post_built = True
+    robot.ctrl_dt = 0.01
+    robot._env_cfg = {"episode_length_s": 10_000.0}
+    robot.max_episode_length = 1_000_000
     robot._train_episode_length_s = 3.0
     robot._eval_episode_length_s = 10_000.0
+
+    reset_calls = []
+    obs_calls = []
+
+    def fake_reset():
+        reset_calls.append(1)
+        return {"policy": "reset"}
+
+    def fake_get_obs():
+        obs_calls.append(1)
+        return {"policy": "eval"}
+
+    robot.rl_reset = fake_reset
+    robot._get_observations = fake_get_obs
 
     robot.train()
 
     assert robot.training is True
-    assert env.env_cfg["episode_length_s"] == 3.0
-    assert env.max_episode_length == 300
-    assert env.reset_count == 1
-    assert robot.policy_obs == {"policy": "reset"}
+    assert robot._env_cfg["episode_length_s"] == 3.0
+    assert robot.max_episode_length == 300
+    assert len(reset_calls) == 1
+    assert robot._last_policy_obs == {"policy": "reset"}
 
     robot.eval()
 
     assert robot.training is False
-    assert env.env_cfg["episode_length_s"] == 10_000.0
-    assert env.max_episode_length == 1_000_000
+    assert robot._env_cfg["episode_length_s"] == 10_000.0
+    assert robot.max_episode_length == 1_000_000
     assert robot.policy_obs == {"policy": "eval"}
 
 

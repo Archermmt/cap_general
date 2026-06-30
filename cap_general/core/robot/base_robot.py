@@ -53,12 +53,14 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
         self._training = False
+        self._scene: Any = None
 
-    def bind_scene(self, scene: Any | None) -> None:
-        """Bind an optional scene before the robot is initialized."""
+    def post_build(self, ctx: Any) -> None:
+        """Build the robot with the scene context."""
+        self._scene = ctx
 
-    def post_build(self) -> None:
-        """Finish robot initialization after the bound scene is built."""
+    def after_build(self) -> None:
+        """Initialize the robot after its scene is built."""
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the robot and return the initial observation and info."""

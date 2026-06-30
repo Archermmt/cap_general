@@ -35,7 +35,7 @@ agents:
   alias:
   - 七仔
   config:
-    type: grasp
+    type: genesis_grasp
     max_retry: 5
     reset_mode: never
     record_execute: true

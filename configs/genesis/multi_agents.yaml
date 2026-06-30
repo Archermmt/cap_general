@@ -33,7 +33,7 @@ record_dir: ./outputs/genesis/all
 agents:
 - name: grasp_0
   config:
-    type: grasp
+    type: genesis_grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
@@ -77,7 +77,7 @@ agents:
         bc_cfg_index: 4
 - name: grasp_1
   config:
-    type: grasp
+    type: genesis_grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
@@ -121,7 +121,7 @@ agents:
         bc_cfg_index: 4
 - name: grasp_2
   config:
-    type: grasp
+    type: genesis_grasp
     max_retry: 5
     reset_mode: never
     record_execute: true
