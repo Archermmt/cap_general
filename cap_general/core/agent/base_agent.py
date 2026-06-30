@@ -112,13 +112,9 @@ class BaseAgent(RegisteredBase):
     def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
         return BaseRobot.from_config(config, logger=logger)
 
-    def post_build(self, ctx: Any) -> None:
-        """Build the robot with the scene context."""
-        self._robot.post_build(ctx)
-
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
         """Initialize the robot after its scene is built."""
-        self._robot.after_build()
+        self._robot.post_build(scene)
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:

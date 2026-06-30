@@ -80,7 +80,6 @@ class DroneHoverRobot(BaseRobot):
         self.lock_commands: bool = False
 
         # genesis entities
-        self._gs_scene: Any = None
         self.drone: Any = None
         self.target: Any = None
 
@@ -119,11 +118,8 @@ class DroneHoverRobot(BaseRobot):
     def robot_type(cls) -> str:
         return "genesis_drone"
 
-    def post_build(self, ctx: Any) -> None:
-        super().post_build(ctx)
-        self._init_genesis()
-
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
+        super().post_build(scene)
         import genesis as gs
         import torch
 
@@ -234,7 +230,7 @@ class DroneHoverRobot(BaseRobot):
             return {}
         return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
-    def _init_genesis(self) -> None:
+    def init_genesis(self, gs_scene: Any) -> None:
         env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         env_cfg["visualize_target"] = self._config.visualize_target
@@ -248,6 +244,7 @@ class DroneHoverRobot(BaseRobot):
         reward_cfg = dict(reward_cfg)
         reward_cfg["reward_scales"] = {}
         self._setup_genesis_state(
+            gs_scene=gs_scene,
             num_envs=self._config.num_envs,
             env_cfg=env_cfg,
             obs_cfg=obs_cfg,
@@ -256,7 +253,7 @@ class DroneHoverRobot(BaseRobot):
         )
 
     def _setup_genesis_state(
-        self, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
+        self, gs_scene: Any, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
     ) -> None:
         import genesis as gs
         import torch
@@ -277,15 +274,13 @@ class DroneHoverRobot(BaseRobot):
         self.obs_scales = obs_cfg["obs_scales"]
         self.reward_scales = copy.deepcopy(reward_cfg["reward_scales"])
 
-        self._gs_scene = self._scene.gs_scene
-
         self.base_init_pos = torch.tensor(self.env_cfg["base_init_pos"], device=gs.device)
         self.base_init_quat = torch.tensor(self.env_cfg["base_init_quat"], device=gs.device)
         self.inv_base_init_quat = inv_quat(self.base_init_quat)
 
         # add target sphere
         if self.env_cfg["visualize_target"]:
-            self.target = self._gs_scene.add_entity(
+            self.target = gs_scene.add_entity(
                 morph=gs.morphs.Mesh(
                     file="meshes/sphere.obj",
                     scale=0.05,
@@ -301,7 +296,7 @@ class DroneHoverRobot(BaseRobot):
 
         # add visualize camera
         if self.env_cfg["visualize_camera"]:
-            self._gs_scene.add_camera(
+            gs_scene.add_camera(
                 res=(640, 480),
                 pos=(3.5, 0.0, 2.5),
                 lookat=(0, 0, 0.5),
@@ -310,11 +305,11 @@ class DroneHoverRobot(BaseRobot):
             )
 
         # add drone entity
-        self.drone = self._gs_scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
+        self.drone = gs_scene.add_entity(gs.morphs.Drone(file="urdf/drones/cf2x.urdf"))
 
         # add body camera (must happen before gs_scene.build())
         if self._config.camera_enabled:
-            self._add_body_camera(self._gs_scene)
+            self._add_body_camera(gs_scene)
 
     def _load_cfgs(self):
         with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:

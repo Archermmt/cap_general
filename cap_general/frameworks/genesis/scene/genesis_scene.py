@@ -98,7 +98,7 @@ class GenesisScene(BaseScene):
 
     def _post_build(self) -> None:
         for agent_info in self._agents.values():
-            agent_info.agent.post_build(self)
+            agent_info.agent.init_genesis(self._gs_scene)
         self._logger.info("Building Genesis scene with kwargs=%s", self._config.build_kwargs)
         self._gs_scene.build(**self._config.build_kwargs)
         self._lock_viewer_rotation()
@@ -109,8 +109,7 @@ class GenesisScene(BaseScene):
                     self._render_task = loop.create_task(self._render_loop())
                 except RuntimeError:
                     pass
-        for agent_info in self._agents.values():
-            agent_info.agent.after_build()
+        super()._post_build()
 
     def register_pre_step_callback(self, callback: Callable[[], bool | None]) -> None:
         """Register a callback to run before each scene step."""

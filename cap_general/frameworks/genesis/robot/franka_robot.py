@@ -74,6 +74,7 @@ class FrankaRobot(BaseRobot):
         self._object_configs = [self._coerce_obj_config(obj) for obj in config.objects]
         self._rng = np.random.default_rng(self._config.seed)
 
+        self._gs_scene = None
         self._scene_built = False
         self._entities_added = False
         self._objects: list[Any] = []
@@ -83,11 +84,12 @@ class FrankaRobot(BaseRobot):
     def robot_type(cls) -> str:
         return "genesis_franka"
 
-    def post_build(self, ctx: Any) -> None:
-        super().post_build(ctx)
+    def init_genesis(self, gs_scene: Any) -> None:
+        self._gs_scene = gs_scene
         self._ensure_scene()
 
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
+        super().post_build(scene)
         self._scene_built = True
         self._reset_objects()
 
@@ -99,7 +101,7 @@ class FrankaRobot(BaseRobot):
     @property
     def scene(self) -> Any | None:
         """Return the Genesis scene when it is available."""
-        return self._scene.gs_scene if self._scene is not None else None
+        return self._gs_scene
 
     @property
     def objects(self) -> list[Any]:
@@ -216,8 +218,8 @@ class FrankaRobot(BaseRobot):
         if not self._scene_built:
             return {}, {"seed": self._config.seed, "options": options, "object_count": 0}
         self._ensure_scene()
-        if hasattr(self._scene.gs_scene, "reset"):
-            self._scene.gs_scene.reset()
+        if hasattr(self._gs_scene, "reset"):
+            self._gs_scene.reset()
         elif self._robot is not None and hasattr(self._robot, "reset"):
             self._robot.reset()
         self._reset_objects()
@@ -243,7 +245,7 @@ class FrankaRobot(BaseRobot):
 
     def step_simulation(self) -> None:
         """Advance the Genesis simulation by one timestep."""
-        if self._scene is not None:
+        if self._gs_scene is not None:
             self._scene.step_scene()
 
     def get_observation(self, folder: str | Path) -> dict[str, Any]:
@@ -253,17 +255,17 @@ class FrankaRobot(BaseRobot):
     def _ensure_scene(self) -> None:
         if self._entities_added:
             return
-        if self._scene is None:
+        if self._gs_scene is None:
             raise RuntimeError("FrankaRobot is not bound to a Genesis scene")
 
         import genesis as gs
 
         if self._robot is None:
-            self._robot = self._scene.gs_scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
+            self._robot = self._gs_scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
 
         self._object_specs = self._sample_object_specs()
         self._objects = [
-            self._scene.gs_scene.add_entity(
+            self._gs_scene.add_entity(
                 self._build_morph(gs, spec),
                 surface=gs.surfaces.Default(color=spec["color"]),
             )

@@ -46,6 +46,9 @@ class GraspAgent(BaseAgent):
     def agent_type(cls) -> str:
         return "genesis_grasp"
 
+    def init_genesis(self, gs_scene: Any) -> None:
+        self._robot.init_genesis(gs_scene)
+
     def _execute_rules(self) -> str:
         return (
             "The Genesis grasp agent evaluates RL or BC policies in a robot-controlled "

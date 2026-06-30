@@ -38,6 +38,9 @@ class Go2Agent(BaseAgent):
     def agent_type(cls) -> str:
         return "genesis_go2"
 
+    def init_genesis(self, gs_scene: Any) -> None:
+        self._robot.init_genesis(gs_scene)
+
     def _execute_rules(self) -> str:
         return (
             "The Genesis GO2 agent evaluates locomotion policies in a robot-controlled scene. "

@@ -77,7 +77,6 @@ class Go2Robot(BaseRobot):
         self.reward_scales: dict[str, float] = {}
 
         # genesis entities
-        self._gs_scene: Any = None
         self.robot: Any = None
 
         # buffers (set in post_build)
@@ -115,11 +114,8 @@ class Go2Robot(BaseRobot):
     def robot_type(cls) -> str:
         return "genesis_go2"
 
-    def post_build(self, ctx: Any) -> None:
-        super().post_build(ctx)
-        self._init_genesis()
-
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
+        super().post_build(scene)
         import genesis as gs
         import torch
         from genesis.utils.geom import inv_quat, transform_by_quat
@@ -283,17 +279,17 @@ class Go2Robot(BaseRobot):
             return {}
         return {key: value for key, value in self._last_obs.items() if key not in set(self._image_keys)}
 
-    def _init_genesis(self) -> None:
+    def init_genesis(self, gs_scene: Any) -> None:
         env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         if self._config.max_episode_steps is not None:
             env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
         if self._config.base_init_pos is not None:
             env_cfg["base_init_pos"] = list(self._config.base_init_pos)
-        env_cfg["_scene"] = self._scene
         reward_cfg = dict(reward_cfg)
         reward_cfg["reward_scales"] = {}
         self._setup_genesis_state(
+            gs_scene=gs_scene,
             num_envs=self._config.num_envs,
             env_cfg=env_cfg,
             obs_cfg=obs_cfg,
@@ -302,7 +298,7 @@ class Go2Robot(BaseRobot):
         )
 
     def _setup_genesis_state(
-        self, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
+        self, gs_scene: Any, num_envs: int, env_cfg: dict, obs_cfg: dict, reward_cfg: dict, command_cfg: dict
     ) -> None:
         import genesis as gs
 
@@ -321,9 +317,7 @@ class Go2Robot(BaseRobot):
         self.obs_scales = obs_cfg["obs_scales"]
         self.reward_scales = reward_cfg["reward_scales"]
 
-        self._gs_scene = env_cfg["_scene"].gs_scene
-
-        self.robot = self._gs_scene.add_entity(
+        self.robot = gs_scene.add_entity(
             gs.morphs.URDF(
                 file="urdf/go2/urdf/go2.urdf",
                 pos=self.env_cfg["base_init_pos"],
@@ -332,7 +326,7 @@ class Go2Robot(BaseRobot):
         )
 
         if self._config.camera_enabled:
-            self._add_body_camera(self._gs_scene)
+            self._add_body_camera(gs_scene)
 
     def _load_cfgs(self):
         with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
@@ -454,7 +448,7 @@ class Go2Robot(BaseRobot):
         self.reset_buf = self.episode_length_buf > self.max_episode_length
         self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
         self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        self.reset_buf |= self._gs_scene.rigid_solver.get_error_envs_mask()
+        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
 
         self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
 

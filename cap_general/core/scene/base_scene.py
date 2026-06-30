@@ -133,9 +133,7 @@ class BaseScene(RegisteredBase):
     def _post_build(self) -> None:
         """Hook called after all agents are constructed."""
         for agent_info in self._agents.values():
-            agent_info.agent.post_build(ctx=self)
-        for agent_info in self._agents.values():
-            agent_info.agent.after_build()
+            agent_info.agent.post_build(self)
 
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""

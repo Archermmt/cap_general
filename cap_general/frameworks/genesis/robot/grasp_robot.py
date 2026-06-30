@@ -82,8 +82,6 @@ class GraspRobot(BaseRobot):
         self._env_cfg: dict = {}
 
         # raw genesis scene (gs.Scene) — set during _setup_genesis_state
-        self._gs_scene: Any = None
-
         # hand camera (set during _setup_genesis_state if visualize_camera)
         self._hand_camera: Any = None
         self._hand_camera_failed = False
@@ -100,11 +98,8 @@ class GraspRobot(BaseRobot):
     def robot_type(cls) -> str:
         return "genesis_grasp"
 
-    def post_build(self, ctx: Any) -> None:
-        super().post_build(ctx)
-        self._init_genesis()
-
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
+        super().post_build(scene)
         import genesis as gs
         import torch
 
@@ -191,7 +186,7 @@ class GraspRobot(BaseRobot):
         self._grasp_and_lift_demo()
         return True
 
-    def _init_genesis(self) -> None:
+    def init_genesis(self, gs_scene: Any) -> None:
         env_cfg, reward_cfg, robot_cfg, *_ = self._load_cfgs()
         env_cfg = dict(env_cfg)
         self._train_episode_length_s = float(env_cfg["episode_length_s"])
@@ -207,10 +202,11 @@ class GraspRobot(BaseRobot):
             env_cfg["robot_pos"] = list(self._config.robot_pos)
         if self._config.object_pos_offset is not None:
             env_cfg["object_pos_offset"] = list(self._config.object_pos_offset)
-        env_cfg["_scene"] = self._scene
-        self._setup_genesis_state(env_cfg, dict(reward_cfg), robot_cfg)
+        self._setup_genesis_state(gs_scene, env_cfg, dict(reward_cfg), robot_cfg)
 
-    def _setup_genesis_state(self, env_cfg: dict, reward_cfg: dict, robot_cfg: dict) -> None:
+    def _setup_genesis_state(
+        self, gs_scene: Any, env_cfg: dict, reward_cfg: dict, robot_cfg: dict
+    ) -> None:
         import genesis as gs
         import torch
         from genesis.vis.camera import Camera
@@ -233,19 +229,17 @@ class GraspRobot(BaseRobot):
         self.image_width = env_cfg["image_resolution"][0]
         self.image_height = env_cfg["image_resolution"][1]
 
-        self._gs_scene = env_cfg["_scene"].gs_scene
-
         robot_cfg_with_pos = dict(robot_cfg)
         if "robot_pos" in env_cfg:
             robot_cfg_with_pos["robot_pos"] = env_cfg["robot_pos"]
         self.robot = Manipulator(
             num_envs=self.num_envs,
-            scene=self._gs_scene,
+            scene=gs_scene,
             args=robot_cfg_with_pos,
             device=gs.device,
         )
 
-        self.object = self._gs_scene.add_entity(
+        self.object = gs_scene.add_entity(
             gs.morphs.Box(
                 size=env_cfg["box_size"],
                 fixed=env_cfg.get("box_fixed", True),
@@ -267,7 +261,7 @@ class GraspRobot(BaseRobot):
             CameraOptions = RasterizerCameraOptions
             cam_kwargs = {}
 
-        self.left_cam = self._gs_scene.add_sensor(
+        self.left_cam = gs_scene.add_sensor(
             CameraOptions(
                 res=(self.image_width, self.image_height),
                 pos=(1.25, 0.3, 0.3),
@@ -276,7 +270,7 @@ class GraspRobot(BaseRobot):
                 **cam_kwargs,
             )
         )
-        self.right_cam = self._gs_scene.add_sensor(
+        self.right_cam = gs_scene.add_sensor(
             CameraOptions(
                 res=(self.image_width, self.image_height),
                 pos=(1.25, -0.3, 0.3),
@@ -298,13 +292,13 @@ class GraspRobot(BaseRobot):
         for cam_name, filename in (env_cfg.get("record_video") or {}).items():
             cam = getattr(self, cam_name)
             reader = _read_scene_cam if isinstance(cam, Camera) else _read_sensor_cam
-            self._gs_scene.start_recording(
+            gs_scene.start_recording(
                 data_func=partial(reader, cam),
                 rec_options=gs.recorders.VideoFile(filename=filename),
             )
 
         if self._config.visualize_camera:
-            self._add_hand_camera(self._gs_scene)
+            self._add_hand_camera(gs_scene)
 
     def _load_cfgs(self):
         with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
@@ -479,7 +473,7 @@ class GraspRobot(BaseRobot):
         self.episode_length_buf += 1
 
         self.reset_buf = self.episode_length_buf > self.max_episode_length
-        self.reset_buf |= self._gs_scene.rigid_solver.get_error_envs_mask()
+        self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
 
         self.extras["time_outs"] = (self.episode_length_buf > self.max_episode_length).to(dtype=gs.tc_float)
 

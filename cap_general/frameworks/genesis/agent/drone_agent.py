@@ -38,6 +38,9 @@ class DroneAgent(BaseAgent):
     def agent_type(cls) -> str:
         return "genesis_drone"
 
+    def init_genesis(self, gs_scene: Any) -> None:
+        self._robot.init_genesis(gs_scene)
+
     def _execute_rules(self) -> str:
         return (
             "The Genesis drone agent evaluates hover policies in a robot-controlled scene. "

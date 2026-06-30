@@ -55,12 +55,9 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._training = False
         self._scene: Any = None
 
-    def post_build(self, ctx: Any) -> None:
-        """Build the robot with the scene context."""
-        self._scene = ctx
-
-    def after_build(self) -> None:
+    def post_build(self, scene: Any) -> None:
         """Initialize the robot after its scene is built."""
+        self._scene = scene
 
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the robot and return the initial observation and info."""

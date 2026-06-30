@@ -36,6 +36,9 @@ class FrankaAgent(BaseAgent):
     def agent_type(cls) -> str:
         return "franka"
 
+    def init_genesis(self, gs_scene: Any) -> None:
+        self._robot.init_genesis(gs_scene)
+
     def _execute_rules(self) -> str:
         """Return valid rules for execute for the Genesis Franka robot."""
         return (
