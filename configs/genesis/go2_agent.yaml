@@ -1,0 +1,79 @@
+type: genesis
+backend: cpu
+show_viewer: true
+sim_options:
+  dt: 0.02
+  substeps: 2
+rigid_options:
+  enable_self_collision: false
+  tolerance: 1.0e-05
+  max_collision_pairs: 20
+viewer_options:
+  camera_pos:
+  - 2.0
+  - 0.0
+  - 2.5
+  camera_lookat:
+  - 0.0
+  - 0.0
+  - 0.5
+  camera_fov: 40
+  max_FPS: 50
+vis_options:
+  rendered_envs_idx:
+  - 0
+record_dir: ./outputs/genesis
+agents:
+- name: go2
+  alias:
+  - 七仔
+  config:
+    type: genesis_go2
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    policy: runner
+    horizon: 1000
+    robot:
+      type: genesis_go2
+      video_fmt: mp4
+      seed: 7
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+      num_envs: 1
+      image_keys:
+      - body_camera_image
+      camera_enabled: true
+      camera_res:
+      - 320
+      - 240
+      camera_fov: 40.0
+      camera_pos:
+      - 2.0
+      - 0.0
+      - 2.5
+      camera_lookat:
+      - 0.0
+      - 0.0
+      - 0.5
+      camera_attach_to_base: false
+      camera_near: 0.05
+      camera_far: 20.0
+      turn_action_scale: 0.35
+      base_init_pos:
+      - 0.0
+      - 0.0
+      - 0.42
+      max_episode_steps: 1000000
+    policies:
+      runner:
+        type: rsl_rl
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+        ckpt: 100
+        train_cfg_index: 4
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8903
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

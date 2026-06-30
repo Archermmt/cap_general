@@ -1,0 +1,45 @@
+type: base
+record_dir: ./outputs
+agents:
+  - name: robosuite
+    alias:
+      - cap
+      - 七仔
+    config:
+      type: robosuite
+      max_retry: 5
+      reset_mode: never
+      record_execute: true
+      robot:
+        type: robosuite
+        controller_cfg: /home/genie_store/nfs_datas/tm/codes/cap_general/cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json
+        seed: 7
+        reset_time: 0
+        video_fmt: mp4
+        image_keys:
+          - robot0_robotview_image
+        privileged: false
+        enable_render: true
+        viser_debug: false
+        max_steps: 1500
+      policies:
+        sam3:
+          type: sam3
+          device: cuda
+          load_from_hf: false
+          checkpoint_path: /home/genie_store/nfs_datas/tm/data/models/sam3/sam3.pt
+          confidence_threshold: 0.0
+          enable_inst_interactivity: true
+        graspnet:
+          type: graspnet
+          vendor_root: /home/genie_store/nfs_datas/tm/codes/cap-x/capx/third_party/contact_graspnet_pytorch
+          device: cuda
+        pyroki:
+          type: pyroki
+          robot_urdf_name: panda_description
+          target_link_name: panda_hand
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8904
+  skill_folder: skills

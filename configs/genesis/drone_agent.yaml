@@ -1,0 +1,83 @@
+type: genesis
+show_viewer: true
+sim_options:
+  dt: 0.01
+  substeps: 2
+viewer_options:
+  max_FPS: 60
+  camera_pos:
+  - 3.0
+  - 0.0
+  - 3.0
+  camera_lookat:
+  - 0.0
+  - 0.0
+  - -1.0
+  camera_fov: 40
+vis_options:
+  rendered_envs_idx:
+  - 0
+rigid_options:
+  dt: 0.01
+  constraint_solver: Newton
+  enable_collision: false
+  enable_joint_limit: true
+record_dir: ./outputs/genesis
+agents:
+- name: drone
+  alias:
+  - 七仔
+  config:
+    type: genesis_drone
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    policy: runner
+    horizon: 1000
+    robot:
+      type: genesis_drone
+      video_fmt: mp4
+      seed: 7
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+      num_envs: 1
+      visualize_target: true
+      visualize_camera: false
+      camera_enabled: true
+      camera_res:
+      - 320
+      - 240
+      camera_fov: 90.0
+      camera_pos:
+      - 0.12
+      - 0.0
+      - -0.03
+      camera_lookat:
+      - 1.0
+      - 0.0
+      - -0.03
+      camera_up:
+      - 0.0
+      - 0.0
+      - 1.0
+      camera_near: 0.02
+      camera_far: 20.0
+      max_visualize_fps: 60
+      base_init_pos:
+      - 0.0
+      - 0.0
+      - 2.0
+      max_episode_steps: null
+      auto_reset: false
+    policies:
+      runner:
+        type: rsl_rl
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+        ckpt: 300
+        train_cfg_index: 4
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8903
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

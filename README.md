@@ -7,7 +7,7 @@ A Genesis-native Code-as-Policy module that can execute a full local task loop f
 This project implements a Code-as-Policy framework with a modular architecture:
 
 - **cap_general.core**: Framework-agnostic core components (APIs, executor, models, environment)
-- **cap_general.genesis**: Genesis simulator-specific components (Franka robot API, tasks)
+- **cap_general.frameworks.genesis**: Genesis simulator-specific components (Franka robot API, tasks)
 
 Key features:
 - Model adapters for code generation
@@ -42,18 +42,17 @@ cap_general/
 │   │   ├── models.py         # Policy models (Static, Callable, HuggingFace)
 │   │   ├── env.py            # CapEnv for task loops
 │   │   └── result.py         # Result dataclasses
-│   └── genesis/              # Genesis-specific components
-│       ├── apis/
-│       │   ├── __init__.py
-│       │   └── franka.py     # Franka robot API
-│       └── tasks/
-│           ├── __init__.py
-│           └── franka_cube.py # Franka cube lift task
+│   └── frameworks/           # Framework-specific components
+│       └── genesis/          # Genesis-specific components
+│           ├── env/
+│           │   └── franka_env.py
+│           └── agent/
+│               └── franka_agent.py
 ├── tests/                    # Test files
 │   └── genesis/
 │       ├── test_core.py      # Core primitives tests
 │       ├── test_env.py       # CapEnv tests
-│       └── test_franka_api.py # Franka API tests
+│       └── test_franka_agent.py # Franka agent tests
 └── examples/                 # Example scripts
     └── genesis/
         └── franka_cube_task.py # Example usage
@@ -122,16 +121,16 @@ print(f"Success: {result.success}")
 print(f"Steps: {result.total_steps}")
 ```
 
-### Franka Robot API
+### Franka Environment
 
 ```python
-from cap_general.genesis.apis.franka import GenesisFrankaApi
+from cap_general.frameworks.genesis import FrankaEnv, FrankaEnvConfig
 
-# Create API wrapper
-franka_api = GenesisFrankaApi(robot=your_genesis_robot)
+# Create environment wrapper
+env = FrankaEnv(config=FrankaEnvConfig(robot=your_genesis_robot))
 
 # Get API documentation for policy model
-api_docs = franka_api.combined_doc()
+positions = env.get_joint_positions()
 
 # Use API methods
 franka_api.set_joint_positions([0.0, -0.3, 0.0, -2.0, 0.0, 1.5, 0.0])

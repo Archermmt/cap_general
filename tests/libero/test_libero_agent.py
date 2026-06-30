@@ -1,0 +1,174 @@
+"""Test LiberoAgent locally or remotely through MCP.
+
+Local mode:
+    python tests/libero/test_libero_agent.py
+
+Remote mode:
+    capcmd server --config configs/libero/libero_agent.yaml
+    python tests/libero/test_libero_agent.py --remote
+
+Full usage:
+    python tests/libero/test_libero_agent.py [--remote] [--config PATH]
+
+Nanobot test:
+    让七仔把碗放到炉子上，再把炉子拧开，然后把盘子挪到炉子前面，最后把抽屉打开。
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import platform
+
+from cap_general.core.utils import test_utils
+
+if platform.system() == "Darwin":
+    if os.environ.get("MUJOCO_GL") == "egl":
+        os.environ["MUJOCO_GL"] = "cgl"
+    else:
+        os.environ.setdefault("MUJOCO_GL", "cgl")
+else:
+    os.environ.setdefault("MUJOCO_GL", "egl")
+    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+_DEFAULT_CONFIG = "configs/libero/libero_agent.yaml"
+_DEFAULT_MAX_STEPS = 300
+_DEFAULT_TRIAL_NUM = 1
+_DEFAULT_AGENT = "libero"
+
+TASKS = [
+    "put the bowl on the stove",
+    "turn on the stove",
+    "push the plate to the front of the stove",
+    "open the middle drawer of the cabinet",
+]
+
+
+def _make_code(task: str, max_steps: int) -> str:
+    """Build oracle code with values baked in; no exec-globals variables needed."""
+    return f"""\
+success = libero_vla_episode(task={task!r}, max_steps={max_steps})
+RESULT = {{"success": success, "task": {task!r}}}
+"""
+
+
+async def _run_local(
+    config: str, max_steps: int, trial_num: int, config_overrides: list[str] | None = None
+) -> dict:
+    from cap_general.frameworks.libero.agent import LiberoAgent  # noqa: F401
+    from cap_general.core.scene import BaseScene
+
+    print(f"[test] Loading LiberoAgent from: {config}")
+    scene = BaseScene.from_yaml(config, overrides=config_overrides)
+    scene.reset({_DEFAULT_AGENT: {"episode_idx": 0}})
+    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
+    for task_idx, current_task in enumerate(TASKS):
+        print(f"\n[test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
+        for trial_idx in range(trial_num):
+            print(f"[test] --- Trial {trial_idx + 1}/{trial_num} ---")
+            if trial_idx == 0:
+                await scene.execute({_DEFAULT_AGENT: _make_code(current_task, max_steps)})
+                status = await scene.monitor([_DEFAULT_AGENT])
+                result = test_utils.single_agent_result(status)["result"]
+            else:
+                await scene.retry([_DEFAULT_AGENT])
+                status = await scene.monitor([_DEFAULT_AGENT])
+                result = test_utils.single_agent_result(status)["result"]
+            test_utils.print_execution_summary("[test]", result)
+    record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
+    test_utils.print_record("[test]", record)
+    return record
+
+
+async def _run_remote(
+    config: str, max_steps: int, trial_num: int, config_overrides: list[str] | None = None
+) -> dict:
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    from cap_general.core.scene import BaseScene
+
+    url = BaseScene.get_server_url(config, overrides=config_overrides)
+    async with streamablehttp_client(url) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tool_names = [tool.name for tool in (await session.list_tools()).tools]
+            print(f"[mcp_test]({url}) Available tools: {tool_names}")
+            await test_utils.call_tool(
+                session, "reset", {"agent_options": {_DEFAULT_AGENT: {"episode_idx": 0}}}
+            )
+            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
+            agent_doc = test_utils.single_agent_result(agent_doc)
+            print(f"[mcp_test] agent_doc {agent_doc}")
+            for task_idx, current_task in enumerate(TASKS):
+                print(f"\n[mcp_test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
+                for trial_idx in range(trial_num):
+                    print(f"[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
+                    if trial_idx == 0:
+                        result = await test_utils.call_tool(
+                            session,
+                            "execute",
+                            {"agent_codes": {_DEFAULT_AGENT: _make_code(current_task, max_steps)}},
+                        )
+                        result = await test_utils.call_tool(
+                            session, "monitor", {"agents": [_DEFAULT_AGENT]}
+                        )
+                        result = test_utils.single_agent_result(result)["result"]
+                    else:
+                        await test_utils.call_tool(session, "retry", {"agents": [_DEFAULT_AGENT]})
+                        result = await test_utils.call_tool(
+                            session, "monitor", {"agents": [_DEFAULT_AGENT]}
+                        )
+                        result = test_utils.single_agent_result(result)["result"]
+                    test_utils.print_execution_summary("[mcp_test]", result)
+            record = await test_utils.call_tool(
+                session, "record", {"agents": [_DEFAULT_AGENT]}
+            )
+            record = test_utils.single_agent_result(record)
+            test_utils.print_record("[mcp_test]", record)
+            return record
+
+
+def run_libero_test(
+    config: str = _DEFAULT_CONFIG,
+    max_steps: int = _DEFAULT_MAX_STEPS,
+    trial_num: int = _DEFAULT_TRIAL_NUM,
+    remote: bool = False,
+    config_overrides: list[str] | None = None,
+) -> dict:
+    """Run LIBERO VLA episodes in-process or through MCP."""
+    if remote:
+        return asyncio.run(_run_remote(config, max_steps, trial_num, config_overrides))
+    return asyncio.run(_run_local(config, max_steps, trial_num, config_overrides))
+
+
+def test_local_libero(config: str = _DEFAULT_CONFIG) -> None:
+    """Smoke test: run episodes in-process and assert no execution error."""
+    result = run_libero_test(config=config, max_steps=300)
+    assert isinstance(result, dict)
+
+
+def test_mcp_libero(config: str = _DEFAULT_CONFIG) -> None:
+    """Smoke test: run episodes through MCP and assert no execution error."""
+    result = run_libero_test(config=config, max_steps=300, remote=True)
+    assert isinstance(result, dict)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="LIBERO VLA evaluation - local or MCP")
+    parser.add_argument("--config", default=_DEFAULT_CONFIG)
+    parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
+    parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
+    parser.add_argument("--remote", action="store_true", default=False)
+    args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
+
+    result = run_libero_test(
+        config=args.config,
+        max_steps=args.max_steps,
+        trial_num=args.trial_num,
+        remote=args.remote,
+        config_overrides=config_overrides,
+    )
+    print("\n[PASS]")

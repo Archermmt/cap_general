@@ -1,25 +1,51 @@
-"""Core CAP (Code-as-Policy) module - framework-agnostic components."""
+"""Core CAP framework-agnostic components."""
 
-from cap_general.core.apis.base import CapApiBase
-from cap_general.core.executor import CodeExecutor
-from cap_general.core.models import (
-    PolicyModel,
-    StaticPolicyModel,
-    CallablePolicyModel,
-    HuggingFacePolicyModel,
+from cap_general.core.agent import (
+    BaseAgent,
+    BaseAgentConfig,
+    ResetLevel,
+    ResetMode,
+    Tee,
 )
-from cap_general.core.env import CapEnv
-from cap_general.core.result import ExecutionResult, CapStepResult, CapRunResult
+from cap_general.core.base import RegisteredBase
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.core.policy import (
+    BasePolicy,
+    BasePolicyConfig,
+    GraspNetPolicy,
+    GraspNetPolicyConfig,
+    HuggingFacePolicy,
+    HuggingFacePolicyConfig,
+    PolicyResult,
+    PyrokiPolicy,
+    PyrokiPolicyConfig,
+    SAM3Policy,
+    SAM3PolicyConfig,
+)
+from cap_general.core.scene import AgentSpec, BaseScene, BaseSceneConfig, ServerConfig
 
 __all__ = [
-    "CapApiBase",
-    "CodeExecutor",
-    "PolicyModel",
-    "StaticPolicyModel",
-    "CallablePolicyModel",
-    "HuggingFacePolicyModel",
-    "CapEnv",
-    "ExecutionResult",
-    "CapStepResult",
-    "CapRunResult",
+    "RegisteredBase",
+    "BaseAgent",
+    "BaseAgentConfig",
+    "AgentSpec",
+    "BaseScene",
+    "BaseSceneConfig",
+    "ServerConfig",
+    "ResetMode",
+    "ResetLevel",
+    "Tee",
+    "PolicyResult",
+    "BasePolicy",
+    "BasePolicyConfig",
+    "HuggingFacePolicy",
+    "HuggingFacePolicyConfig",
+    "SAM3Policy",
+    "SAM3PolicyConfig",
+    "GraspNetPolicy",
+    "GraspNetPolicyConfig",
+    "PyrokiPolicy",
+    "PyrokiPolicyConfig",
+    "BaseRobot",
+    "BaseRobotConfig",
 ]

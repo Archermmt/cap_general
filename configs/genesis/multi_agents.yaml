@@ -1,0 +1,170 @@
+type: genesis
+backend: cpu
+show_viewer: true
+sim_options:
+  dt: 0.01
+  substeps: 2
+rigid_options:
+  dt: 0.01
+  constraint_solver: Newton
+  enable_collision: true
+  enable_joint_limit: true
+vis_options:
+  rendered_envs_idx:
+  - 0
+  env_separate_rigid: true
+viewer_options:
+  res:
+  - 1280
+  - 960
+  camera_pos:
+  - 2.5
+  - -1.0
+  - 2.5
+  camera_lookat:
+  - 0.5
+  - -0.3
+  - 0.1
+  camera_fov: 55
+  max_FPS: 50
+profiling_options:
+  show_FPS: false
+record_dir: ./outputs/genesis/all
+agents:
+- name: grasp_0
+  config:
+    type: genesis_grasp
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    stage: rl
+    horizon: 1000
+    rl_policy: runner
+    bc_policy: bc
+    run_demo_after_episode: true
+    robot:
+      type: genesis_grasp
+      video_fmt: mp4
+      image_keys:
+      - hand_camera_image
+      seed: 7
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+      stage: rl
+      num_envs: 1
+      box_fixed: false
+      visualize_camera: true
+      robot_pos:
+      - 0.0
+      - -1.2
+      - 0.0
+      object_pos_offset:
+      - 0.0
+      - -1.2
+      - 0.0
+      max_episode_steps: 1000000
+    policies:
+      runner:
+        type: rsl_rl
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+        train_cfg_index: 3
+        ckpt: 299
+      bc:
+        type: genesis_behavior_cloning
+        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
+        bc_cfg_index: 4
+- name: grasp_1
+  config:
+    type: genesis_grasp
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    stage: rl
+    horizon: 1000
+    rl_policy: runner
+    bc_policy: bc
+    run_demo_after_episode: true
+    robot:
+      type: genesis_grasp
+      video_fmt: mp4
+      image_keys:
+      - hand_camera_image
+      seed: 11
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+      stage: rl
+      num_envs: 1
+      box_fixed: false
+      visualize_camera: true
+      robot_pos:
+      - 0.0
+      - 0.0
+      - 0.0
+      object_pos_offset:
+      - 0.0
+      - 0.0
+      - 0.0
+      max_episode_steps: 1000000
+    policies:
+      runner:
+        type: rsl_rl
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+        train_cfg_index: 3
+        ckpt: 299
+      bc:
+        type: genesis_behavior_cloning
+        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
+        bc_cfg_index: 4
+- name: grasp_2
+  config:
+    type: genesis_grasp
+    max_retry: 5
+    reset_mode: never
+    record_execute: true
+    stage: rl
+    horizon: 1000
+    rl_policy: runner
+    bc_policy: bc
+    run_demo_after_episode: true
+    robot:
+      type: genesis_grasp
+      video_fmt: mp4
+      image_keys:
+      - hand_camera_image
+      seed: 7
+      reset_time: 0
+      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+      stage: rl
+      num_envs: 1
+      box_fixed: false
+      visualize_camera: true
+      robot_pos:
+      - 0.0
+      - 1.2
+      - 0.0
+      object_pos_offset:
+      - 0.0
+      - 1.2
+      - 0.0
+      max_episode_steps: 1000000
+    policies:
+      runner:
+        type: rsl_rl
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+        train_cfg_index: 3
+        ckpt: 299
+      bc:
+        type: genesis_behavior_cloning
+        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
+        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
+        bc_cfg_index: 4
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8903
+  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills

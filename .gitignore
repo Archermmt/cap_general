@@ -22,8 +22,6 @@ wheels/
 
 # Virtual environments
 venv/
-env/
-ENV/
 .venv
 
 # IDE
@@ -51,7 +49,6 @@ Thumbs.db
 genesis_cache/
 
 # Models
-models/
 *.bin
 *.pt
 *.pth
@@ -59,3 +56,5 @@ models/
 
 # Logs
 *.log
+*_record
+outputs
