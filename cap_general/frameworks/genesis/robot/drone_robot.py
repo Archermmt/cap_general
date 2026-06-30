@@ -112,7 +112,6 @@ class DroneHoverRobot(BaseRobot):
         # body camera
         self._body_camera: Any = None
         self._camera_failed = False
-        self._post_built = False
 
     @classmethod
     def robot_type(cls) -> str:
@@ -153,7 +152,6 @@ class DroneHoverRobot(BaseRobot):
         self._scene.register_pre_step_callback(self._pre_step_maintain_hover)
 
         self.rl_reset()
-        self._post_built = True
 
     @property
     def policy_obs(self) -> Any:
@@ -201,8 +199,6 @@ class DroneHoverRobot(BaseRobot):
         return target
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-        if not self._post_built:
-            return {}, {"pending_build": True}
         self.lock_commands = False
         self._last_policy_obs = self.rl_reset()
         self._last_reward = 0.0

@@ -108,7 +108,6 @@ class Go2Robot(BaseRobot):
         # body camera
         self._body_camera: Any = None
         self._body_camera_failed = False
-        self._post_built = False
 
     @classmethod
     def robot_type(cls) -> str:
@@ -186,7 +185,6 @@ class Go2Robot(BaseRobot):
             self.episode_sums[name] = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
 
         self.rl_reset()
-        self._post_built = True
 
     @property
     def policy_obs(self) -> Any:
@@ -251,8 +249,6 @@ class Go2Robot(BaseRobot):
         return adjusted
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-        if not self._post_built:
-            return {}, {"pending_build": True}
         self._last_policy_obs = self._get_observations()
         self._last_reward = 0.0
         self._last_done = False

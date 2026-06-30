@@ -92,7 +92,6 @@ class GraspRobot(BaseRobot):
 
         self.left_cam: Any = None
         self.right_cam: Any = None
-        self._post_built = False
 
     @classmethod
     def robot_type(cls) -> str:
@@ -113,7 +112,6 @@ class GraspRobot(BaseRobot):
             self.episode_sums[name] = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
         self.keypoints_offset = self.get_keypoint_offsets(batch_size=self.num_envs, device=self.device, unit_length=0.5)
         self._init_buffers()
-        self._post_built = True
         self.rl_reset()
 
     @property
@@ -128,8 +126,6 @@ class GraspRobot(BaseRobot):
         return self._get_observations()
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
-        if not self._post_built:
-            return {}, {"pending_build": True}
         if self._training:
             del options
             return self.rl_reset()
@@ -154,8 +150,6 @@ class GraspRobot(BaseRobot):
         self._last_policy_obs = self.rl_reset()
 
     def _on_eval(self) -> None:
-        if not self._post_built:
-            return
         self._set_episode_length(self._eval_episode_length_s)
         self._last_policy_obs = self._get_observations()
 

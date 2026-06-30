@@ -113,20 +113,20 @@ class BaseAgent(RegisteredBase):
         return BaseRobot.from_config(config, logger=logger)
 
     def post_build(self, scene: Any) -> None:
-        """Initialize the robot after its scene is built."""
+        """Initialize the robot and policies after the scene is built."""
         self._robot.post_build(scene)
+        self._robot.reset()
+        for policy in self._policies.values():
+            policy.reset()
+            policy.eval()
 
     @staticmethod
     def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
         from cap_general.core.policy import BasePolicy
 
-        policies = {
+        return {
             name: BasePolicy.from_config({**config, "name": name}, logger=logger) for name, config in configs.items()
         }
-        for policy in policies.values():
-            policy.reset()
-            policy.eval()
-        return policies
 
     def reset(self, options: dict[str, Any] | None = None):
         """Reset the agent, scene, or robot to a requested scope.
