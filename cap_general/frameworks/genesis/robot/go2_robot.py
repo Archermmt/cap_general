@@ -48,7 +48,7 @@ def gs_rand(lower, upper, batch_shape):
 class Go2Robot(BaseRobot):
     """Genesis GO2 locomotion eval environment."""
 
-    name = "Genesis GO2 Robot"
+    robot_type = "genesis_go2"
     config_cls = Go2RobotConfig
 
     def __init__(self, config: Go2RobotConfig, logger: logging.Logger):
@@ -108,10 +108,6 @@ class Go2Robot(BaseRobot):
         # body camera
         self._body_camera: Any = None
         self._body_camera_failed = False
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "genesis_go2"
 
     def post_build(self, scene: Any) -> None:
         super().post_build(scene)

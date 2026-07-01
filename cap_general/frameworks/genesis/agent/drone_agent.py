@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
-
-if TYPE_CHECKING:
-    from logging import Logger
 
 
 @dataclass
@@ -26,17 +23,8 @@ class DroneAgentConfig(BaseAgentConfig):
 class DroneAgent(BaseAgent):
     """Agent that evaluates Genesis drone hover policies."""
 
-    name = "Genesis Drone Agent"
+    agent_type = "genesis_drone"
     config_cls = DroneAgentConfig
-
-    def __init__(self, config: DroneAgentConfig, logger: Logger):
-        self._policy_name = config.policy
-        self.horizon = int(config.horizon)
-        super().__init__(config=config, logger=logger)
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "genesis_drone"
 
     def init_genesis(self, gs_scene: Any) -> None:
         self._robot.init_genesis(gs_scene)
@@ -54,9 +42,11 @@ class DroneAgent(BaseAgent):
     def functions(self) -> dict[str, Callable[..., Any]]:
         return {"follow_target": self.follow_target, "hover": self.hover}
 
-    def follow_target(self, target_pos: list[float] | tuple[float, float, float], max_steps: int | None = None) -> dict[str, Any]:
+    def follow_target(
+        self, target_pos: list[float] | tuple[float, float, float], max_steps: int | None = None
+    ) -> dict[str, Any]:
         """Run the drone policy to fly to a fixed target position."""
-        steps = int(max_steps or self.horizon)
+        steps = int(max_steps or self._config.horizon)
         self._robot.set_target_position(target_pos)
         executed_steps = self._run_policy_steps(steps=steps)
         return {"steps": executed_steps, "target_pos": list(target_pos)}
@@ -74,7 +64,7 @@ class DroneAgent(BaseAgent):
         obs = self._robot.policy_obs
         executed_steps = 0
         for _ in range(max(int(steps), 0)):
-            action = self._run_policy(self._policy_name, obs=obs)
+            action = self._run_policy(self._config.policy, inputs={"obs": obs})
             obs, _reward, terminated, truncated, _info = self._robot.step(action)
             executed_steps += 1
             if terminated or truncated:

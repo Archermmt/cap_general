@@ -1,4 +1,4 @@
-"""RSL-RL inference policy."""
+"""RSL-RL model operator."""
 
 from __future__ import annotations
 
@@ -7,17 +7,15 @@ import pickle
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from cap_general.core.policy.base_policy import BasePolicy, BasePolicyConfig
-
-if TYPE_CHECKING:
-    from logging import Logger
+from cap_general.core.operator.base_operator import BaseOperator, to_stage_fn
+from cap_general.core.operator.model.base_model_op import ModelOp
 
 
 @dataclass
-class RslRlPolicyConfig(BasePolicyConfig):
-    """Configuration for loading an RSL-RL OnPolicyRunner checkpoint."""
+class RslRlConfig:
+    """Configuration for RslRlOp."""
 
     log_dir: str | Path = "logs"
     ckpt: int | None = None
@@ -27,36 +25,32 @@ class RslRlPolicyConfig(BasePolicyConfig):
     device: str | None = None
 
 
-@BasePolicy.register()
-class RslRlPolicy(BasePolicy):
-    """Load and run an RSL-RL inference policy."""
+@BaseOperator.register()
+class RslRlOp(ModelOp):
+    """Load and run an RSL-RL inference actor directly."""
 
-    name = "RSL-RL Policy"
-    config_cls = RslRlPolicyConfig
+    op_type = "rsl_rl"
+    config_cls = RslRlConfig
 
-    def __init__(self, config: RslRlPolicyConfig, logger: Logger):
-        super().__init__(config=config, logger=logger)
+    def reset(self) -> None:
         self._actor = self._load_actor()
+        super().reset()
 
-    @classmethod
-    def policy_type(cls) -> str:
-        return "rsl_rl"
+    def get_model(self) -> Any:
+        return self._actor
 
-    def reset(self, *args: Any, **kwargs: Any) -> None:
-        """Reset the loaded policy to evaluation mode."""
-        self._actor.eval()
-
-    def inference(self, obs: Any = None) -> Any:
-        """Run inference for an observation tensor dict."""
+    @to_stage_fn
+    def inference(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        obs = inputs["obs"]
         obs_device = getattr(obs, "device", None)
         if obs_device is not None:
             self._actor.to(obs_device)
         self._actor.eval()
-        return self._actor(obs)
+        return {"output": self._actor(obs)}
 
-    def update(self, *, state_dict: dict[str, Any]) -> dict[str, Any]:
-        """Load trained weights into the current policy."""
-        self._actor.load_state_dict(state_dict)
+    @to_stage_fn
+    def update(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self._actor.load_state_dict(inputs["state_dict"])
         return {}
 
     def _load_actor(self) -> Any:
@@ -65,16 +59,18 @@ class RslRlPolicy(BasePolicy):
             from rsl_rl.utils import resolve_callable
             from tensordict import TensorDict
         except ImportError as exc:
-            raise ImportError("RslRlPolicy requires torch, tensordict, and rsl-rl-lib") from exc
+            raise ImportError("RslRlOp requires torch, tensordict, and rsl-rl-lib") from exc
 
         log_dir = Path(self._config.log_dir).expanduser()
+        device = self._config.device or "cpu"
+
         with (log_dir / self._config.cfgs_filename).open("rb") as file:
             train_cfg = copy.deepcopy(pickle.load(file)[self._config.train_cfg_index])
         actor_cfg = train_cfg["actor"]
         actor_class = resolve_callable(actor_cfg.pop("class_name"))
         checkpoint = torch.load(
             self._checkpoint_path(log_dir),
-            map_location=self._config.device or "cpu",
+            map_location=device,
             weights_only=False,
         )
         actor_state = checkpoint["actor_state_dict"]
@@ -92,8 +88,7 @@ class RslRlPolicy(BasePolicy):
         output_dim = int(actor_state.get("distribution.std_param", mlp_weights[-1][1]).shape[0])
         actor_obs_groups = train_cfg["obs_groups"]["actor"]
         if len(actor_obs_groups) != 1:
-            raise ValueError("RslRlPolicy requires exactly one actor observation group")
-        device = self._config.device or "cpu"
+            raise ValueError("RslRlOp requires exactly one actor observation group")
         obs = TensorDict(
             {actor_obs_groups[0]: torch.zeros((1, input_dim), device=device)},
             batch_size=[1],

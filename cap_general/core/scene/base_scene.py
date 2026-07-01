@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 from cap_general.core import utils as cap_utils
 from cap_general.core.agent import BaseAgent
 from cap_general.core.base import RegisteredBase
-from cap_general.core.utils.config import load_yaml_config
+from cap_general.core.utils.config import build_dataclass_config, load_yaml_config
 from cap_general.frameworks import import_frameworks
 
 
@@ -55,21 +55,17 @@ class BaseSceneConfig:
     agents: list[AgentSpec | dict[str, Any]]
     server: ServerConfig = field(default_factory=ServerConfig)
     record_dir: str | Path = "outputs/scene"
+    debug: bool = False
 
 
 @RegisteredBase.register()
 class BaseScene(RegisteredBase):
     """A scene contains multiple named agents."""
 
-    name = "Base Scene"
     _registry: ClassVar[dict[str, type["BaseScene"]]] = {}
+    registry_key_attr: ClassVar[str] = "scene_type"
+    scene_type: ClassVar[str] = "base_scene"
     config_cls: ClassVar[type[BaseSceneConfig]] = BaseSceneConfig
-    registry_key_method: ClassVar[str] = "scene_type"
-
-    @classmethod
-    def scene_type(cls) -> str:
-        """Return the registry key for this scene."""
-        return "base"
 
     def __init__(self, config: BaseSceneConfig, logger: logging.Logger | None = None):
         self._config = config
@@ -96,7 +92,7 @@ class BaseScene(RegisteredBase):
             scene_cls = cls.get_registered_class(scene_type)
         if scene_cls is None:
             raise KeyError(f"Unknown registered type: {scene_type}")
-        config_obj = cls._build_dataclass_config(scene_cls.config_cls, config_data)
+        config_obj = build_dataclass_config(scene_cls.config_cls, config_data)
         s_config = config_obj.server
         return f"http://{s_config.host}:{s_config.port}/mcp"
 
@@ -111,7 +107,9 @@ class BaseScene(RegisteredBase):
             if spec.name in self._agents:
                 raise ValueError(f"Duplicate agent name in scene: {spec.name}")
             agent_config = dict(spec.config)
+            agent_config.pop("debug", None)
             agent_config["record_dir"] = self._record_dir / spec.name
+            agent_config["debug"] = self._config.debug
             aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
             agent_config["name"] = spec.name
             agent_config["alias"] = aliases[0] if aliases else None

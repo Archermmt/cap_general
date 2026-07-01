@@ -55,10 +55,7 @@ class GenesisScene(BaseScene):
     name = "Genesis Scene"
     config_cls = GenesisSceneConfig
 
-    @classmethod
-    def scene_type(cls) -> str:
-        """Return the registry key for Genesis scene configs."""
-        return "genesis"
+    scene_type = "genesis"
 
     def __init__(self, config: GenesisSceneConfig | dict[str, Any], logger=None):
         self._gs_scene = None

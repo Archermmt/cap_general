@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from cap_general.core import utils as cap_utils
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class RobosuiteAgentConfig(BaseAgentConfig):
 class RobosuiteAgent(BaseAgent):
     """Agent that executes Franka pick-place code against a Robosuite robot."""
 
-    name = "Robosuite Franka Agent"
+    agent_type = "robosuite"
     config_cls = RobosuiteAgentConfig
 
     def __init__(self, config: RobosuiteAgentConfig, logger: Logger):
@@ -54,10 +55,6 @@ class RobosuiteAgent(BaseAgent):
         self._tcp_offset = np.asarray(config.tcp_offset, dtype=np.float64)
         self._ik_cfg = None
         super().__init__(config=config, logger=logger)
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "robosuite"
 
     def _execute_rules(self) -> str:
         """Return Cap-X Franka pick-place prompt and API docs."""
@@ -271,8 +268,6 @@ class RobosuiteAgent(BaseAgent):
     def _save_rgbd(self, rgb: np.ndarray, depth: np.ndarray) -> None:
         """Save RGBD debug images under the current step directory."""
         from PIL import Image as _Image
-
-        from cap_general.core import utils as cap_utils
 
         d2d = depth[:, :, 0] if depth.ndim == 3 else depth
         debug_dir = self.debug_dir

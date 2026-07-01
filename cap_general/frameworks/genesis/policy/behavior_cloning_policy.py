@@ -39,9 +39,7 @@ class BehaviorCloningPolicy(BasePolicy):
         self._policy = None
         self._loaded_env_id: int | None = None
 
-    @classmethod
-    def policy_type(cls) -> str:
-        return "genesis_behavior_cloning"
+    policy_type = "genesis_behavior_cloning"
 
     def reset(self, *args: Any, **kwargs: Any) -> None:
         """Clear loaded checkpoint; policy is restored lazily for the active env."""

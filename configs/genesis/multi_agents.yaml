@@ -40,7 +40,6 @@ agents:
     stage: rl
     horizon: 1000
     rl_policy: runner
-    bc_policy: bc
     run_demo_after_episode: true
     robot:
       type: genesis_grasp
@@ -70,11 +69,6 @@ agents:
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
         train_cfg_index: 3
         ckpt: 299
-      bc:
-        type: genesis_behavior_cloning
-        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
-        bc_cfg_index: 4
 - name: grasp_1
   config:
     type: genesis_grasp
@@ -84,7 +78,6 @@ agents:
     stage: rl
     horizon: 1000
     rl_policy: runner
-    bc_policy: bc
     run_demo_after_episode: true
     robot:
       type: genesis_grasp
@@ -114,11 +107,6 @@ agents:
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
         train_cfg_index: 3
         ckpt: 299
-      bc:
-        type: genesis_behavior_cloning
-        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
-        bc_cfg_index: 4
 - name: grasp_2
   config:
     type: genesis_grasp
@@ -128,7 +116,6 @@ agents:
     stage: rl
     horizon: 1000
     rl_policy: runner
-    bc_policy: bc
     run_demo_after_episode: true
     robot:
       type: genesis_grasp
@@ -158,11 +145,6 @@ agents:
         log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
         train_cfg_index: 3
         ckpt: 299
-      bc:
-        type: genesis_behavior_cloning
-        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
-        bc_cfg_index: 4
 server:
   cap_id: cap
   host: 127.0.0.1

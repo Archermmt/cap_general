@@ -23,12 +23,8 @@ class LiberoAgentConfig(BaseAgentConfig):
 class LiberoAgent(BaseAgent):
     """Agent that runs LIBERO subtasks with a configured VLA policy."""
 
-    name = "LIBERO VLA Agent"
+    agent_type = "libero"
     config_cls = LiberoAgentConfig
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "libero"
 
     def _execute_rules(self) -> str:
         """Return valid rules for execute for the loaded LIBERO suite."""

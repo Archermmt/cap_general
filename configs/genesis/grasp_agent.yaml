@@ -42,7 +42,6 @@ agents:
     stage: rl
     horizon: 1000
     rl_policy: runner
-    bc_policy: bc
     run_demo_after_episode: true
     robot:
       type: genesis_grasp
@@ -64,15 +63,17 @@ agents:
       max_episode_steps: 1000000
     policies:
       runner:
-        type: rsl_rl
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-        train_cfg_index: 3
-        ckpt: 299
-      bc:
-        type: genesis_behavior_cloning
-        example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_bc
-        bc_cfg_index: 4
+        type: base_policy
+        graph:
+          name: runner
+          nodes:
+          - name: model
+            op_group: model
+            op_type: rsl_rl
+            config:
+              log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+              train_cfg_index: 3
+              ckpt: 299
 server:
   cap_id: cap
   host: 127.0.0.1

@@ -114,7 +114,7 @@ class LiberoRobotConfig(BaseRobotConfig):
 class LiberoRobot(BaseRobot):
     """Gymnasium-style wrapper around LIBERO OffScreenRenderEnv."""
 
-    name = "LIBERO Robot"
+    robot_type = "libero"
     config_cls = LiberoRobotConfig
     dummy_action = _DUMMY_ACTION
 
@@ -137,10 +137,6 @@ class LiberoRobot(BaseRobot):
         self.task_description = ""
 
         self._init_libero_robot()
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "libero"
 
     @staticmethod
     def _resolve_libero_home(configured_home: str | None) -> str:

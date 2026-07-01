@@ -36,13 +36,9 @@ class BaseRobot(RegisteredBase, GymEnv):
     """Abstract base class for low-level robot controllers."""
 
     _registry: ClassVar[dict[str, type["BaseRobot"]]] = {}
+    registry_key_attr: ClassVar[str] = "robot_type"
+    robot_type: ClassVar[str] = "base"
     config_cls: ClassVar[type[BaseRobotConfig]] = BaseRobotConfig
-    registry_key_method: ClassVar[str] = "robot_type"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        """Return the registry key for this robot controller."""
-        return "base"
 
     def __init__(self, config: BaseRobotConfig, logger: logging.Logger):
         self._config, self._logger = config, logger

@@ -5,13 +5,9 @@ import logging
 import pytest
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.operator import BaseOperator
 from cap_general.core.robot import BaseRobot
-from cap_general.core.policy import (
-    BasePolicy,
-    GraspNetPolicy,
-    PyrokiPolicy,
-    SAM3Policy,
-)
+from cap_general.core.policy import BasePolicy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,11 +16,8 @@ LOGGER = logging.getLogger(__name__)
 class CoreDummyRobot(BaseRobot):
     """Small robot for core agent tests."""
 
-    name = "Core Dummy Robot"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "core_dummy"
+    robot_type = "core_dummy"
+    config_cls = BaseRobot.config_cls
 
     def _reset(self, options=None):
         return {"step": self.step_cnt}, {"seed": self._config.seed, "options": options or {}}
@@ -93,11 +86,12 @@ def test_policy_base_cannot_instantiate():
 
 
 def test_core_registries_include_common_components():
-    """Test that common core implementations are registered by type."""
-    assert BaseAgent.agent_type() == "base"
-    assert BasePolicy.get_registered_class("sam3") is SAM3Policy
-    assert BasePolicy.get_registered_class("graspnet") is GraspNetPolicy
-    assert BasePolicy.get_registered_class("pyroki") is PyrokiPolicy
+    """Test that common operators are registered in the operator registry."""
+    assert BaseAgent.agent_type == "base"
+    assert BaseOperator.get_registered_class("model", "sam3") is not None
+    assert BaseOperator.get_registered_class("model", "graspnet") is not None
+    assert BaseOperator.get_registered_class("model", "pyroki") is not None
+    assert BaseOperator.get_registered_class("model", "rsl_rl") is not None
 
 
 def test_agent_register_decorator():
@@ -105,11 +99,8 @@ def test_agent_register_decorator():
 
     @BaseAgent.register()
     class RegisteredAgent(BaseAgent):
-        name = "Registered Agent"
-
-        @classmethod
-        def agent_type(cls) -> str:
-            return "registered"
+        agent_type = "registered"
+        config_cls = BaseAgentConfig
 
         def functions(self):
             return {}

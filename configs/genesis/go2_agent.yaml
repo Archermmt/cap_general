@@ -68,10 +68,17 @@ agents:
       max_episode_steps: 1000000
     policies:
       runner:
-        type: rsl_rl
-        log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-        ckpt: 100
-        train_cfg_index: 4
+        type: base_policy
+        graph:
+          name: runner
+          nodes:
+          - name: model
+            op_group: model
+            op_type: rsl_rl
+            config:
+              log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+              ckpt: 100
+              train_cfg_index: 4
 server:
   cap_id: cap
   host: 127.0.0.1

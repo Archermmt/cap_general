@@ -21,13 +21,9 @@ class RobosuiteCubeRobotConfig(RobosuiteBaseRobotConfig):
 class RobosuiteCubeRobot(RobosuiteBaseRobot):
     """Robosuite Franka Stack environment compatible with FrankaControlApi."""
 
-    name = "Robosuite Cube Env"
+    robot_type = "robosuite"
     config_cls = RobosuiteCubeRobotConfig
     _SUBSAMPLE_RATE = 5
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "robosuite"
 
     def __init__(self, config: RobosuiteCubeRobotConfig, logger: logging.Logger) -> None:
         if config is None:

@@ -60,7 +60,7 @@ class FrankaRobotConfig(BaseRobotConfig):
 class FrankaRobot(BaseRobot):
     """Genesis scene with one Franka arm and configured objects."""
 
-    name = "Genesis Franka Robot"
+    robot_type = "genesis_franka"
     config_cls = FrankaRobotConfig
 
     def __init__(
@@ -79,10 +79,6 @@ class FrankaRobot(BaseRobot):
         self._entities_added = False
         self._objects: list[Any] = []
         self._object_specs: list[dict[str, Any]] = []
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "genesis_franka"
 
     def init_genesis(self, gs_scene: Any) -> None:
         self._gs_scene = gs_scene

@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from cap_general.core.agent import BaseAgent
+from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.operator import BaseOperator, to_stage_fn
 from cap_general.core.policy import BasePolicy, BasePolicyConfig
 from cap_general.core.robot import BaseRobot
 from cap_general.core.scene import BaseScene
@@ -24,11 +25,8 @@ _BETA_KEY = "b(beta)"
 class SceneDummyRobot(BaseRobot):
     """Small robot for scene routing tests."""
 
-    name = "Scene Dummy Robot"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "scene_dummy"
+    robot_type = "scene_dummy"
+    config_cls = BaseRobot.config_cls
 
     def _reset(self, options=None):
         return {"options": options or {}}, {}
@@ -45,6 +43,22 @@ class SceneDummyPolicyConfig(BasePolicyConfig):
     """Configuration for SceneDummyPolicy."""
 
 
+@BaseOperator.register()
+class SceneDummyOp(BaseOperator):
+    """Minimal operator for scene routing tests."""
+
+    op_group = "test"
+    op_type = "scene_dummy"
+
+    @to_stage_fn
+    def inference(self, inputs):
+        return {"output": None}
+
+    @to_stage_fn
+    def update(self, inputs):
+        return inputs
+
+
 @BasePolicy.register()
 class SceneDummyPolicy(BasePolicy):
     """Small policy for scene routing tests."""
@@ -52,26 +66,14 @@ class SceneDummyPolicy(BasePolicy):
     name = "Scene Dummy Policy"
     config_cls = SceneDummyPolicyConfig
 
-    @classmethod
-    def policy_type(cls) -> str:
-        return "scene_dummy"
-
-    def inference(self, *args, **kwargs):
-        return None
-
-    def update(self, **kwargs):
-        return kwargs
-
+    policy_type = "scene_dummy"
 
 @BaseAgent.register()
 class SceneDummyAgent(BaseAgent):
     """Small agent for scene routing tests."""
 
-    name = "Scene Dummy Agent"
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "scene_dummy"
+    agent_type = "scene_dummy"
+    config_cls = BaseAgentConfig
 
     def functions(self):
         return {"echo": self.echo}
@@ -79,12 +81,11 @@ class SceneDummyAgent(BaseAgent):
     def echo(self, value: str) -> str:
         return value
 
-    def _train(self, policy, epoch, method, options):
+    def _train(self, policy, epoch, options):
         return (
             {
                 "policy_name": policy.name,
                 "epoch": epoch,
-                "method": method,
                 "options": options,
             },
             {},
@@ -104,7 +105,17 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
                 "config": {
                     "type": "scene_dummy",
                     "robot": {"type": "scene_dummy", "reset_time": 0},
-                    "policies": {"test": {"type": "scene_dummy"}},
+                    "policies": {
+                        "test": {
+                            "type": "scene_dummy",
+                            "graph": {
+                                "name": "scene_dummy",
+                                "nodes": [
+                                    {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                                ],
+                            },
+                        }
+                    },
                     "trace_level": trace_level,
                 },
             }
@@ -269,7 +280,6 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
                 "alpha": {
                     "policy_name": "test",
                     "epoch": 2,
-                    "method": "train",
                     "options": {},
                 }
             }
@@ -287,7 +297,6 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
                 "alpha": {
                     "policy_name": "test",
                     "epoch": 2,
-                    "method": "train",
                     "options": {},
                 }
             }
@@ -316,7 +325,6 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     assert request_messages[4]["request"] == {
         "policy_name": "test",
         "epoch": 2,
-        "method": "train",
         "options": {},
     }
     response_messages = [m for m in traced_history if "response" in m]
@@ -325,6 +333,127 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     assert all("mark" not in m for m in traced_history)
     assert response_messages[2]["response"]["result"] == {"value": "enabled"}
     assert response_messages[4]["response"]["result"]["policy_name"] == "test"
+
+
+def test_scene_debug_visualizes_policy_graphs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    rendered: list[tuple[str, str, str, bool]] = []
+
+    class _DummyDigraph:
+        def __init__(self, name, node_attr=None, edge_attr=None):
+            self.name = name
+
+        def node(self, *_args, **_kwargs):
+            return None
+
+        def edge(self, *_args, **_kwargs):
+            return None
+
+        def render(self, filename, directory, format, cleanup):
+            rendered.append((self.name, filename, directory, cleanup))
+            out = Path(directory) / f"{filename}.{format}"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text("ok", encoding="utf-8")
+            return str(out)
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "graphviz", types.SimpleNamespace(Digraph=_DummyDigraph))
+
+    scene = BaseScene.from_config(
+        {
+            "type": "base",
+            "record_dir": str(tmp_path / "scene"),
+            "debug": True,
+            "server": {"cap_id": "scene_test", "port": 8899},
+            "agents": [
+                {
+                    "name": "alpha",
+                    "alias": ["a"],
+                    "config": {
+                        "type": "scene_dummy",
+                        "robot": {"type": "scene_dummy", "reset_time": 0},
+                        "policies": {
+                            "test": {
+                                "type": "scene_dummy",
+                                "graph": {
+                                    "name": "scene_dummy",
+                                    "nodes": [
+                                        {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                                    ],
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+    )
+
+    assert scene._get_agent("alpha")._config.debug is True
+    assert rendered
+    assert (tmp_path / "scene" / "alpha" / "visualize").exists()
+
+
+def test_scene_debug_visualize_falls_back_to_dot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    class _ExecutableNotFound(Exception):
+        pass
+
+    class _DummyDigraph:
+        def __init__(self, name, node_attr=None, edge_attr=None):
+            self.name = name
+            self.source = "digraph G { a -> b }"
+
+        def node(self, *_args, **_kwargs):
+            return None
+
+        def edge(self, *_args, **_kwargs):
+            return None
+
+        def render(self, filename, directory, format, cleanup):
+            raise _ExecutableNotFound("dot missing")
+
+    _ExecutableNotFound.__name__ = "ExecutableNotFound"
+
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "graphviz", types.SimpleNamespace(Digraph=_DummyDigraph))
+
+    scene = BaseScene.from_config(
+        {
+            "type": "base",
+            "record_dir": str(tmp_path / "scene"),
+            "debug": True,
+            "server": {"cap_id": "scene_test", "port": 8899},
+            "agents": [
+                {
+                    "name": "alpha",
+                    "alias": ["a"],
+                    "config": {
+                        "type": "scene_dummy",
+                        "robot": {"type": "scene_dummy", "reset_time": 0},
+                        "policies": {
+                            "test": {
+                                "type": "scene_dummy",
+                                "graph": {
+                                    "name": "scene_dummy",
+                                    "nodes": [
+                                        {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                                    ],
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+    )
+
+    dot_path = tmp_path / "scene" / "alpha" / "visualize" / "test.dot"
+    assert scene._get_agent("alpha")._config.debug is True
+    assert dot_path.exists()
+    assert dot_path.read_text(encoding="utf-8") == "digraph G { a -> b }"
 
 
 def test_scene_from_yaml_loads_agents(tmp_path: Path):
@@ -336,6 +465,7 @@ server:
   cap_id: scene_test
   port: 8899
 record_dir: outputs/test_scene_yaml
+debug: false
 agents:
   - name: alpha
     alias:

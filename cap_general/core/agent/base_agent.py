@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 from cap_general.core import utils as cap_utils
 from cap_general.core.base import RegisteredBase
-from cap_general.core.policy import BasePolicyConfig
+from cap_general.core.policy import BasePolicy, BasePolicyConfig
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
@@ -59,7 +59,8 @@ class BaseAgent(RegisteredBase):
 
     _registry: ClassVar[dict[str, type["BaseAgent"]]] = {}
     config_cls: ClassVar[type[BaseAgentConfig]] = BaseAgentConfig
-    registry_key_method: ClassVar[str] = "agent_type"
+    registry_key_attr: ClassVar[str] = "agent_type"
+    agent_type: ClassVar[str] = "base"
 
     @staticmethod
     def trace_result(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -88,11 +89,6 @@ class BaseAgent(RegisteredBase):
 
         return wrapper
 
-    @classmethod
-    def agent_type(cls) -> str:
-        """Return the registry key for this agent."""
-        return "base"
-
     def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
         """Initialize an agent from config."""
         self._config, self._logger = config, logger
@@ -112,21 +108,24 @@ class BaseAgent(RegisteredBase):
     def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
         return BaseRobot.from_config(config, logger=logger)
 
+    @staticmethod
+    def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
+        return {
+            name: BasePolicy.from_config({**config, "name": name}, logger=logger) for name, config in configs.items()
+        }
+
     def post_build(self, scene: Any) -> None:
         """Initialize the robot and policies after the scene is built."""
         self._robot.post_build(scene)
         self._robot.reset()
+        visualize_dir = self.viz_dir
         for policy in self._policies.values():
             policy.reset()
             policy.eval()
-
-    @staticmethod
-    def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
-        from cap_general.core.policy import BasePolicy
-
-        return {
-            name: BasePolicy.from_config({**config, "name": name}, logger=logger) for name, config in configs.items()
-        }
+            try:
+                policy.visualize(visualize_dir)
+            except Exception as exc:
+                self._logger.warning("Skip policy DAG visualization for %s: %s", policy.name, exc)
 
     def reset(self, options: dict[str, Any] | None = None):
         """Reset the agent, scene, or robot to a requested scope.
@@ -147,7 +146,6 @@ class BaseAgent(RegisteredBase):
             self._exec_cnt, self._trial_cnt = 0, 0
             self._step_infos, self._step_codes = [], []
             self._task_start = time.time()
-            self._clear_record_dir_contents()
         return {"ok": True}
 
     def agent_doc(self) -> dict:
@@ -219,7 +217,7 @@ class BaseAgent(RegisteredBase):
         return self._execute_once(self._step_codes[-1])
 
     @trace_result
-    def train(self, policy_name: str, epoch: int, method: str = "train", options: dict[str, Any] | None = None):
+    def train(self, policy_name: str, epoch: int, options: dict[str, Any] | None = None):
         """Train a configured policy.
 
         Validates the requested policy, switches both the policy and robot into
@@ -230,8 +228,6 @@ class BaseAgent(RegisteredBase):
             policy_name: Name of the policy to train, as configured in
                 ``policies``.
             epoch: Number of training epochs to run. Must be positive.
-            method: Training method/stage identifier, passed through to
-                ``_train`` (e.g. ``"rl"`` or ``"bc"``). Defaults to ``"train"``.
             options: [_options_doc()]
 
         Returns:
@@ -243,17 +239,15 @@ class BaseAgent(RegisteredBase):
         if policy is None:
             raise ValueError(f"Unknown policy requested: {policy_name!r}")
         options = dict(options or {})
-        self._logger.info(
-            "Starting train: policy=%s epoch=%s method=%s options=%s", policy_name, epoch, method, options
-        )
+        self._logger.info("Starting train: policy=%s epoch=%s options=%s", policy_name, epoch, options)
         policy.train()
         self._robot.train()
         try:
-            result, new_policy = self._train(policy=policy, epoch=epoch, method=method, options=options)
+            result, new_policy = self._train(policy=policy, epoch=epoch, options=options)
             self._update_policy(policy_name, **new_policy)
             response = {"ok": True, "result": result}
         except Exception as exc:
-            self._logger.exception("Train failed: policy=%s method=%s", policy_name, method)
+            self._logger.exception("Train failed: policy=%s", policy_name)
             response = {"ok": False, "error": str(exc)}
         finally:
             policy.eval()
@@ -382,30 +376,26 @@ class BaseAgent(RegisteredBase):
             "result": self._exec_globals.get("RESULT"),
         }
 
-    def _run_policy(self, policy_name: str, method="inference", **kwargs) -> Any:
-        """Run a configured policy by name."""
+    def _run_policy(self, policy_name: str, stage: str = "inference", inputs: dict[str, Any] | None = None) -> Any:
+        """Run a configured policy by name via the unified ``run`` interface."""
         if policy_name not in self._policies:
             self._logger.warning("Unknown policy requested: %s", policy_name)
             return None
-        policy_method = getattr(self._policies[policy_name], method, None)
-        if not callable(policy_method):
-            self._logger.warning("Policy %r has no callable method %r", policy_name, method)
+        result = self._policies[policy_name].run(stage, inputs or {})
+        if result.code != "success":
+            self._logger.warning("Policy %r returned code %r for stage %r", policy_name, result.code, stage)
             return None
-        return policy_method(**kwargs)
+        output = result.output
+        if isinstance(output, dict) and "output" in output:
+            return output["output"]
+        return output
 
-    def _train(
-        self,
-        policy: Any,
-        epoch: int,
-        method: str,
-        options: dict[str, Any],
-    ) -> tuple[Any, dict[str, Any]]:
+    def _train(self, policy: Any, epoch: int, options: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         """Hook for subclasses to implement the actual training logic.
 
         Args:
             policy: Configured policy object to train.
             epoch: Number of training epochs to run.
-            method: Training method/stage identifier.
             options: Training options/hyperparameters.
 
         Returns:
@@ -415,7 +405,7 @@ class BaseAgent(RegisteredBase):
 
     def _update_policy(self, policy_name: str, **new_policy: Any) -> Any:
         """Update a configured policy by name."""
-        return self._run_policy(policy_name, method="update", **new_policy)
+        return self._run_policy(policy_name, stage="update", inputs=new_policy)
 
     def _compute_reward(self) -> float:
         """Compute the current reward."""
@@ -518,6 +508,11 @@ class BaseAgent(RegisteredBase):
         return self._get_sub_dir(self._step_dir_name(self._exec_cnt, self._trial_cnt), "debug")
 
     @property
+    def viz_dir(self) -> Path:
+        """Path to the visualization output directory."""
+        return self._get_sub_dir("visualize")
+
+    @property
     def train_dir(self) -> Path:
         """Path to the train output directory."""
         return self._get_sub_dir("train")
@@ -529,7 +524,7 @@ class BaseAgent(RegisteredBase):
         cfg_alias = self._config.alias
         if cfg_alias and cfg_alias == cfg_name:
             cfg_alias = None
-        name = cfg_name or self.name
+        name = cfg_name or type(self).__name__
         return f"{cfg_alias}({name})" if cfg_alias else name
 
     @property

@@ -43,7 +43,7 @@ class GraspRobotConfig(BaseRobotConfig):
 class GraspRobot(BaseRobot):
     """Genesis grasp manipulation eval environment."""
 
-    name = "Genesis Grasp Robot"
+    robot_type = "genesis_grasp"
     config_cls = GraspRobotConfig
 
     def __init__(self, config: GraspRobotConfig, logger: logging.Logger):
@@ -91,10 +91,6 @@ class GraspRobot(BaseRobot):
 
         self.left_cam: Any = None
         self.right_cam: Any = None
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "genesis_grasp"
 
     def post_build(self, scene: Any) -> None:
         super().post_build(scene)

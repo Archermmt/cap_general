@@ -49,7 +49,7 @@ def gs_rand_float(lower, upper, shape, device):
 class DroneHoverRobot(BaseRobot):
     """Genesis drone hover eval environment."""
 
-    name = "Genesis Drone Hover Robot"
+    robot_type = "genesis_drone"
     config_cls = DroneHoverRobotConfig
 
     def __init__(self, config: DroneHoverRobotConfig, logger: logging.Logger):
@@ -112,10 +112,6 @@ class DroneHoverRobot(BaseRobot):
         # body camera
         self._body_camera: Any = None
         self._camera_failed = False
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "genesis_drone"
 
     def post_build(self, scene: Any) -> None:
         super().post_build(scene)

@@ -25,16 +25,12 @@ class FrankaAgentConfig(BaseAgentConfig):
 class FrankaAgent(BaseAgent):
     """Agent that runs high-level Franka episodes through the Genesis robot controller."""
 
-    name = "Genesis Franka Agent"
+    agent_type = "franka"
     config_cls = FrankaAgentConfig
 
     def __init__(self, config: FrankaAgentConfig, logger: Logger):
         self.horizon = int(config.horizon)
         super().__init__(config=config, logger=logger)
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "franka"
 
     def init_genesis(self, gs_scene: Any) -> None:
         self._robot.init_genesis(gs_scene)

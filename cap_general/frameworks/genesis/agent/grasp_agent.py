@@ -6,14 +6,10 @@ import importlib
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
 from cap_general.core.utils import tensor_mean_value, tensor_to_scalar
-
-if TYPE_CHECKING:
-    from logging import Logger
-
 
 @dataclass
 class GraspAgentConfig(BaseAgentConfig):
@@ -32,19 +28,8 @@ class GraspAgentConfig(BaseAgentConfig):
 class GraspAgent(BaseAgent):
     """Agent that evaluates Genesis Franka grasp policies."""
 
-    name = "Genesis Grasp Agent"
+    agent_type = "genesis_grasp"
     config_cls = GraspAgentConfig
-
-    def __init__(self, config: GraspAgentConfig, logger: Logger):
-        self._rl_policy_name = config.rl_policy
-        self._bc_policy_name = config.bc_policy
-        self._stage = config.stage
-        self._run_demo_after_episode = bool(config.run_demo_after_episode)
-        super().__init__(config=config, logger=logger)
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "genesis_grasp"
 
     def init_genesis(self, gs_scene: Any) -> None:
         self._robot.init_genesis(gs_scene)
@@ -61,20 +46,18 @@ class GraspAgent(BaseAgent):
 
     def grasp_episode(self, stage: str | None = None, max_steps: int | None = None) -> dict[str, Any]:
         """Run one Genesis grasp episode with an RL or BC policy."""
-        current_stage = stage or self._stage
+        current_stage = stage or self._config.stage
         steps = int(max_steps or self._config.horizon)
         obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":
-                action = self._run_policy(self._rl_policy_name, obs=obs)
+                action = self._run_policy(self._config.rl_policy, inputs={"obs": obs})
             elif current_stage == "bc":
                 rgb_obs = self._robot.get_stereo_rgb_images(normalize=True).float()
                 ee_pose = self._robot.robot.ee_pose.float()
                 action = self._run_policy(
-                    self._bc_policy_name,
-                    env=self._robot,
-                    rgb_obs=rgb_obs,
-                    ee_pose=ee_pose,
+                    self._config.bc_policy,
+                    inputs={"env": self._robot, "rgb_obs": rgb_obs, "ee_pose": ee_pose},
                 )
             else:
                 raise ValueError(f"Unknown grasp stage: {current_stage!r}")
@@ -83,7 +66,7 @@ class GraspAgent(BaseAgent):
                 break
             obs = self._robot.policy_obs
 
-        if self._run_demo_after_episode:
+        if self._config.run_demo_after_episode:
             self._robot.grasp_and_lift_demo()
         return {"stage": current_stage}
 
@@ -310,27 +293,22 @@ class GraspAgent(BaseAgent):
         return summary
 
     @staticmethod
-    def _load_policy_to_runner(policy: Any, runner: Any, env: Any) -> None:
-        """Load an agent policy's current weights into a training runner."""
-        source_policy = getattr(policy, "_actor", None)
-        if source_policy is None:
-            if policy._policy is None:
-                policy._ensure_loaded(env)
-            source_policy = policy._policy
+    def _load_model_to_runner(model: Any, runner: Any, env: Any) -> None:
+        """Load model weights into a training runner."""
         if hasattr(runner, "alg"):
             runner_policy = runner.alg.get_policy().to(env.device)
         else:
             runner_policy = runner._policy
-        runner_policy.load_state_dict(source_policy.state_dict())
+        runner_policy.load_state_dict(model.state_dict())
 
-    def _train(self, policy: Any, epoch: int, method: str, options: dict) -> tuple[dict, dict]:
+    def _train(self, policy: Any, epoch: int, options: dict) -> tuple[dict, dict]:
         """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
         try:
             from rsl_rl.runners import OnPolicyRunner
         except ImportError as exc:
             raise ImportError("rsl-rl-lib>=5.0.0 is required for RL training.") from exc
 
-        stage = self._stage
+        stage = self._config.stage
         if stage not in {"rl", "bc"}:
             raise ValueError(f"Unsupported grasp stage for training: {stage!r}")
 
@@ -343,6 +321,7 @@ class GraspAgent(BaseAgent):
 
         env = self._robot
         policy_name = policy.name
+        model = policy.get_model("model")
         log_dir = self.train_dir / f"{policy_name}_{stage}"
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -416,10 +395,11 @@ class GraspAgent(BaseAgent):
 
         if stage == "bc":
             rl_runner = OnPolicyRunner(env, rl_cfg, str(log_dir), device=env.device)
-            self._load_policy_to_runner(self._policies[self._rl_policy_name], rl_runner, env)
+            rl_model = self._policies[self._config.rl_policy].get_model()
+            self._load_model_to_runner(rl_model, rl_runner, env)
             teacher_policy = rl_runner.get_inference_policy(device=env.device)
             runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
-            self._load_policy_to_runner(policy, runner, env)
+            self._load_model_to_runner(model, runner, env)
             summary = self._capture_bc_summary(
                 runner,
                 behavior_cloning_module,
@@ -430,7 +410,7 @@ class GraspAgent(BaseAgent):
             new_policy = {"state_dict": runner._policy.state_dict()}
         else:
             runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
-            self._load_policy_to_runner(policy, runner, env)
+            self._load_model_to_runner(model, runner, env)
             summary = self._capture_rl_summary(
                 runner,
                 interval=record_epoch,
@@ -443,7 +423,6 @@ class GraspAgent(BaseAgent):
             {
                 "policy_name": policy_name,
                 "stage": stage,
-                "method": method,
                 "train_dir": str(log_dir),
                 "epoch": epoch,
                 "seed": seed,

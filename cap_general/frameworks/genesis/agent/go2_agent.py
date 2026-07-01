@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
-
-if TYPE_CHECKING:
-    from logging import Logger
 
 
 @dataclass
@@ -26,17 +23,8 @@ class Go2AgentConfig(BaseAgentConfig):
 class Go2Agent(BaseAgent):
     """Agent that evaluates Genesis GO2 locomotion policies."""
 
-    name = "Genesis GO2 Agent"
+    agent_type = "genesis_go2"
     config_cls = Go2AgentConfig
-
-    def __init__(self, config: Go2AgentConfig, logger: Logger):
-        self._policy_name = config.policy
-        self.horizon = int(config.horizon)
-        super().__init__(config=config, logger=logger)
-
-    @classmethod
-    def agent_type(cls) -> str:
-        return "genesis_go2"
 
     def init_genesis(self, gs_scene: Any) -> None:
         self._robot.init_genesis(gs_scene)
@@ -55,7 +43,7 @@ class Go2Agent(BaseAgent):
 
     def walk_forward(self, max_steps: int | None = None, turn_angle: float = 0.0) -> dict[str, Any]:
         """Make GO2 walk forward and smoothly turn by biasing policy actions."""
-        steps = int(max_steps or self.horizon)
+        steps = int(max_steps or self._config.horizon)
         self._robot.set_walk_command(turn_angle=0.0, steps=steps)
         self._run_policy_steps(
             steps=steps,
@@ -81,7 +69,7 @@ class Go2Agent(BaseAgent):
     ) -> int:
         obs = self._robot.policy_obs
         for _ in range(max(int(steps), 0)):
-            action = self._run_policy(self._policy_name, obs=obs)
+            action = self._run_policy(self._config.policy, inputs={"obs": obs})
             action = self._robot.apply_turn_to_action(action, turn_angle)
             obs, _reward, terminated, truncated, _info = self._robot.step(action)
             after_step()

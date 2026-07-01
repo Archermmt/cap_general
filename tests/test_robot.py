@@ -12,11 +12,8 @@ LOGGER = logging.getLogger(__name__)
 class DummyRobot(BaseRobot):
     """Small concrete robot for base interface tests."""
 
-    name = "Dummy Robot"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "dummy"
+    robot_type = "dummy"
+    config_cls = BaseRobot.config_cls
 
     def _reset(
         self,
@@ -142,5 +139,5 @@ def test_grasp_robot_train_restores_training_episode_length_and_resets():
 
 
 def test_robot_base_registry():
-    assert BaseRobot.robot_type() == "base"
+    assert BaseRobot.robot_type == "base"
     assert BaseRobot.get_registered_class("dummy") is DummyRobot
