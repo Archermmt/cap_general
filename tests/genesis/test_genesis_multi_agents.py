@@ -1,12 +1,12 @@
 """Test a Genesis scene with three Grasp agents.
 
 Local mode:
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --parallel
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_agents.py
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_agents.py --parallel
 
 Remote mode:
-    capcmd server --config configs/genesis/multi_agents.yaml
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_multi_agents.py --remote --config configs/genesis/multi_agents.yaml
+    capcmd server --config configs/genesis/genesis_multi_agents.yaml
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_agents.py --remote --config configs/genesis/genesis_multi_agents.yaml
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
 _DEFAULT_TASK_NUM = 9
-_DEFAULT_CONFIG = "configs/genesis/multi_agents.yaml"
+_DEFAULT_CONFIG = "configs/genesis/genesis_multi_agents.yaml"
 _AGENTS = ("grasp_0", "grasp_1", "grasp_2")
 
 

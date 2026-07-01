@@ -1,14 +1,8 @@
 """CAP agent components."""
 
-from cap_general.core.agent.base_agent import (
-    BaseAgent,
-    BaseAgentConfig,
-)
-from cap_general.core.utils import ResetLevel, ResetMode
+from cap_general.core.agent.base_agent import BaseAgent, BaseAgentConfig
 
 __all__ = [
     "BaseAgent",
     "BaseAgentConfig",
-    "ResetMode",
-    "ResetLevel",
 ]

@@ -1,11 +1,11 @@
 """Test DroneAgent locally or remotely through MCP.
 
 Local mode:
-    python tests/genesis/test_drone_agent.py
+    python tests/genesis/test_genesis_drone_agent.py
 
 Remote mode:
-    capcmd server --config configs/genesis/drone_agent.yaml
-    python tests/genesis/test_drone_agent.py --remote --config configs/genesis/drone_agent.yaml
+    capcmd server --config configs/genesis/genesis_drone_agent.yaml
+    python tests/genesis/test_genesis_drone_agent.py --remote --config configs/genesis/genesis_drone_agent.yaml
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if str(_REPO_ROOT) not in sys.path:
 from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
-_DEFAULT_CONFIG = "configs/genesis/drone_agent.yaml"
+_DEFAULT_CONFIG = "configs/genesis/genesis_drone_agent.yaml"
 _DEFAULT_TASK_NUM = 5
 _DEFAULT_AGENT = "drone"
 

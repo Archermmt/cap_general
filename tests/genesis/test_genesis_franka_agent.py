@@ -1,11 +1,11 @@
 """Test FrankaAgent locally or remotely through MCP.
 
 Local mode:
-    python tests/genesis/test_franka_agent.py
+    python tests/genesis/test_genesis_franka_agent.py
 
 Remote mode:
-    capcmd server --config configs/genesis/franka_agent.yaml
-    python tests/genesis/test_franka_agent.py --remote --config configs/genesis/franka_agent.yaml
+    capcmd server --config configs/genesis/genesis_franka_agent.yaml
+    python tests/genesis/test_genesis_franka_agent.py --remote --config configs/genesis/genesis_franka_agent.yaml
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 2
 _DEFAULT_TRIAL_NUM = 1
-_DEFAULT_CONFIG = "configs/genesis/franka_agent.yaml"
+_DEFAULT_CONFIG = "configs/genesis/genesis_franka_agent.yaml"
 _DEFAULT_AGENT = "franka"
 
 
