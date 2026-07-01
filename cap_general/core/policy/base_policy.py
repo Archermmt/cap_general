@@ -30,7 +30,7 @@ class BasePolicy(RegisteredBase):
 
     _registry: ClassVar[dict[str, type["BasePolicy"]]] = {}
     registry_key_attr: ClassVar[str] = "policy_type"
-    policy_type: ClassVar[str] = "base_policy"
+    policy_type: ClassVar[str] = "base"
     config_cls: ClassVar[type[BasePolicyConfig]] = BasePolicyConfig
 
     def __init__(self, config: BasePolicyConfig, logger: logging.Logger):
@@ -142,4 +142,4 @@ class BasePolicy(RegisteredBase):
         return self._training
 
 
-BasePolicy._registry["base_policy"] = BasePolicy
+BasePolicy._registry["base"] = BasePolicy

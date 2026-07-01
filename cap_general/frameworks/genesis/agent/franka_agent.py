@@ -6,34 +6,32 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.agent import BaseAgentConfig
+from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent
 
 if TYPE_CHECKING:
     from logging import Logger
 
 
 @dataclass
-class FrankaAgentConfig(BaseAgentConfig):
-    """Configuration for FrankaAgent."""
+class GenesisFrankaAgentConfig(BaseAgentConfig):
+    """Configuration for GenesisFrankaAgent."""
 
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     horizon: int = 100
 
 
-@BaseAgent.register()
-class FrankaAgent(BaseAgent):
+@GenesisBaseAgent.register()
+class GenesisFrankaAgent(GenesisBaseAgent):
     """Agent that runs high-level Franka episodes through the Genesis robot controller."""
 
     agent_type = "franka"
-    config_cls = FrankaAgentConfig
+    config_cls = GenesisFrankaAgentConfig
 
-    def __init__(self, config: FrankaAgentConfig, logger: Logger):
+    def __init__(self, config: GenesisFrankaAgentConfig, logger: Logger):
         self.horizon = int(config.horizon)
         super().__init__(config=config, logger=logger)
-
-    def init_genesis(self, gs_scene: Any) -> None:
-        self._robot.init_genesis(gs_scene)
 
     def _execute_rules(self) -> str:
         """Return valid rules for execute for the Genesis Franka robot."""

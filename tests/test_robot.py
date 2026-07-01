@@ -98,9 +98,9 @@ def test_robot_train_and_eval_switch_reset_and_step_semantics():
 
 
 def test_grasp_robot_train_restores_training_episode_length_and_resets():
-    from cap_general.frameworks.genesis.robot.grasp_robot import GraspRobot, GraspRobotConfig
+    from cap_general.frameworks.genesis.robot.genesis_grasp_robot import GenesisGraspRobot, GenesisGraspRobotConfig
 
-    robot = GraspRobot(config=GraspRobotConfig(), logger=LOGGER)
+    robot = GenesisGraspRobot(config=GenesisGraspRobotConfig(), logger=LOGGER)
     # Simulate a fully-built genesis state without actual Genesis deps
     robot.ctrl_dt = 0.01
     robot._env_cfg = {"episode_length_s": 10_000.0}

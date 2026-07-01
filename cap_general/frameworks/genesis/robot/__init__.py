@@ -1,18 +1,18 @@
 """Genesis robot controllers."""
 
-from cap_general.frameworks.genesis.robot.drone_robot import DroneHoverRobot, DroneHoverRobotConfig
-from cap_general.frameworks.genesis.robot.franka_robot import FrankaRobot, FrankaRobotConfig, ObjConfig
-from cap_general.frameworks.genesis.robot.go2_robot import Go2Robot, Go2RobotConfig
-from cap_general.frameworks.genesis.robot.grasp_robot import GraspRobot, GraspRobotConfig
+from cap_general.frameworks.genesis.robot.genesis_drone_robot import GenesisDroneRobot, GenesisDroneRobotConfig
+from cap_general.frameworks.genesis.robot.genesis_franka_robot import GenesisFrankaRobot, GenesisFrankaRobotConfig, ObjConfig
+from cap_general.frameworks.genesis.robot.genesis_go2_robot import GenesisGo2Robot, GenesisGo2RobotConfig
+from cap_general.frameworks.genesis.robot.genesis_grasp_robot import GenesisGraspRobot, GenesisGraspRobotConfig
 
 __all__ = [
-    "DroneHoverRobot",
-    "DroneHoverRobotConfig",
-    "FrankaRobot",
-    "FrankaRobotConfig",
+    "GenesisDroneRobot",
+    "GenesisDroneRobotConfig",
+    "GenesisFrankaRobot",
+    "GenesisFrankaRobotConfig",
     "ObjConfig",
-    "Go2Robot",
-    "Go2RobotConfig",
-    "GraspRobot",
-    "GraspRobotConfig",
+    "GenesisGo2Robot",
+    "GenesisGo2RobotConfig",
+    "GenesisGraspRobot",
+    "GenesisGraspRobotConfig",
 ]

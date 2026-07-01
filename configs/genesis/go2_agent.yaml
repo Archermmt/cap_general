@@ -1,4 +1,5 @@
 type: genesis
+verbose_level: warning
 backend: cpu
 show_viewer: true
 sim_options:
@@ -68,7 +69,7 @@ agents:
       max_episode_steps: 1000000
     policies:
       runner:
-        type: base_policy
+        type: base
         graph:
           name: runner
           nodes:

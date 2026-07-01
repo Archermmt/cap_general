@@ -64,7 +64,7 @@ class BaseScene(RegisteredBase):
 
     _registry: ClassVar[dict[str, type["BaseScene"]]] = {}
     registry_key_attr: ClassVar[str] = "scene_type"
-    scene_type: ClassVar[str] = "base_scene"
+    scene_type: ClassVar[str] = "base"
     config_cls: ClassVar[type[BaseSceneConfig]] = BaseSceneConfig
 
     def __init__(self, config: BaseSceneConfig, logger: logging.Logger | None = None):

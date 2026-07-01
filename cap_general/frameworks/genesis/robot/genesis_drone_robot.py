@@ -17,7 +17,7 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 
 
 @dataclass
-class DroneHoverRobotConfig(BaseRobotConfig):
+class GenesisDroneRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis drone hover example."""
 
     example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/drone"
@@ -46,13 +46,13 @@ def gs_rand_float(lower, upper, shape, device):
 
 
 @BaseRobot.register()
-class DroneHoverRobot(BaseRobot):
+class GenesisDroneRobot(BaseRobot):
     """Genesis drone hover eval environment."""
 
     robot_type = "genesis_drone"
-    config_cls = DroneHoverRobotConfig
+    config_cls = GenesisDroneRobotConfig
 
-    def __init__(self, config: DroneHoverRobotConfig, logger: logging.Logger):
+    def __init__(self, config: GenesisDroneRobotConfig, logger: logging.Logger):
         if config.camera_enabled and "camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "camera_image"]
         super().__init__(config=config, logger=logger)

@@ -20,6 +20,7 @@ class GenesisSceneConfig(BaseSceneConfig):
     """Configuration for a Genesis-backed multi-agent scene."""
 
     backend: str | None = None
+    verbose_level: str = "warning"
     show_viewer: bool = False
     sim_options: dict[str, Any] = field(default_factory=dict)
     rigid_options: dict[str, Any] = field(default_factory=dict)
@@ -52,10 +53,8 @@ def _resolve_options(options: dict[str, Any], gs: Any) -> dict[str, Any]:
 class GenesisScene(BaseScene):
     """Scene that owns one shared Genesis scene plus optional observation camera."""
 
-    name = "Genesis Scene"
-    config_cls = GenesisSceneConfig
-
     scene_type = "genesis"
+    config_cls = GenesisSceneConfig
 
     def __init__(self, config: GenesisSceneConfig | dict[str, Any], logger=None):
         self._gs_scene = None
@@ -70,10 +69,11 @@ class GenesisScene(BaseScene):
     def _pre_build(self) -> None:
         import genesis as gs
 
+        init_kwargs = {"logging_level": self._config.verbose_level}
         if self._config.backend:
-            gs.init(backend=getattr(gs, self._config.backend))
+            gs.init(backend=getattr(gs, self._config.backend), **init_kwargs)
         else:
-            gs.init()
+            gs.init(**init_kwargs)
 
         scene_kwargs: dict[str, Any] = {"show_viewer": self._config.show_viewer}
         if self._config.sim_options:

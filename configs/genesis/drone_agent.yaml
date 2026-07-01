@@ -1,4 +1,5 @@
 type: genesis
+verbose_level: warning
 backend: cpu
 show_viewer: true
 sim_options:
@@ -73,7 +74,7 @@ agents:
       auto_reset: false
     policies:
       runner:
-        type: base_policy
+        type: base
         graph:
           name: runner
           nodes:

@@ -17,7 +17,7 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 
 
 @dataclass
-class GraspRobotConfig(BaseRobotConfig):
+class GenesisGraspRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis grasp manipulation example."""
 
     example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/manipulation"
@@ -40,13 +40,13 @@ class GraspRobotConfig(BaseRobotConfig):
 
 
 @BaseRobot.register()
-class GraspRobot(BaseRobot):
+class GenesisGraspRobot(BaseRobot):
     """Genesis grasp manipulation eval environment."""
 
     robot_type = "genesis_grasp"
-    config_cls = GraspRobotConfig
+    config_cls = GenesisGraspRobotConfig
 
-    def __init__(self, config: GraspRobotConfig, logger: logging.Logger):
+    def __init__(self, config: GenesisGraspRobotConfig, logger: logging.Logger):
         if config.visualize_camera and "hand_camera_image" not in config.image_keys:
             config.image_keys = [*config.image_keys, "hand_camera_image"]
         super().__init__(config=config, logger=logger)

@@ -49,23 +49,23 @@ def _default_objects() -> list[ObjConfig]:
 
 
 @dataclass
-class FrankaRobotConfig(BaseRobotConfig):
-    """Configuration for FrankaRobot."""
+class GenesisFrankaRobotConfig(BaseRobotConfig):
+    """Configuration for GenesisFrankaRobot."""
 
     robot: Any | None = None
     objects: list[ObjConfig | dict[str, Any]] = field(default_factory=_default_objects)
 
 
 @BaseRobot.register()
-class FrankaRobot(BaseRobot):
+class GenesisFrankaRobot(BaseRobot):
     """Genesis scene with one Franka arm and configured objects."""
 
     robot_type = "genesis_franka"
-    config_cls = FrankaRobotConfig
+    config_cls = GenesisFrankaRobotConfig
 
     def __init__(
         self,
-        config: FrankaRobotConfig,
+        config: GenesisFrankaRobotConfig,
         logger: logging.Logger,
     ):
         super().__init__(config=config, logger=logger)
@@ -252,7 +252,7 @@ class FrankaRobot(BaseRobot):
         if self._entities_added:
             return
         if self._gs_scene is None:
-            raise RuntimeError("FrankaRobot is not bound to a Genesis scene")
+            raise RuntimeError("GenesisFrankaRobot is not bound to a Genesis scene")
 
         import genesis as gs
 

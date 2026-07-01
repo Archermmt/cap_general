@@ -1,4 +1,5 @@
 type: genesis
+verbose_level: warning
 backend: cpu
 show_viewer: false
 viewer_options:

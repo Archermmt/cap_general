@@ -16,7 +16,7 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 
 
 @dataclass
-class Go2RobotConfig(BaseRobotConfig):
+class GenesisGo2RobotConfig(BaseRobotConfig):
     """Configuration for the Genesis GO2 locomotion example."""
 
     example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/locomotion"
@@ -45,13 +45,13 @@ def gs_rand(lower, upper, batch_shape):
 
 
 @BaseRobot.register()
-class Go2Robot(BaseRobot):
+class GenesisGo2Robot(BaseRobot):
     """Genesis GO2 locomotion eval environment."""
 
     robot_type = "genesis_go2"
-    config_cls = Go2RobotConfig
+    config_cls = GenesisGo2RobotConfig
 
-    def __init__(self, config: Go2RobotConfig, logger: logging.Logger):
+    def __init__(self, config: GenesisGo2RobotConfig, logger: logging.Logger):
         super().__init__(config=config, logger=logger)
         self._config = config
 
