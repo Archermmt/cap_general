@@ -77,6 +77,7 @@ class DroneHoverRobot(BaseRobot):
         self.max_episode_length: int = 0
         self.obs_scales: dict[str, float] = {}
         self.reward_scales: dict[str, float] = {}
+        self._train_reward_scales: dict[str, float] = {}
         self.lock_commands: bool = False
 
         # genesis entities
@@ -187,6 +188,9 @@ class DroneHoverRobot(BaseRobot):
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self._update_observation()
         self._last_policy_obs = self._get_observations()
+        if self._training:
+            del options
+            return self._last_policy_obs
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"options": options or {}}
@@ -242,7 +246,7 @@ class DroneHoverRobot(BaseRobot):
         self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=gs.device, dtype=gs.tc_float)
         self.extras["time_outs"][time_out_idx] = 1.0
 
-        if self.env_cfg.get("auto_reset", True):
+        if self._training or self.env_cfg.get("auto_reset", True):
             self.reset_idx(self.reset_buf.nonzero(as_tuple=False).reshape((-1,)))
 
         self.rew_buf[:] = 0.0
@@ -255,10 +259,36 @@ class DroneHoverRobot(BaseRobot):
         self.last_actions[:] = self.actions[:]
         self._being_stepped = False
         obs, reward, done, info = self._get_observations(), self.rew_buf, self.reset_buf, self.extras
+        if self._training:
+            return obs, reward, done, info
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
         return self._build_observation(), 0.0, self._last_done, False, info
+
+    def _on_train(self) -> None:
+        import genesis as gs
+        import torch
+
+        self.lock_commands = False
+        if self.target is not None:
+            self.target.set_pos(self.commands, zero_velocity=True)
+        self.reward_scales = {name: scale * self.dt for name, scale in self._train_reward_scales.items()}
+        self.reward_functions = {name: getattr(self, "_reward_" + name) for name in self.reward_scales}
+        self.episode_sums = {
+            name: torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+            for name in self.reward_scales
+        }
+        self.reset_buf[:] = True
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self._update_observation()
+        self._last_policy_obs = self._get_observations()
+
+    def _on_eval(self) -> None:
+        self.reward_scales = {}
+        self.reward_functions = {}
+        self.episode_sums = {}
+        self._last_policy_obs = self._get_observations()
 
     def compute_reward(self) -> float:
         return self._last_reward
@@ -288,6 +318,7 @@ class DroneHoverRobot(BaseRobot):
         if self._config.base_init_pos is not None:
             env_cfg["base_init_pos"] = list(self._config.base_init_pos)
         reward_cfg = dict(reward_cfg)
+        self._train_reward_scales = dict(reward_cfg["reward_scales"])
         reward_cfg["reward_scales"] = {}
         self.num_envs = self._config.num_envs
         self.num_actions = env_cfg["num_actions"]
@@ -448,6 +479,10 @@ class DroneHoverRobot(BaseRobot):
             device=self.device,
         )
 
+    def get_observations(self):
+        """Return raw vector observations used by training runners."""
+        return self._get_observations()
+
     def reset_idx(self, envs_idx):
         import torch
 
@@ -473,3 +508,35 @@ class DroneHoverRobot(BaseRobot):
         self._resample_commands(envs_idx)
         self.rel_pos = self.commands - self.base_pos
         self.last_rel_pos = self.commands - self.last_base_pos
+
+    # ------------ reward functions ----------------
+
+    def _reward_target(self):
+        import torch
+
+        return torch.sum(torch.square(self.last_rel_pos), dim=1) - torch.sum(torch.square(self.rel_pos), dim=1)
+
+    def _reward_smooth(self):
+        import torch
+
+        return torch.sum(torch.square(self.actions - self.last_actions), dim=1)
+
+    def _reward_yaw(self):
+        import torch
+
+        yaw = self.base_euler[:, 2]
+        yaw = torch.where(yaw > 180, yaw - 360, yaw) / 180 * 3.14159
+        return torch.exp(self.reward_cfg["yaw_lambda"] * torch.abs(yaw))
+
+    def _reward_angular(self):
+        import torch
+
+        return torch.norm(self.base_ang_vel / 3.14159, dim=1)
+
+    def _reward_crash(self):
+        import genesis as gs
+        import torch
+
+        reward = torch.zeros((self.num_envs,), device=gs.device, dtype=gs.tc_float)
+        reward[self.crash_condition] = 1
+        return reward

@@ -52,6 +52,11 @@ RESULT = {{
 """
 
 
+def _make_train_request(train_ep: int) -> dict:
+    """Build a lightweight DroneAgent training request for smoke tests."""
+    return {"policy_name": "runner", "epoch": train_ep, "options": {"record_epoch": 50}}
+
+
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
     import cap_general.frameworks.genesis  # noqa: F401
     from cap_general.core.scene import BaseScene
@@ -60,11 +65,23 @@ def _make_local_scene(config: str, config_overrides: list[str] | None = None):
 
 
 async def _run_local(
-    config: str, max_steps: int, task_num: int, config_overrides: list[str] | None = None
+    config: str,
+    max_steps: int,
+    task_num: int,
+    train_ep: int,
+    config_overrides: list[str] | None = None,
 ) -> dict:
     """Run DroneAgent hover tasks in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
+    if train_ep > 0:
+        print("\n[test] --- Train smoke test ---")
+        await scene.train({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        status = await scene.monitor([_DEFAULT_AGENT])
+        result = test_utils.single_agent_result(status)["result"]
+        if not result.get("ok", False):
+            raise AssertionError(result.get("error") or result)
+        test_utils.print_train_summary("[test]", result)
     print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     for task_idx, target_pos in enumerate(_target_positions(task_num)):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
@@ -78,7 +95,11 @@ async def _run_local(
 
 
 async def _run_remote(
-    config: str, max_steps: int, task_num: int, config_overrides: list[str] | None = None
+    config: str,
+    max_steps: int,
+    task_num: int,
+    train_ep: int,
+    config_overrides: list[str] | None = None,
 ) -> dict:
     """Run DroneAgent hover tasks through MCP."""
     from mcp import ClientSession
@@ -93,6 +114,18 @@ async def _run_remote(
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
             await test_utils.call_tool(session, "reset", {"agent_options": {_DEFAULT_AGENT: {}}})
+            if train_ep > 0:
+                print("\n[mcp_test] --- Train smoke test ---")
+                await test_utils.call_tool(
+                    session,
+                    "train",
+                    {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
+                )
+                status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                result = test_utils.single_agent_result(status)["result"]
+                if not result.get("ok", False):
+                    raise AssertionError(result.get("error") or result)
+                test_utils.print_train_summary("[mcp_test]", result)
             agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
             agent_doc = test_utils.single_agent_result(agent_doc)
             print(f"[mcp_test] agent_doc {agent_doc}")
@@ -121,14 +154,15 @@ def run_drone_test(
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
     remote: bool = False,
+    train_ep: int = 0,
     config_overrides: list[str] | None = None,
 ) -> dict:
     """Run DroneAgent hover tasks in-process or through MCP."""
     if remote:
         if not config:
             raise ValueError("Remote DroneAgent test requires --config")
-        return asyncio.run(_run_remote(config, max_steps, task_num, config_overrides))
-    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, config_overrides))
+        return asyncio.run(_run_remote(config, max_steps, task_num, train_ep, config_overrides))
+    return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, train_ep, config_overrides))
 
 
 def test_local_drone_agent() -> None:
@@ -144,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
     parser.add_argument("--remote", action="store_true", default=False)
+    parser.add_argument("--train_ep", type=int, default=0)
     args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
 
     result = run_drone_test(
@@ -151,6 +186,7 @@ if __name__ == "__main__":
         max_steps=args.max_steps,
         task_num=args.task_num,
         remote=args.remote,
+        train_ep=args.train_ep,
         config_overrides=config_overrides,
     )
     print("\n[PASS]")

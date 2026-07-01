@@ -196,7 +196,29 @@ class GraspRobot(BaseRobot):
 
     def grasp_and_lift_demo(self) -> bool:
         """Run the demo lift sequence."""
-        self._grasp_and_lift_demo()
+        import torch
+
+        total_steps = 500
+        goal_pose = self.robot.ee_pose.clone()
+        lift_height = 0.3
+        lift_pose = goal_pose.clone()
+        lift_pose[:, 2] += lift_height
+        final_pose = goal_pose.clone()
+        final_pose[:, 0] = 0.3 + self.scene_offset[0]
+        final_pose[:, 1] = self.scene_offset[1]
+        final_pose[:, 2] = 0.4
+        reset_pose = torch.tensor([0.2, 0.0, 0.4, 0.0, 1.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
+        reset_pose[:, :3] += self.scene_offset.reshape(1, 3)
+        for i in range(total_steps):
+            if i < total_steps / 4:
+                self.robot.go_to_goal(goal_pose, open_gripper=False)
+            elif i < total_steps / 2:
+                self.robot.go_to_goal(lift_pose, open_gripper=False)
+            elif i < total_steps * 3 / 4:
+                self.robot.go_to_goal(final_pose, open_gripper=False)
+            else:
+                self.robot.go_to_goal(reset_pose, open_gripper=True)
+            self._scene.step_scene()
         return True
 
     def init_genesis(self, gs_scene: Any) -> None:
@@ -495,33 +517,6 @@ class GraspRobot(BaseRobot):
         object_pos_keypoints = transform_by_trans_quat(keypoints_offset, obj_pos.unsqueeze(1), obj_quat.unsqueeze(1))
         dist = torch.norm(finger_pos_keypoints - object_pos_keypoints, p=2, dim=-1).sum(-1)
         return torch.exp(-dist)
-
-    # ------------ demo ----------------
-
-    def _grasp_and_lift_demo(self) -> None:
-        import torch
-
-        total_steps = 500
-        goal_pose = self.robot.ee_pose.clone()
-        lift_height = 0.3
-        lift_pose = goal_pose.clone()
-        lift_pose[:, 2] += lift_height
-        final_pose = goal_pose.clone()
-        final_pose[:, 0] = 0.3 + self.scene_offset[0]
-        final_pose[:, 1] = self.scene_offset[1]
-        final_pose[:, 2] = 0.4
-        reset_pose = torch.tensor([0.2, 0.0, 0.4, 0.0, 1.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
-        reset_pose[:, :3] += self.scene_offset.reshape(1, 3)
-        for i in range(total_steps):
-            if i < total_steps / 4:
-                self.robot.go_to_goal(goal_pose, open_gripper=False)
-            elif i < total_steps / 2:
-                self.robot.go_to_goal(lift_pose, open_gripper=False)
-            elif i < total_steps * 3 / 4:
-                self.robot.go_to_goal(final_pose, open_gripper=False)
-            else:
-                self.robot.go_to_goal(reset_pose, open_gripper=True)
-            self._scene.step_scene()
 
     # ------------ static helpers ----------------
 

@@ -75,6 +75,7 @@ class Go2Robot(BaseRobot):
         self.max_episode_length: int = 0
         self.obs_scales: dict[str, float] = {}
         self.reward_scales: dict[str, float] = {}
+        self._train_reward_scales: dict[str, float] = {}
 
         # genesis entities
         self.robot: Any = None
@@ -245,10 +246,38 @@ class Go2Robot(BaseRobot):
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         self._reset_idx()
         self._update_observation()
-        self._last_policy_obs = self._get_observations()
+        obs = self._get_observations()
+        if self._training:
+            del options
+            return obs
+        self._last_policy_obs = obs
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
+
+    def _on_train(self) -> None:
+        import genesis as gs
+        import torch
+
+        self.robot.control_dofs_position(
+            self.default_dof_pos.repeat(self.num_envs, 1)[:, self.actions_dof_idx],
+            slice(6, 18),
+        )
+        self.reward_scales = {name: scale * self.dt for name, scale in self._train_reward_scales.items()}
+        self.reward_functions = {name: getattr(self, "_reward_" + name) for name in self.reward_scales}
+        self.episode_sums = {
+            name: torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+            for name in self.reward_scales
+        }
+        self._reset_idx()
+        self._update_observation()
+        self._last_policy_obs = self._get_observations()
+
+    def _on_eval(self) -> None:
+        self.reward_scales = {}
+        self.reward_functions = {}
+        self.episode_sums = {}
+        self._last_policy_obs = self._get_observations()
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         import genesis as gs
@@ -301,6 +330,8 @@ class Go2Robot(BaseRobot):
         self.last_dof_vel.copy_(self.dof_vel)
 
         obs, reward, done, info = self._get_observations(), self.rew_buf, self.reset_buf, self.extras
+        if self._training:
+            return obs, reward, done, info
         self._last_policy_obs = obs
         self._last_reward = float(reward.mean().item()) if hasattr(reward, "mean") else float(reward)
         self._last_done = bool(done.any().item()) if hasattr(done, "any") else bool(done)
@@ -328,6 +359,7 @@ class Go2Robot(BaseRobot):
         if self._config.base_init_pos is not None:
             env_cfg["base_init_pos"] = list(self._config.base_init_pos)
         reward_cfg = dict(reward_cfg)
+        self._train_reward_scales = dict(reward_cfg["reward_scales"])
         reward_cfg["reward_scales"] = {}
         self.num_envs = self._config.num_envs
         self.num_actions = env_cfg["num_actions"]
@@ -431,6 +463,10 @@ class Go2Robot(BaseRobot):
 
         return TensorDict({"policy": self.obs_buf}, batch_size=[self.num_envs])
 
+    def get_observations(self) -> Any:
+        """Return raw vector observations used by training runners."""
+        return self._get_observations()
+
     def _reset_idx(self, envs_idx=None):
         import torch
 
@@ -517,3 +553,35 @@ class Go2Robot(BaseRobot):
             ),
             dim=-1,
         )
+
+    def _reward_tracking_lin_vel(self):
+        import torch
+
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error / self.reward_cfg["tracking_sigma"])
+
+    def _reward_tracking_ang_vel(self):
+        import torch
+
+        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        return torch.exp(-ang_vel_error / self.reward_cfg["tracking_sigma"])
+
+    def _reward_lin_vel_z(self):
+        import torch
+
+        return torch.square(self.base_lin_vel[:, 2])
+
+    def _reward_action_rate(self):
+        import torch
+
+        return torch.sum(torch.square(self.last_actions - self.actions), dim=1)
+
+    def _reward_similar_to_default(self):
+        import torch
+
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
+
+    def _reward_base_height(self):
+        import torch
+
+        return torch.square(self.base_pos[:, 2] - self.reward_cfg["base_height_target"])
