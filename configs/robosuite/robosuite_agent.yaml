@@ -1,4 +1,4 @@
-type: scene
+type: base
 record_dir: ./outputs
 agents:
   - name: robosuite
@@ -10,8 +10,11 @@ agents:
       max_retry: 5
       reset_mode: never
       record_execute: true
+      sam3_policy: sam3
+      graspnet_policy: graspnet
+      pyroki_policy: pyroki
       robot:
-        type: robosuite_robot
+        type: robosuite
         controller_cfg: /home/genie_store/nfs_datas/tm/codes/cap_general/cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json
         seed: 7
         reset_time: 0
@@ -24,20 +27,41 @@ agents:
         max_steps: 1500
       policies:
         sam3:
-          type: sam3
-          device: cuda
-          load_from_hf: false
-          checkpoint_path: /home/genie_store/nfs_datas/tm/data/models/sam3/sam3.pt
-          confidence_threshold: 0.0
-          enable_inst_interactivity: true
+          type: base
+          graph:
+            name: sam3
+            nodes:
+              - name: model
+                op_group: model
+                op_type: sam3
+                config:
+                  device: cuda
+                  load_from_hf: false
+                  checkpoint_path: /home/genie_store/nfs_datas/tm/data/models/sam3/sam3.pt
+                  confidence_threshold: 0.0
+                  enable_inst_interactivity: true
         graspnet:
-          type: graspnet
-          vendor_root: /home/genie_store/nfs_datas/tm/codes/cap-x/capx/third_party/contact_graspnet_pytorch
-          device: cuda
+          type: base
+          graph:
+            name: graspnet
+            nodes:
+              - name: model
+                op_group: model
+                op_type: graspnet
+                config:
+                  vendor_root: /home/genie_store/nfs_datas/tm/codes/cap-x/capx/third_party/contact_graspnet_pytorch
+                  device: cuda
         pyroki:
-          type: pyroki
-          robot_urdf_name: panda_description
-          target_link_name: panda_hand
+          type: base
+          graph:
+            name: pyroki
+            nodes:
+              - name: model
+                op_group: model
+                op_type: pyroki
+                config:
+                  robot_urdf_name: panda_description
+                  target_link_name: panda_hand
 server:
   cap_id: cap
   host: 127.0.0.1

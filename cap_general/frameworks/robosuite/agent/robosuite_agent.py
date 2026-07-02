@@ -94,7 +94,11 @@ class RobosuiteAgent(BaseAgent):
         depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
         valid_depth = ~np.isnan(depth_2d)
 
-        results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
+        results = self._run_policy(
+            self._sam3_policy,
+            stage="segment",
+            inputs={"image": rgb, "text_prompt": object_name},
+        )
         if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
         if self._config.debug:
@@ -157,7 +161,11 @@ class RobosuiteAgent(BaseAgent):
 
         depth_2d = depth[:, :, 0] if depth.ndim == 3 else depth
 
-        results = self._run_policy(self._sam3_policy, method="segment", image=rgb, text_prompt=object_name)
+        results = self._run_policy(
+            self._sam3_policy,
+            stage="segment",
+            inputs={"image": rgb, "text_prompt": object_name},
+        )
         if not results:
             raise ValueError(f"No SAM3 detections for {object_name!r}")
         if self._config.debug:
@@ -169,11 +177,13 @@ class RobosuiteAgent(BaseAgent):
 
         grasps = self._run_policy(
             self._graspnet_policy,
-            method="plan",
-            depth=depth_2d,
-            cam_k=intrinsics,
-            segmap=segmentation,
-            segmap_id=queried_instance_idx,
+            stage="plan",
+            inputs={
+                "depth": depth_2d,
+                "cam_k": intrinsics,
+                "segmap": segmentation,
+                "segmap_id": queried_instance_idx,
+            },
         )
 
         grasp_sample_tf = vtf.SE3.from_matrix(
@@ -249,7 +259,7 @@ class RobosuiteAgent(BaseAgent):
             }
             if self._ik_cfg is not None:
                 kwargs["prev_cfg"] = self._ik_cfg
-            result = self._run_policy(self._pyroki_policy, method="solve_ik", **kwargs)
+            result = self._run_policy(self._pyroki_policy, stage="solve_ik", inputs=kwargs)
             joints = np.asarray(result.joint_positions, dtype=np.float64)
         self._ik_cfg = joints
         self._robot.move_to_joints_blocking(joints[:7])

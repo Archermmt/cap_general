@@ -75,7 +75,7 @@ class LiberoAgent(BaseAgent):
         obs, done = self._robot.last_obs, False
         for step_idx in range(max_steps):
             example = build_example_from_obs(obs, task)
-            response = self._run_policy(policy_name, example=example, step=step_idx)
+            response = self._run_policy(policy_name, inputs={"example": example, "step": step_idx})
             raw = response.get("raw_action", response)
             action = np.concatenate(
                 [
