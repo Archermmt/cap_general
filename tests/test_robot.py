@@ -80,6 +80,16 @@ def test_robot_base_step_uses_compute_reward():
     assert reward == 3.5
 
 
+def test_robot_base_step_records_through_hook():
+    robot = DummyRobot(config=BaseRobotConfig(), logger=LOGGER)
+    recorded = []
+    robot._record_frame = recorded.append
+
+    obs, _, _, _, _ = robot.step({"move": 1})
+
+    assert recorded == [obs]
+
+
 def test_robot_train_and_eval_switch_reset_and_step_semantics():
     robot = DummyRobot(config=BaseRobotConfig(), logger=LOGGER)
 

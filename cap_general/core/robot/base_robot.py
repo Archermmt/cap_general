@@ -84,11 +84,7 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._step_cnt += 1
         self._last_obs, _reward, terminated, truncated, info = self._step(action)
         reward = self.compute_reward()
-        if self._video_enabled and self._video_fmt and self._image_keys and isinstance(self._last_obs, dict):
-            for key in self._image_keys:
-                frame = self._last_obs.get(key)
-                if frame is not None:
-                    self._video_frames.setdefault(key, []).append(frame)
+        self._record_frame(self._last_obs)
         return self._last_obs, reward, terminated, truncated, info
 
     def train(self) -> "BaseRobot":

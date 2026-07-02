@@ -44,6 +44,74 @@ agents:
     horizon: 1000
     rl_policy: runner
     run_demo_after_episode: true
+    train_cfg:
+      algorithm:
+        class_name: PPO
+        clip_param: 0.2
+        desired_kl: 0.01
+        entropy_coef: 0.0
+        gamma: 0.99
+        lam: 0.95
+        learning_rate: 0.0003
+        max_grad_norm: 1.0
+        num_learning_epochs: 5
+        num_mini_batches: 4
+        schedule: adaptive
+        use_clipped_value_loss: true
+        value_loss_coef: 1.0
+      actor:
+        class_name: MLPModel
+        hidden_dims: [256, 256, 128]
+        activation: relu
+        distribution_cfg:
+          class_name: GaussianDistribution
+          init_std: 1.0
+          std_type: scalar
+      critic:
+        class_name: MLPModel
+        hidden_dims: [256, 256, 128]
+        activation: relu
+      obs_groups:
+        actor: [policy]
+        critic: [policy]
+      num_steps_per_env: 24
+      save_interval: 100
+      run_name: runner
+      logger: tensorboard
+    bc_train_cfg:
+      num_steps_per_env: 24
+      learning_rate: 0.001
+      num_epochs: 5
+      num_mini_batches: 10
+      max_grad_norm: 1.0
+      policy:
+        vision_encoder:
+          conv_layers:
+          - in_channels: 3
+            out_channels: 8
+            kernel_size: 3
+            stride: 1
+            padding: 1
+          - in_channels: 8
+            out_channels: 16
+            kernel_size: 3
+            stride: 2
+            padding: 1
+          - in_channels: 16
+            out_channels: 32
+            kernel_size: 3
+            stride: 2
+            padding: 1
+          pooling: adaptive_avg
+        action_head:
+          state_obs_dim: 7
+          hidden_dims: [128, 128, 64]
+        pose_head:
+          hidden_dims: [64, 64]
+      buffer_size: 1000
+      log_freq: 10
+      save_freq: 50
+      eval_freq: 50
     robot:
       type: genesis_grasp
       video_fmt: mp4

@@ -6,15 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from cap_general.core.agent import BaseAgentConfig
-from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent
+from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent, GenesisBaseAgentConfig
 
 if TYPE_CHECKING:
     from logging import Logger
 
 
 @dataclass
-class GenesisFrankaAgentConfig(BaseAgentConfig):
+class GenesisFrankaAgentConfig(GenesisBaseAgentConfig):
     """Configuration for GenesisFrankaAgent."""
 
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_franka"})

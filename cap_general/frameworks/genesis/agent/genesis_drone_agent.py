@@ -6,12 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cap_general.core.agent import BaseAgentConfig
-from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent
+from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent, GenesisBaseAgentConfig
 
 
 @dataclass
-class GenesisDroneAgentConfig(BaseAgentConfig):
+class GenesisDroneAgentConfig(GenesisBaseAgentConfig):
     """Configuration for GenesisDroneAgent."""
 
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_drone"})
@@ -26,6 +25,7 @@ class GenesisDroneAgent(GenesisBaseAgent):
 
     agent_type = "genesis_drone"
     config_cls = GenesisDroneAgentConfig
+    train_best_metric = "mean_episode_rew_target"
 
     def _execute_rules(self) -> str:
         return (
@@ -69,78 +69,3 @@ class GenesisDroneAgent(GenesisBaseAgent):
                 break
             obs = self._robot.policy_obs
         return executed_steps
-
-    def _train(self, policy: Any, epoch: int, options: dict) -> tuple[dict, dict]:
-        """Train the drone hover policy with RSL-RL PPO."""
-        try:
-            from rsl_rl.runners import OnPolicyRunner
-        except ImportError as exc:
-            raise ImportError("rsl-rl-lib>=5.0.0 is required for drone training.") from exc
-
-        env = self._robot
-        policy_name = policy.name
-        model = policy.get_model("model")
-        log_dir = self.train_dir / f"{policy_name}_rl"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        seed = int(options.get("seed", 1))
-        record_epoch = int(options.get("record_epoch", options.get("summary_interval", 50)))
-        train_cfg = {
-            "algorithm": {
-                "class_name": "PPO",
-                "clip_param": 0.2,
-                "desired_kl": 0.01,
-                "entropy_coef": 0.004,
-                "gamma": 0.99,
-                "lam": 0.95,
-                "learning_rate": 0.0003,
-                "max_grad_norm": 1.0,
-                "num_learning_epochs": 5,
-                "num_mini_batches": 4,
-                "schedule": "adaptive",
-                "use_clipped_value_loss": True,
-                "value_loss_coef": 1.0,
-            },
-            "actor": {
-                "class_name": "MLPModel",
-                "hidden_dims": [128, 128],
-                "activation": "tanh",
-                "distribution_cfg": {
-                    "class_name": "GaussianDistribution",
-                    "init_std": 1.0,
-                    "std_type": "scalar",
-                },
-            },
-            "critic": {
-                "class_name": "MLPModel",
-                "hidden_dims": [128, 128],
-                "activation": "tanh",
-            },
-            "obs_groups": {"actor": ["policy"], "critic": ["policy"]},
-            "num_steps_per_env": 100,
-            "save_interval": 100,
-            "run_name": policy_name,
-            "logger": "tensorboard",
-        }
-        train_cfg.update(options.get("train_cfg", {}))
-
-        runner = OnPolicyRunner(env, train_cfg, log_dir, device=env.device)
-        self._load_model_to_runner(model, runner, env)
-        summary = self._capture_rl_summary(
-            runner,
-            interval=record_epoch,
-            num_learning_iterations=epoch,
-            best_metric="mean_episode_rew_target",
-        )
-        new_policy = {"state_dict": runner.alg.get_policy().state_dict()}
-        return (
-            {
-                "policy_name": policy_name,
-                "stage": "rl",
-                "train_dir": str(log_dir),
-                "epoch": epoch,
-                "seed": seed,
-                "summary": summary,
-            },
-            new_policy,
-        )

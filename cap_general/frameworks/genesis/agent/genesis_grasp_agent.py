@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cap_general.core.agent import BaseAgentConfig
-from cap_general.core.utils import tensor_mean_value, tensor_to_scalar
-from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent
+from cap_general.frameworks.genesis.agent.genesis_base_agent import GenesisBaseAgent, GenesisBaseAgentConfig
+
 
 @dataclass
-class GenesisGraspAgentConfig(BaseAgentConfig):
+class GenesisGraspAgentConfig(GenesisBaseAgentConfig):
     """Configuration for GenesisGraspAgent."""
 
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
-    rl_policy: str = "runner"
     bc_policy: str = "bc"
-    stage: str = "rl"
     horizon: int = 1000
     run_demo_after_episode: bool = True
 
@@ -31,6 +26,7 @@ class GenesisGraspAgent(GenesisBaseAgent):
 
     agent_type = "genesis_grasp"
     config_cls = GenesisGraspAgentConfig
+    train_best_metric = "mean_episode_rew_keypoints"
 
     def _execute_rules(self) -> str:
         return (
@@ -67,220 +63,3 @@ class GenesisGraspAgent(GenesisBaseAgent):
         if self._config.run_demo_after_episode:
             self._robot.grasp_and_lift_demo()
         return {"stage": current_stage}
-
-    def _capture_bc_summary(
-        self,
-        runner: Any,
-        behavior_cloning_module: Any,
-        *,
-        interval: int,
-        num_learning_iterations: int,
-        log_dir: str,
-    ) -> dict[str, Any]:
-        summary = self._summary(stage="bc", interval=interval)
-        num_envs = int(getattr(runner._env, "num_envs", 1))
-        num_steps_per_env = int(getattr(runner, "_num_steps_per_env", 1))
-        summary["notes"].append("BC metrics sampled from tensorboard writes during training iterations")
-
-        metric_names = {
-            "loss/action_loss": "action_loss",
-            "loss/pose_loss": "pose_loss",
-            "loss/total_loss": "total_loss",
-            "lr": "learning_rate",
-            "buffer_size": "buffer_size",
-            "speed/forward": "forward_time",
-            "speed/backward": "backward_time",
-            "speed/fps": "fps",
-            "reward/mean": "mean_reward",
-        }
-        next_sample_iteration = summary["sampling_interval"]
-        points_by_iteration: dict[int, dict[str, Any]] = {}
-        original_summary_writer = behavior_cloning_module.SummaryWriter
-
-        class SummaryWriterProxy:
-            def __init__(self, *args: Any, **kwargs: Any):
-                self._inner = original_summary_writer(*args, **kwargs)
-
-            def add_scalar(
-                self,
-                tag: str,
-                scalar_value: Any,
-                global_step: int | None = None,
-                *args: Any,
-                **kwargs: Any,
-            ):
-                result = self._inner.add_scalar(tag, scalar_value, global_step, *args, **kwargs)
-                metric_name = metric_names.get(tag)
-                if metric_name is not None and global_step is not None:
-                    iteration = int(global_step) + 1
-                    total_steps = iteration * num_steps_per_env * num_envs
-                    point = points_by_iteration.setdefault(
-                        iteration,
-                        {"stage": "bc", "iteration": iteration, "total_steps": total_steps},
-                    )
-                    point[metric_name] = tensor_to_scalar(scalar_value)
-                return result
-
-            def __getattr__(self, name: str) -> Any:
-                return getattr(self._inner, name)
-
-        behavior_cloning_module.SummaryWriter = SummaryWriterProxy
-        try:
-            runner.learn(num_learning_iterations=num_learning_iterations, log_dir=log_dir)
-        finally:
-            behavior_cloning_module.SummaryWriter = original_summary_writer
-
-        for iteration in sorted(points_by_iteration):
-            point = points_by_iteration[iteration]
-            self._merge_summary(summary, point, best_metric="total_loss", best_mode="min")
-            if iteration >= next_sample_iteration:
-                summary["history"].append(dict(summary["latest"]))
-                while iteration >= next_sample_iteration:
-                    next_sample_iteration += summary["sampling_interval"]
-
-        if summary["latest"] is None:
-            final_iteration = int(getattr(runner, "_current_iter", -1)) + 1
-            point = {
-                "stage": "bc",
-                "iteration": final_iteration if final_iteration > 0 else num_learning_iterations,
-                "total_steps": max(final_iteration, num_learning_iterations) * num_steps_per_env * num_envs,
-                "mean_reward": tensor_mean_value(getattr(runner, "_rewbuffer", None)),
-            }
-            self._merge_summary(summary, point, best_metric="total_loss", best_mode="min")
-            summary["notes"].append("BC runner exposed no periodic scalar writes; returning final summary only")
-        if summary["latest"] is not None and (
-            not summary["history"] or summary["history"][-1].get("iteration") != summary["latest"].get("iteration")
-        ):
-            summary["history"].append(dict(summary["latest"]))
-        return summary
-
-    def _train(self, policy: Any, epoch: int, options: dict) -> tuple[dict, dict]:
-        """Train a grasp policy using RL (PPO) or BC (BehaviorCloning)."""
-        try:
-            from rsl_rl.runners import OnPolicyRunner
-        except ImportError as exc:
-            raise ImportError("rsl-rl-lib>=5.0.0 is required for RL training.") from exc
-
-        stage = self._config.stage
-        if stage not in {"rl", "bc"}:
-            raise ValueError(f"Unsupported grasp stage for training: {stage!r}")
-
-        example_root = str(self._robot._config.example_root)
-        if example_root not in sys.path:
-            sys.path.insert(0, example_root)
-
-        behavior_cloning_module = importlib.import_module("behavior_cloning")
-        BehaviorCloning = behavior_cloning_module.BehaviorCloning
-
-        env = self._robot
-        policy_name = policy.name
-        model = policy.get_model("model")
-        log_dir = self.train_dir / f"{policy_name}_{stage}"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        seed = int(options.get("seed", 1))
-        record_epoch = int(options.get("record_epoch", options.get("summary_interval", 50)))
-
-        rl_cfg: dict = {
-            "algorithm": {
-                "class_name": "PPO",
-                "clip_param": 0.2,
-                "desired_kl": 0.01,
-                "entropy_coef": 0.0,
-                "gamma": 0.99,
-                "lam": 0.95,
-                "learning_rate": 3e-4,
-                "max_grad_norm": 1.0,
-                "num_learning_epochs": 5,
-                "num_mini_batches": 4,
-                "schedule": "adaptive",
-                "use_clipped_value_loss": True,
-                "value_loss_coef": 1.0,
-            },
-            "actor": {
-                "class_name": "MLPModel",
-                "hidden_dims": [256, 256, 128],
-                "activation": "relu",
-                "distribution_cfg": {
-                    "class_name": "GaussianDistribution",
-                    "init_std": 1.0,
-                    "std_type": "scalar",
-                },
-            },
-            "critic": {
-                "class_name": "MLPModel",
-                "hidden_dims": [256, 256, 128],
-                "activation": "relu",
-            },
-            "obs_groups": {"actor": ["policy"], "critic": ["policy"]},
-            "num_steps_per_env": 24,
-            "save_interval": 100,
-            "run_name": policy_name,
-            "logger": "tensorboard",
-        }
-        bc_cfg: dict = {
-            "num_steps_per_env": 24,
-            "learning_rate": 1e-3,
-            "num_epochs": 5,
-            "num_mini_batches": 10,
-            "max_grad_norm": 1.0,
-            "policy": {
-                "vision_encoder": {
-                    "conv_layers": [
-                        {"in_channels": 3, "out_channels": 8, "kernel_size": 3, "stride": 1, "padding": 1},
-                        {"in_channels": 8, "out_channels": 16, "kernel_size": 3, "stride": 2, "padding": 1},
-                        {"in_channels": 16, "out_channels": 32, "kernel_size": 3, "stride": 2, "padding": 1},
-                    ],
-                    "pooling": "adaptive_avg",
-                },
-                "action_head": {"state_obs_dim": 7, "hidden_dims": [128, 128, 64]},
-                "pose_head": {"hidden_dims": [64, 64]},
-            },
-            "buffer_size": 1000,
-            "log_freq": 10,
-            "save_freq": 50,
-            "eval_freq": 50,
-        }
-        if stage == "rl":
-            rl_cfg.update(options.get("train_cfg", {}))
-        else:
-            bc_cfg.update(options.get("train_cfg", {}))
-
-        if stage == "bc":
-            rl_runner = OnPolicyRunner(env, rl_cfg, str(log_dir), device=env.device)
-            rl_model = self._policies[self._config.rl_policy].get_model()
-            self._load_model_to_runner(rl_model, rl_runner, env)
-            teacher_policy = rl_runner.get_inference_policy(device=env.device)
-            runner = BehaviorCloning(env, bc_cfg, teacher_policy, device=env.device)
-            self._load_model_to_runner(model, runner, env)
-            summary = self._capture_bc_summary(
-                runner,
-                behavior_cloning_module,
-                interval=record_epoch,
-                num_learning_iterations=epoch,
-                log_dir=str(log_dir),
-            )
-            new_policy = {"state_dict": runner._policy.state_dict()}
-        else:
-            runner = OnPolicyRunner(env, rl_cfg, log_dir, device=env.device)
-            self._load_model_to_runner(model, runner, env)
-            summary = self._capture_rl_summary(
-                runner,
-                interval=record_epoch,
-                num_learning_iterations=epoch,
-                best_metric="mean_episode_rew_keypoints",
-                init_at_random_ep_len=True,
-            )
-            new_policy = {"state_dict": runner.alg.get_policy().state_dict()}
-
-        return (
-            {
-                "policy_name": policy_name,
-                "stage": stage,
-                "train_dir": str(log_dir),
-                "epoch": epoch,
-                "seed": seed,
-                "summary": summary,
-            },
-            new_policy,
-        )
