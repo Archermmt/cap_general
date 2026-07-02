@@ -54,15 +54,32 @@ RESULT = {{"success": success, "task": {task!r}}}
 """
 
 
+def _make_train_request(train_ep: int) -> dict:
+    """Build a LiberoAgent StarVLA training request."""
+    return {"policy_name": "starvla", "epoch": train_ep, "options": {}}
+
+
 async def _run_local(
-    config: str, max_steps: int, trial_num: int, config_overrides: list[str] | None = None
+    config: str,
+    max_steps: int,
+    trial_num: int,
+    train_ep: int,
+    config_overrides: list[str] | None = None,
 ) -> dict:
-    from cap_general.frameworks.libero.agent import LiberoAgent  # noqa: F401
+    import cap_general.frameworks.libero  # noqa: F401
     from cap_general.core.scene import BaseScene
 
     print(f"[test] Loading LiberoAgent from: {config}")
     scene = BaseScene.from_yaml(config, overrides=config_overrides)
     scene.reset({_DEFAULT_AGENT: {"episode_idx": 0}})
+    if train_ep > 0:
+        print("\n[test] --- Train StarVLA ---")
+        await scene.train({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        status = await scene.monitor([_DEFAULT_AGENT])
+        result = test_utils.single_agent_result(status)["result"]
+        if not result.get("ok", False):
+            raise AssertionError(result.get("error") or result)
+        test_utils.print_train_summary("[test]", result)
     print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     for task_idx, current_task in enumerate(TASKS):
         print(f"\n[test] ========== Task {task_idx + 1}/{len(TASKS)}: {current_task!r} ==========")
@@ -83,7 +100,11 @@ async def _run_local(
 
 
 async def _run_remote(
-    config: str, max_steps: int, trial_num: int, config_overrides: list[str] | None = None
+    config: str,
+    max_steps: int,
+    trial_num: int,
+    train_ep: int,
+    config_overrides: list[str] | None = None,
 ) -> dict:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -99,6 +120,18 @@ async def _run_remote(
             await test_utils.call_tool(
                 session, "reset", {"agent_options": {_DEFAULT_AGENT: {"episode_idx": 0}}}
             )
+            if train_ep > 0:
+                print("\n[mcp_test] --- Train StarVLA ---")
+                await test_utils.call_tool(
+                    session,
+                    "train",
+                    {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
+                )
+                status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                result = test_utils.single_agent_result(status)["result"]
+                if not result.get("ok", False):
+                    raise AssertionError(result.get("error") or result)
+                test_utils.print_train_summary("[mcp_test]", result)
             agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
             agent_doc = test_utils.single_agent_result(agent_doc)
             print(f"[mcp_test] agent_doc {agent_doc}")
@@ -136,12 +169,13 @@ def run_libero_test(
     max_steps: int = _DEFAULT_MAX_STEPS,
     trial_num: int = _DEFAULT_TRIAL_NUM,
     remote: bool = False,
+    train_ep: int = 0,
     config_overrides: list[str] | None = None,
 ) -> dict:
     """Run LIBERO VLA episodes in-process or through MCP."""
     if remote:
-        return asyncio.run(_run_remote(config, max_steps, trial_num, config_overrides))
-    return asyncio.run(_run_local(config, max_steps, trial_num, config_overrides))
+        return asyncio.run(_run_remote(config, max_steps, trial_num, train_ep, config_overrides))
+    return asyncio.run(_run_local(config, max_steps, trial_num, train_ep, config_overrides))
 
 
 def test_local_libero(config: str = _DEFAULT_CONFIG) -> None:
@@ -161,6 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--trial-num", type=int, default=_DEFAULT_TRIAL_NUM)
+    parser.add_argument("--train_ep", type=int, default=0)
     parser.add_argument("--remote", action="store_true", default=False)
     args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
 
@@ -169,6 +204,7 @@ if __name__ == "__main__":
         max_steps=args.max_steps,
         trial_num=args.trial_num,
         remote=args.remote,
+        train_ep=args.train_ep,
         config_overrides=config_overrides,
     )
     print("\n[PASS]")

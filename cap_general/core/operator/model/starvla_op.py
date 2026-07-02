@@ -158,6 +158,13 @@ class StarVLAOp(ModelOp):
             }
         }
 
+    @to_stage_fn
+    def update(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Switch inference to a newly trained StarVLA checkpoint."""
+        self._config.ckpt_path = str(inputs["ckpt_path"])
+        self.reset()
+        return {}
+
     def _build_example(self, example, image, images, lang, task_description) -> dict[str, Any]:
         if example is not None:
             return dict(example)

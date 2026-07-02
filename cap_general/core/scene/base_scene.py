@@ -56,6 +56,7 @@ class BaseSceneConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     record_dir: str | Path = "outputs/scene"
     debug: bool = False
+    async_task: bool = True
 
 
 @RegisteredBase.register()
@@ -288,8 +289,10 @@ class BaseScene(RegisteredBase):
         return cap_utils.to_json_safe(agent_info.status)
 
     async def _dispatch_task(self, method: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
-        """Dispatch a synchronous agent method without blocking the event loop."""
-        return await asyncio.to_thread(method, **kwargs)
+        """Dispatch an agent method according to the scene execution mode."""
+        if self._config.async_task:
+            return await asyncio.to_thread(method, **kwargs)
+        return method(**kwargs)
 
     async def _wait_task(self, canonical: str, wait_ms: int) -> None:
         task = self._agents[canonical].task

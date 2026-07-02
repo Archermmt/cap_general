@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -193,6 +194,24 @@ def test_scene_execute_routes_to_selected_agent():
 
     assert result["ok"] is True
     assert result["result"] == {"value": "ok"}
+
+
+def test_scene_dispatch_respects_async_task():
+    async_scene = BaseScene.from_config(_scene_config())
+    sync_config = _scene_config()
+    sync_config["async_task"] = False
+    sync_scene = BaseScene.from_config(sync_config)
+
+    async def _run():
+        current_thread = threading.get_ident()
+        worker_thread = await async_scene._dispatch_task(threading.get_ident, {})
+        same_thread = await sync_scene._dispatch_task(threading.get_ident, {})
+        return current_thread, worker_thread, same_thread
+
+    current_thread, worker_thread, same_thread = asyncio.run(_run())
+
+    assert worker_thread != current_thread
+    assert same_thread == current_thread
 
 
 def test_scene_execute_reports_running_for_busy_agent():

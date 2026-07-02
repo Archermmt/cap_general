@@ -1,4 +1,5 @@
 type: base
+async_task: false
 record_dir: ./outputs
 agents:
   - name: libero
