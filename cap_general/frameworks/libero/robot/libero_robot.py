@@ -14,7 +14,8 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
-from cap_general.core.robot import BaseRobot, BaseRobotConfig, ResetLevel
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.core.utils import ResetLevel
 
 _DEFAULT_RESOLUTION = 256
 _DEFAULT_IMAGE_KEYS = ["agentview_image", "robot0_eye_in_hand_image"]

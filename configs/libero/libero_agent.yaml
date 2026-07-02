@@ -1,4 +1,4 @@
-type: scene
+type: base
 record_dir: ./outputs
 agents:
   - name: libero
