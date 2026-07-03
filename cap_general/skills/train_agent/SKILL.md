@@ -74,7 +74,7 @@ Use a five-second wait on every poll:
 Interpret each keyed status independently:
 
 - `running=true`: Send the current status/result with `message`, then poll again after another five-second monitor wait.
-- `running=false`: Inspect `result`. Send the complete result with `message`, then stop polling that agent.
+- `running=false`: Inspect `result`. A successful training result is flat, for example `{"ok": true, "policy_name": "runner", "stage": "rl", ...}`. Send the complete result with `message`, then stop polling that agent.
 - A failed task reports `ok=false` and error details such as `error` or `err_msg` inside `result`; do not expect a separate top-level `error` field.
 
 Do not use `wait_ms=-1`; the user must receive progress at five-second intervals. Do not busy-poll with `wait_ms=0`.

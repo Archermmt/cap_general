@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 import logging
 import shutil
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -57,6 +59,7 @@ class BaseSceneConfig:
     record_dir: str | Path = "outputs/scene"
     debug: bool = False
     async_task: bool = True
+    trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
 
 
 @RegisteredBase.register()
@@ -68,11 +71,78 @@ class BaseScene(RegisteredBase):
     scene_type: ClassVar[str] = "base"
     config_cls: ClassVar[type[BaseSceneConfig]] = BaseSceneConfig
 
+    @staticmethod
+    def trace_result(method: Callable[..., Any]) -> Callable[..., Any]:
+        """Trace one request and response per agent routed by a scene method."""
+        signature = inspect.signature(method)
+
+        def should_trace(self: "BaseScene") -> bool:
+            task_methods = {"execute", "retry", "monitor", "get_obs"}
+            return self._trace_level is cap_utils.TraceLevel.ALL or (
+                self._trace_level is cap_utils.TraceLevel.TASK and method.__name__ in task_methods
+            )
+
+        def trace_request(self: "BaseScene", args: tuple[Any, ...], kwargs: dict[str, Any]):
+            bound = signature.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            arguments = dict(bound.arguments)
+            arguments.pop("self", None)
+            self._append_history(
+                {"role": "user", "tool": method.__name__, "request": cap_utils.to_json_safe(arguments)}
+            )
+
+        def trace_response(self: "BaseScene", results: dict[str, Any]) -> None:
+            for agent_mark, result in results.items():
+                redundant_keys = {"agent"}
+                if method.__name__ != "monitor":
+                    redundant_keys.add("method")
+                response = (
+                    {key: value for key, value in result.items() if key not in redundant_keys}
+                    if isinstance(result, dict)
+                    else result
+                )
+                self._append_history(
+                    {
+                        "role": agent_mark,
+                        "tool": method.__name__,
+                        "response": cap_utils.to_json_safe(response),
+                    }
+                )
+
+        if inspect.iscoroutinefunction(method):
+
+            @functools.wraps(method)
+            async def async_wrapper(self: "BaseScene", *args: Any, **kwargs: Any) -> Any:
+                tracing = should_trace(self)
+                if tracing:
+                    trace_request(self, args, kwargs)
+                result = await method(self, *args, **kwargs)
+                if tracing:
+                    trace_response(self, result)
+                return result
+
+            return async_wrapper
+
+        @functools.wraps(method)
+        def wrapper(self: "BaseScene", *args: Any, **kwargs: Any) -> Any:
+            tracing = should_trace(self)
+            if tracing:
+                trace_request(self, args, kwargs)
+            result = method(self, *args, **kwargs)
+            if tracing:
+                trace_response(self, result)
+            return result
+
+        return wrapper
+
     def __init__(self, config: BaseSceneConfig, logger: logging.Logger | None = None):
         self._config = config
         self._server_config = self._config.server
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
         self._logger = logger or self._build_logger(self._record_dir)
+        self._trace_level = cap_utils.TraceLevel(self._config.trace_level)
+        self._history: list[dict[str, Any]] = []
+        cap_utils.remove_path(self._record_dir / "history.json")
         self._agent_aliases: dict[str, str] = {}
         self._agents: dict[str, AgentInfo] = {}
         self._build_agents(self._config.agents)
@@ -151,24 +221,28 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.agent_doc()
         return results
 
+    @trace_result
     async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
         """Start code execution tasks for each selected agent."""
         requests = self._resolve_kwargs(agent_codes)
         results = [await self._start_task(agent, "execute", code=code) for agent, code in requests.items()]
         return self._format_results(requests, results)
 
+    @trace_result
     async def retry(self, agents: list[str]) -> dict[str, dict[str, Any]]:
         """Start retry tasks for selected agents."""
         canonical_agents = self._resolve_names(agents)
         results = [await self._start_task(agent, "retry") for agent in canonical_agents]
         return self._format_results(canonical_agents, results)
 
+    @trace_result
     async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Start train tasks for selected agents from an agent-to-options mapping."""
         requests = self._resolve_kwargs(agent_options)
         results = [await self._start_task(agent, "train", **kwargs) for agent, kwargs in requests.items()]
         return self._format_results(requests, results)
 
+    @trace_result
     async def monitor(self, agents: list[str], wait_ms: int = -1) -> dict[str, dict[str, Any]]:
         """Return selected agents' execution statuses, optionally waiting for completion."""
         canonical_agents = self._resolve_names(agents)
@@ -179,6 +253,15 @@ class BaseScene(RegisteredBase):
             [cap_utils.to_json_safe(self._agents[agent].status) for agent in canonical_agents],
         )
 
+    @trace_result
+    def get_obs(self, agents: list[str]) -> dict[str, Any]:
+        """Return observations for the selected agents, or all agents if omitted."""
+        results: dict[str, Any] = {}
+        for canonical in self._resolve_names(agents):
+            agent = self._get_agent(canonical)
+            results[agent.mark] = agent.get_obs()
+        return results
+
     def record(self, agents: list[str]) -> dict[str, Any]:
         """Record complete run artifacts for selected agents, or all agents if omitted."""
         results: dict[str, Any] = {}
@@ -188,27 +271,34 @@ class BaseScene(RegisteredBase):
         return results
 
     def update_history(self, agent_messages: dict[str, dict[str, Any]]) -> dict[str, Any]:
-        """Append one history message to each selected agent transcript."""
+        """Append one history message per selected agent to the scene transcript."""
         requests = self._resolve_kwargs(agent_messages)
         results: dict[str, Any] = {}
         for canonical, message in requests.items():
             agent = self._get_agent(canonical)
-            results[agent.mark] = agent.update_history(message)
+            results[agent.mark] = self._append_history(message, canonical=canonical)
         return results
 
-    def get_obs(self, agents: list[str]) -> dict[str, Any]:
-        """Return observations for the selected agents, or all agents if omitted."""
-        results: dict[str, Any] = {}
-        for canonical in self._resolve_names(agents):
-            agent = self._get_agent(canonical)
-            results[agent.mark] = agent.get_obs()
-        return results
+    def _append_history(self, message: dict[str, Any], canonical: str | None = None) -> dict[str, Any]:
+        """Persist one message in the scene history."""
+        if not isinstance(message, dict):
+            raise TypeError("message must be a history message dictionary")
+        hist_message = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d:%H-%M-%S.%f")[:-3],
+            **message,
+        }
+        if canonical is not None:
+            hist_message["agent"] = self._get_agent(canonical).mark
+        self._history.append(hist_message)
+        history_path = self._record_dir / "history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with history_path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(cap_utils.to_json_safe(hist_message), ensure_ascii=False) + "\n")
+        return {"ok": True, "updated": len(self._history)}
 
     def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
-        """Set the history trace level for all agents."""
-        level = cap_utils.TraceLevel(level)
-        for agent_info in self._agents.values():
-            agent_info.agent.set_trace_level(level)
+        """Set the scene history trace level."""
+        self._trace_level = cap_utils.TraceLevel(level)
 
     def serve(self, transport: str = "streamable-http") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
@@ -218,7 +308,6 @@ class BaseScene(RegisteredBase):
             raise ImportError("Serving a scene over MCP requires the mcp package") from exc
 
         s_config = self._server_config
-        self.set_trace_level(cap_utils.TraceLevel.ALL)
         self._copy_skills_for_server(s_config)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
         for method_name in (
@@ -263,23 +352,30 @@ class BaseScene(RegisteredBase):
         task = agent_info.task
         if task is not None and not task.done():
             return cap_utils.to_json_safe(agent_info.status)
-        started_at = time.time()
+        started_time = time.time()
+        started_at = datetime.fromtimestamp(started_time).strftime("%Y-%m-%d:%H-%M-%S.%f")[:-3]
         agent_info.status = self._get_status(canonical, method=method_name, running=True, started_at=started_at)
         method = getattr(agent_info.agent, method_name)
 
         async def _run() -> dict[str, Any]:
             try:
                 result = await self._dispatch_task(method, kwargs)
+                if (
+                    self._trace_level is cap_utils.TraceLevel.ALL
+                    and method_name in {"execute", "retry"}
+                    and isinstance(result, dict)
+                    and "step_start" in result
+                ):
+                    agent_info.agent.record(len(agent_info.agent._step_infos) - 1)
             except BaseException as exc:
                 self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
                 result = {"ok": False, "error": type(exc).__name__, "err_msg": str(exc)}
-            finished_at = time.time()
+            finished_time = time.time()
             status = self._get_status(
                 canonical,
                 method=method_name,
                 started_at=started_at,
-                finished_at=finished_at,
-                duration=f"{finished_at - started_at:.2f}s",
+                duration=f"{finished_time - started_time:.2f}s",
                 result=cap_utils.to_json_safe(result),
             )
             agent_info.status = status
@@ -314,7 +410,6 @@ class BaseScene(RegisteredBase):
             "method": None,
             "running": False,
             "started_at": None,
-            "finished_at": None,
             "duration": None,
             "result": None,
         }

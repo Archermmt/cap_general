@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -99,6 +101,7 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
         "type": "base",
         "server": {"cap_id": "scene_test", "port": 8899},
         "record_dir": "outputs/test_scene",
+        "trace_level": trace_level,
         "agents": [
             {
                 "name": agent_name,
@@ -117,7 +120,6 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
                             },
                         }
                     },
-                    "trace_level": trace_level,
                 },
             }
             for agent_name in agent_names
@@ -137,7 +139,7 @@ def test_scene_routes_agent_methods_by_name_and_alias():
 
 
 def test_scene_batch_methods_route_multiple_agents():
-    scene = BaseScene.from_config(_scene_config("alpha", "beta"))
+    scene = BaseScene.from_config(_scene_config("alpha", "beta", trace_level="never"))
 
     resets = scene.reset({"a": {"value": 1}, "beta": {"value": 2}})
     docs = scene.agent_doc(["alpha", "beta"])
@@ -159,12 +161,15 @@ def test_scene_batch_methods_route_multiple_agents():
     assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
     assert scene._get_agent("alpha").mark == _ALPHA_KEY
     assert history_update[_ALPHA_KEY] == {"ok": True, "updated": 1}
-    # history is persisted to history.jsonl; record() info no longer embeds it
+    # History is persisted by the scene; record() info no longer embeds it.
     assert "executes" in full_record["info"]
-    assert scene._get_agent("beta")._history[0]["role"] == "user"
-    assert scene._get_agent("beta")._history[0]["tool"] == "agent_doc"
-    assert scene._get_agent("beta")._history[0]["request"] == {}
-    assert "timestamp" in scene._get_agent("beta")._history[0]
+    assert scene._history[1]["agent"] == _BETA_KEY
+    assert scene._history[1]["role"] == "user"
+    assert scene._history[1]["tool"] == "agent_doc"
+    assert scene._history[1]["request"] == {}
+    assert "timestamp" in scene._history[1]
+    history_lines = (scene._record_dir / "history.json").read_text(encoding="utf-8").splitlines()
+    assert len(history_lines) == 3
     assert records == {_ALPHA_KEY: {"step_idx": -1}, _BETA_KEY: {"step_idx": -1}}
 
 
@@ -179,6 +184,34 @@ def test_scene_agent_info_keeps_single_runtime_state_source():
     assert alpha_info.status["agent"] == "alpha"
     assert alpha_info.status["running"] is False
     assert alpha_info.task is None
+
+
+def test_scene_trace_splits_batch_results_into_agent_history_entries():
+    scene = BaseScene.from_config(_scene_config("alpha", "beta"))
+
+    observations = scene.get_obs(["alpha", "beta"])
+    statuses = asyncio.run(scene.monitor(["alpha", "beta"], wait_ms=0))
+
+    assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
+    assert set(statuses) == {_ALPHA_KEY, _BETA_KEY}
+    assert [message["tool"] for message in scene._history] == [
+        "get_obs",
+        "get_obs",
+        "get_obs",
+        "monitor",
+        "monitor",
+        "monitor",
+    ]
+    history_lines = [
+        json.loads(line)
+        for line in (scene._record_dir / "history.json").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(history_lines) == 6
+    request_lines = [message for message in history_lines if message["role"] == "user"]
+    assert [message["tool"] for message in request_lines] == ["get_obs", "monitor"]
+    assert all("agent" not in message for message in request_lines)
+    assert sum(message["role"] == _ALPHA_KEY for message in history_lines) == 2
+    assert sum(message["role"] == _BETA_KEY for message in history_lines) == 2
 
 
 def test_scene_execute_routes_to_selected_agent():
@@ -257,7 +290,10 @@ def test_scene_execute_starts_multiple_agents_together():
     assert all(status["running"] for status in started.values())
     assert finished[_ALPHA_KEY]["result"]["result"] == {"value": "alpha"}
     assert finished[_BETA_KEY]["result"]["result"] == {"value": "beta"}
-    assert abs(finished[_ALPHA_KEY]["started_at"] - finished[_BETA_KEY]["started_at"]) < 0.05
+    timestamp_format = "%Y-%m-%d:%H-%M-%S.%f"
+    alpha_started = datetime.strptime(finished[_ALPHA_KEY]["started_at"], timestamp_format)
+    beta_started = datetime.strptime(finished[_BETA_KEY]["started_at"], timestamp_format)
+    assert abs((alpha_started - beta_started).total_seconds()) < 0.05
 
 
 def test_scene_retry_reports_running_for_busy_agent():
@@ -282,16 +318,17 @@ def test_scene_retry_reports_running_for_busy_agent():
 
 def test_scene_auto_trace_records_task_results_only_when_enabled():
     scene = BaseScene.from_config(_scene_config(trace_level="never"))
-    agent = scene._get_agent("alpha")
 
     async def _run():
         await scene.execute({"alpha": 'RESULT = {"value": "disabled"}'})
         await scene.monitor(["alpha"])
-        disabled_history = list(agent._history)
+        scene.get_obs(["alpha"])
+        disabled_history = list(scene._history)
 
         scene.set_trace_level("task")
         await scene.execute({"alpha": 'RESULT = {"value": "task"}'})
         await scene.monitor(["alpha"])
+        scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
         await scene.train(
@@ -304,11 +341,12 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
             }
         )
         await scene.monitor(["alpha"])
-        task_history = list(agent._history)
+        task_history = list(scene._history)
 
         scene.set_trace_level("all")
         await scene.execute({"alpha": 'RESULT = {"value": "enabled"}'})
         await scene.monitor(["alpha"])
+        scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
         await scene.train(
@@ -321,37 +359,87 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
             }
         )
         await scene.monitor(["alpha"])
-        return disabled_history, task_history, list(agent._history)
+        return disabled_history, task_history, list(scene._history)
 
     disabled_history, task_history, traced_history = asyncio.run(_run())
 
     assert disabled_history == []
     task_request_messages = [m for m in task_history if "request" in m]
-    assert [m["tool"] for m in task_request_messages] == ["execute", "retry"]
+    assert [m["tool"] for m in task_request_messages] == [
+        "execute",
+        "monitor",
+        "get_obs",
+        "retry",
+        "monitor",
+        "monitor",
+    ]
     assert all(m["role"] == "user" for m in task_request_messages)
-    assert task_request_messages[0]["request"] == {'code': 'RESULT = {"value": "task"}'}
-    assert task_request_messages[1]["request"] == {}
+    assert task_request_messages[0]["request"] == {
+        "agent_codes": {"alpha": 'RESULT = {"value": "task"}'}
+    }
+    assert task_request_messages[2]["request"] == {"agents": ["alpha"]}
+    assert task_request_messages[3]["request"] == {"agents": ["alpha"]}
     task_response_messages = [m for m in task_history if "response" in m]
-    assert [m["tool"] for m in task_response_messages] == ["execute", "retry"]
+    assert [m["tool"] for m in task_response_messages] == [
+        "execute",
+        "monitor",
+        "get_obs",
+        "retry",
+        "monitor",
+        "monitor",
+    ]
     assert all(m["role"] == _ALPHA_KEY for m in task_response_messages)
-    assert task_response_messages[0]["response"]["result"] == {"value": "task"}
+    assert task_response_messages[0]["response"]["running"] is True
+    assert task_response_messages[1]["response"]["result"]["result"] == {"value": "task"}
 
     request_messages = [m for m in traced_history if "request" in m]
-    assert [m["tool"] for m in request_messages] == ["execute", "retry", "execute", "retry", "train"]
+    assert [m["tool"] for m in request_messages][-7:] == [
+        "execute",
+        "monitor",
+        "get_obs",
+        "retry",
+        "monitor",
+        "train",
+        "monitor",
+    ]
     assert all(m["role"] == "user" for m in request_messages)
-    assert request_messages[2]["request"] == {'code': 'RESULT = {"value": "enabled"}'}
-    assert request_messages[3]["request"] == {}
-    assert request_messages[4]["request"] == {
-        "policy_name": "test",
-        "epoch": 2,
-        "options": {},
+    assert request_messages[-7]["request"] == {
+        "agent_codes": {"alpha": 'RESULT = {"value": "enabled"}'}
+    }
+    assert request_messages[-4]["request"] == {"agents": ["alpha"]}
+    assert request_messages[-2]["request"] == {
+        "agent_options": {
+            "alpha": {
+                "policy_name": "test",
+                "epoch": 2,
+                "options": {},
+            }
+        }
     }
     response_messages = [m for m in traced_history if "response" in m]
-    assert [m["tool"] for m in response_messages] == ["execute", "retry", "execute", "retry", "train"]
+    assert [m["tool"] for m in response_messages][-7:] == [
+        "execute",
+        "monitor",
+        "get_obs",
+        "retry",
+        "monitor",
+        "train",
+        "monitor",
+    ]
     assert response_messages[0]["role"] == _ALPHA_KEY
     assert all("mark" not in m for m in traced_history)
-    assert response_messages[2]["response"]["result"] == {"value": "enabled"}
-    assert response_messages[4]["response"]["result"]["policy_name"] == "test"
+    assert all("agent" not in m for m in request_messages)
+    assert all("agent" not in m for m in response_messages)
+    assert all("agent" not in m["response"] for m in response_messages)
+    assert all(
+        ("method" in m["response"]) == (m["tool"] == "monitor")
+        for m in response_messages
+    )
+    assert response_messages[-7]["response"]["running"] is True
+    assert response_messages[-6]["response"]["result"]["result"] == {"value": "enabled"}
+    assert response_messages[-2]["response"]["running"] is True
+    assert response_messages[-1]["response"]["method"] == "train"
+    assert response_messages[-1]["response"]["result"]["policy_name"] == "Scene Dummy Policy"
 
 
 def test_scene_debug_visualizes_policy_graphs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

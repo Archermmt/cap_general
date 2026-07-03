@@ -1,10 +1,8 @@
 """Base classes for CAP agents."""
 
 import contextlib
-import functools
 import inspect
 import io
-import json
 import logging
 import sys
 import time
@@ -12,7 +10,6 @@ import traceback
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -51,7 +48,6 @@ class BaseAgentConfig:
     max_retry: int = 5
     debug: bool = False
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
-    trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
 
 
 class BaseAgent(RegisteredBase):
@@ -61,33 +57,6 @@ class BaseAgent(RegisteredBase):
     config_cls: ClassVar[type[BaseAgentConfig]] = BaseAgentConfig
     registry_key_attr: ClassVar[str] = "agent_type"
     agent_type: ClassVar[str] = "base"
-
-    @staticmethod
-    def trace_result(method: Callable[..., Any]) -> Callable[..., Any]:
-        """Trace a method's bound arguments and returned response."""
-        signature = inspect.signature(method)
-
-        @functools.wraps(method)
-        def wrapper(self: "BaseAgent", *args: Any, **kwargs: Any) -> Any:
-            bound = signature.bind(self, *args, **kwargs)
-            bound.apply_defaults()
-            trace_args = dict(bound.arguments)
-            trace_args.pop("self", None)
-            should_trace = self._trace_level is cap_utils.TraceLevel.ALL or (
-                self._trace_level is cap_utils.TraceLevel.TASK and method.__name__ in {"execute", "retry"}
-            )
-            if should_trace:
-                self.update_history(
-                    {"role": "user", "tool": method.__name__, "request": cap_utils.to_json_safe(trace_args)}
-                )
-            response = method(self, *args, **kwargs)
-            if should_trace:
-                self.update_history(
-                    {"role": self.mark, "tool": method.__name__, "response": cap_utils.to_json_safe(response)}
-                )
-            return response
-
-        return wrapper
 
     def __init__(self, config: BaseAgentConfig, logger: logging.Logger):
         """Initialize an agent from config."""
@@ -99,9 +68,7 @@ class BaseAgent(RegisteredBase):
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
         self._task_start = 0
-        self._history: list[dict[str, Any]] = []
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
-        self._trace_level = cap_utils.TraceLevel(self._config.trace_level)
         self._clear_record_dir_contents()
 
     @staticmethod
@@ -166,7 +133,6 @@ class BaseAgent(RegisteredBase):
             "max_retry": self._config.max_retry,
         }
 
-    @trace_result
     def execute(self, code: str):
         """Execute Python code as a new agent step.
 
@@ -189,7 +155,6 @@ class BaseAgent(RegisteredBase):
         self._trial_cnt = 1
         return self._execute_once(code)
 
-    @trace_result
     def retry(self):
         """Retry the most recent ``execute`` call.
 
@@ -216,7 +181,6 @@ class BaseAgent(RegisteredBase):
         self._trial_cnt += 1
         return self._execute_once(self._step_codes[-1])
 
-    @trace_result
     def train(self, policy_name: str, epoch: int, options: dict[str, Any] | None = None):
         """Train a configured policy.
 
@@ -231,7 +195,7 @@ class BaseAgent(RegisteredBase):
             options: [_options_doc()]
 
         Returns:
-            A dict with ``ok`` and the result of ``_train``.
+            A flat dict with ``ok`` and the fields returned by ``_train``.
         """
         if epoch <= 0:
             raise ValueError("epoch must be a positive integer")
@@ -245,7 +209,7 @@ class BaseAgent(RegisteredBase):
         try:
             result, new_policy = self._train(policy=policy, epoch=epoch, options=options)
             self._update_policy(policy_name, **new_policy)
-            response = {"ok": True, "result": result}
+            response = {"ok": True, **result}
         except Exception as exc:
             self._logger.exception("Train failed: policy=%s", policy_name)
             response = {"ok": False, "error": str(exc)}
@@ -263,8 +227,8 @@ class BaseAgent(RegisteredBase):
 
         Returns:
             A dict containing saved media paths from the robot plus
-            ``info`` and ``code`` for the requested scope. History is
-            persisted separately in ``record_dir/history.jsonl``.
+            ``info`` and ``code`` for the requested scope. Scene history is
+            persisted separately under the scene ``record_dir``.
         """
         if step_idx == -1:
             info = {
@@ -290,33 +254,6 @@ class BaseAgent(RegisteredBase):
         cap_utils.write_json(record_path / "info.json", info)
         cap_utils.write_text(record_path / "code.py", code)
         return {**record, "info": info, "code": code}
-
-    def update_history(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Append one history message to the agent transcript and persist it.
-
-        Each message is appended to ``record_dir/history.jsonl`` immediately so
-        the transcript survives crashes without needing an explicit :meth:`record`
-        call.
-
-        Args:
-            message: One transcript message with top-level ``role``, ``tool``,
-                and either ``request`` or ``response`` fields.
-
-        Returns:
-            A compact acknowledgement with the appended message count.
-        """
-        if not isinstance(message, dict):
-            raise TypeError("message must be a history message dictionary")
-        hist_message = {"timestamp": datetime.now().strftime("%Y-%m-%d:%H-%M-%S.%f")[:-3], **message}
-        self._history.append(hist_message)
-        history_path = self._record_dir / "history.json"
-        with history_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(cap_utils.to_json_safe(hist_message), ensure_ascii=False) + "\n")
-        return {"ok": True, "updated": len(self._history)}
-
-    def set_trace_level(self, level: "cap_utils.TraceLevel | str") -> None:
-        """Set the trace recording level."""
-        self._trace_level = cap_utils.TraceLevel(level)
 
     def get_obs(self) -> dict[str, Any]:
         """Return the current observation and save images under the active step directory.
@@ -349,8 +286,6 @@ class BaseAgent(RegisteredBase):
         }
         self._step_infos.append(info)
         self._step_codes.append(code)
-        if self._trace_level is cap_utils.TraceLevel.ALL:
-            self.record(len(self._step_infos) - 1)
         return info
 
     def _execute_code(self, code: str) -> dict[str, Any]:

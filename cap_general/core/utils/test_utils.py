@@ -18,7 +18,7 @@ def print_execution_summary(prefix: str, result: dict[str, Any]) -> None:
 
 
 def print_train_summary(prefix: str, result: dict[str, Any]) -> None:
-    train_result = result.get("result", {})
+    train_result = result
     summary = train_result.get("summary") or {}
     latest = summary.get("latest") or {}
     best = summary.get("best") or {}

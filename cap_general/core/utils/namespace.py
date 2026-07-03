@@ -31,13 +31,12 @@ class ResetLevel(IntEnum):
 
 
 class TraceLevel(str, Enum):
-    """How much task-execution detail to record in the agent history.
+    """How much task-execution detail to record in the scene history.
 
     NEVER  - No history entries are written; per-step records are not saved.
-    TASK   - One response history entry per execute/retry call (role=agent);
-             no LLM-request entries; no per-step record artifacts.
-    ALL    - Full trace: LLM request + agent response entries for every
-             execute/retry/train call, and per-step record artifacts saved.
+    TASK   - Request and response entries for execute/retry/monitor/get_obs;
+             no per-step record artifacts.
+    ALL    - TASK entries plus train entries and per-step record artifacts.
     """
 
     NEVER = "never"
