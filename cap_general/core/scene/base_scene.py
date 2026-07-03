@@ -236,12 +236,12 @@ class BaseScene(RegisteredBase):
 
             @functools.wraps(method)  # pylint: disable=cell-var-from-loop
             async def _wrapped(*args, _method=method, _name=method_name, **kwargs):
-                self._logger.info(
-                    "MCP scene tool call: %s args=%s kwargs=%s",
-                    _name,
-                    cap_utils.summarize_value(args),
-                    cap_utils.summarize_value(kwargs),
-                )
+                call_info = [f"MCP scene tool call: {_name}"]
+                if args:
+                    call_info.append(f"args={cap_utils.summarize_value(args)}")
+                if kwargs:
+                    call_info.append(f"kwargs={cap_utils.summarize_value(kwargs)}")
+                self._logger.info(" ".join(call_info))
                 result = _method(*args, **kwargs)
                 if inspect.isawaitable(result):
                     return await result
