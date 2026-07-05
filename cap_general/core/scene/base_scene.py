@@ -33,15 +33,6 @@ class ServerConfig:
 
 
 @dataclass
-class AgentSpec:
-    """Configuration for an agent inside a scene."""
-
-    name: str
-    config: dict[str, Any]
-    alias: str | list[str] | None = None
-
-
-@dataclass
 class AgentInfo:
     """Runtime state for one scene agent."""
 
@@ -54,9 +45,10 @@ class AgentInfo:
 class BaseSceneConfig:
     """Configuration for a scene containing one or more agents."""
 
-    agents: list[AgentSpec | dict[str, Any]]
+    agents: list[dict[str, Any]]
     server: ServerConfig = field(default_factory=ServerConfig)
     record_dir: str | Path = "outputs/scene"
+    export_dir: str | Path = "outputs/export"
     debug: bool = False
     async_task: bool = True
     trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
@@ -139,6 +131,7 @@ class BaseScene(RegisteredBase):
         self._config = config
         self._server_config = self._config.server
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
+        self._export_dir = Path(self._config.export_dir).expanduser().resolve()
         self._logger = logger or self._build_logger(self._record_dir)
         self._trace_level = cap_utils.TraceLevel(self._config.trace_level)
         self._history: list[dict[str, Any]] = []
@@ -171,29 +164,33 @@ class BaseScene(RegisteredBase):
     def _build_logger(record_dir: Path) -> logging.Logger:
         return cap_utils.build_file_logger(record_dir, logger_name="scene")
 
-    def _build_agents(self, specs: list[AgentSpec | dict[str, Any]]) -> None:
+    def _build_agents(self, specs: list[dict[str, Any]]) -> None:
         self._pre_build()
         for spec_data in specs:
-            spec = spec_data if isinstance(spec_data, AgentSpec) else AgentSpec(**spec_data)
-            if spec.name in self._agents:
-                raise ValueError(f"Duplicate agent name in scene: {spec.name}")
-            agent_config = dict(spec.config)
-            agent_config.pop("debug", None)
-            agent_config["record_dir"] = self._record_dir / spec.name
-            agent_config["debug"] = self._config.debug
-            aliases = spec.alias if isinstance(spec.alias, list) else [spec.alias] if spec.alias else []
-            agent_config["name"] = spec.name
-            agent_config["alias"] = aliases[0] if aliases else None
-            agent = BaseAgent.from_config(agent_config, logger=self._logger)
-            self._agents[spec.name] = AgentInfo(agent=agent, status=self._get_status(spec.name))
-            for alias in aliases:
+            raw = dict(spec_data)
+            name = raw.pop("name")
+            alias = raw.pop("alias", None)
+            if name in self._agents:
+                raise ValueError(f"Duplicate agent name in scene: {name}")
+            raw.pop("debug", None)
+            raw["record_dir"] = self._record_dir / name
+            raw["debug"] = self._config.debug
+            raw["name"] = name
+            raw["alias"] = alias
+            if raw.get("pipeline"):
+                pipeline = dict(raw["pipeline"])
+                pipeline["export_dir"] = str(self._export_dir / name)
+                raw["pipeline"] = pipeline
+            agent = BaseAgent.from_config(raw, logger=self._logger)
+            self._agents[name] = AgentInfo(agent=agent, status=self._get_status(name))
+            if alias:
                 existing = self._agent_aliases.get(alias)
-                if existing is not None and existing != spec.name:
+                if existing is not None and existing != name:
                     self._logger.warning(
-                        "Skip duplicate agent alias %r for %s; already bound to %s", alias, spec.name, existing
+                        "Skip duplicate agent alias %r for %s; already bound to %s", alias, name, existing
                     )
-                    continue
-                self._agent_aliases[alias] = spec.name
+                else:
+                    self._agent_aliases[alias] = name
         self._post_build()
 
     def _pre_build(self) -> None:
@@ -213,6 +210,7 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.reset(options=options)
         return results
 
+    @trace_result
     def agent_doc(self, agents: list[str]) -> dict[str, dict]:
         """Return documentation for the selected agents, or all agents if omitted."""
         results: dict[str, dict[str, Any]] = {}
@@ -236,10 +234,10 @@ class BaseScene(RegisteredBase):
         return self._format_results(canonical_agents, results)
 
     @trace_result
-    async def train(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        """Start train tasks for selected agents from an agent-to-options mapping."""
+    async def run_pipe(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Run pipeline jobs for selected agents from an agent-to-options mapping."""
         requests = self._resolve_kwargs(agent_options)
-        results = [await self._start_task(agent, "train", **kwargs) for agent, kwargs in requests.items()]
+        results = [await self._start_task(agent, "run_pipe", **kwargs) for agent, kwargs in requests.items()]
         return self._format_results(requests, results)
 
     @trace_result
@@ -314,7 +312,7 @@ class BaseScene(RegisteredBase):
             "reset",
             "agent_doc",
             "execute",
-            "train",
+            "run_pipe",
             "monitor",
             "retry",
             "record",

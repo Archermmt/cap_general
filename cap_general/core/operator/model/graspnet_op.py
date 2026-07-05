@@ -173,13 +173,11 @@ class GraspNetOp(ModelOp):
                     contact_pts[segmap_id] = (tf_wc_matrix @ pts_h.T).T[:, :3]
                     scores[segmap_id] = scores_new[segmap_id]
                 current_retries += 1
-        return {
-            "output": GraspNetResult(
+        return GraspNetResult(
                 grasps=np.asarray(pred_grasps.get(segmap_id, [])),
                 scores=np.asarray(scores.get(segmap_id, [])),
                 contact_points=np.asarray(contact_pts.get(segmap_id, [])),
             )
-        }
 
     @to_stage_fn
     def plan_point_clouds(self, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -197,13 +195,11 @@ class GraspNetOp(ModelOp):
             filter_grasps=filter_grasps,
             forward_passes=forward_passes,
         )
-        return {
-            "output": GraspNetResult(
+        return GraspNetResult(
                 grasps=np.asarray(pred_grasps.get(segmap_id, [])),
                 scores=np.asarray(scores.get(segmap_id, [])),
                 contact_points=np.asarray(contact_pts.get(segmap_id, [])),
             )
-        }
 
 
 def _sample_random_camera_viewpoint(target_point: np.ndarray, xy_extent_meters: float = 0.25):

@@ -102,7 +102,7 @@ class SAM3Op(ModelOp):
         boxes = output.get("boxes")
         scores = output.get("scores")
         if masks is None or boxes is None or scores is None:
-            return {"output": []}
+            return []
 
         masks_np = self._to_numpy(masks)
         boxes_np = self._to_numpy(boxes)
@@ -119,7 +119,7 @@ class SAM3Op(ModelOp):
             )
             for i in range(len(scores_np))
         ]
-        return {"output": sorted(results, key=lambda item: item.score, reverse=True)}
+        return sorted(results, key=lambda item: item.score, reverse=True)
 
     @to_stage_fn
     def segment_point(self, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -140,14 +140,12 @@ class SAM3Op(ModelOp):
         masks_np = np.asarray(masks)
         scores_np = np.asarray(scores)
         if masks_np.size == 0 or scores_np.size == 0:
-            return {"output": Sam3PointResult(masks=np.empty((0, 0, 0)), scores=[])}
+            return Sam3PointResult(masks=np.empty((0, 0, 0)), scores=[])
         sort_idx = np.argsort(scores_np)[::-1]
-        return {
-            "output": Sam3PointResult(
+        return Sam3PointResult(
                 masks=masks_np[sort_idx],
                 scores=scores_np[sort_idx].astype(float).tolist(),
             )
-        }
 
     @staticmethod
     def _to_pil(image: Any):

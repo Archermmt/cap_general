@@ -27,30 +27,29 @@ class GenesisDroneAgent(GenesisBaseAgent):
     config_cls = GenesisDroneAgentConfig
     train_best_metric = "mean_episode_rew_target"
 
-    def _execute_rules(self) -> str:
-        return (
-            "The Genesis drone agent evaluates hover policies in a robot-controlled scene. "
-            "Use follow_target(target_pos=[x, y, z], max_steps=...) to fly to a fixed "
-            "target position and hover there until the step budget is exhausted. Use "
-            "hover(time_s=...) to keep the drone hovering at its current position for "
-            "a duration in seconds. Do not create Genesis scenes, drones, cameras, or "
-            "policies in generated code."
-        )
-
     def functions(self) -> dict[str, Callable[..., Any]]:
         return {"follow_target": self.follow_target, "hover": self.hover}
 
     def follow_target(
         self, target_pos: list[float] | tuple[float, float, float], max_steps: int | None = None
     ) -> dict[str, Any]:
-        """Run the drone policy to fly to a fixed target position."""
+        """Fly the drone to a fixed target position and hover there until the step budget is exhausted.
+
+        Args:
+            target_pos: Target [x, y, z] position in world coordinates.
+            max_steps: Maximum simulation steps (default: agent horizon).
+        """
         steps = int(max_steps or self._config.horizon)
         self._robot.set_target_position(target_pos)
         executed_steps = self._run_policy_steps(steps=steps)
         return {"steps": executed_steps, "target_pos": list(target_pos)}
 
     def hover(self, time_s: float) -> dict[str, Any]:
-        """Keep the drone hovering at its current position for time_s seconds."""
+        """Keep the drone hovering at its current position for the given duration.
+
+        Args:
+            time_s: Duration in seconds.
+        """
         duration = max(float(time_s), 0.0)
         if not self._robot.lock_commands:
             self._robot.set_target_position(self._robot.base_pos)

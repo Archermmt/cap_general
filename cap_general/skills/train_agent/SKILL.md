@@ -6,14 +6,14 @@ metadata: {"nanobot":{"emoji":"🏋️"}}
 
 # Train Agent Skill
 
-Train selected robot agents with `{cap_id}_train`, poll their status every five seconds with `{cap_id}_monitor`, and send every returned result to the user with `message`.
+Train selected robot agents with `{cap_id}_run_pipe`, poll their status every five seconds with `{cap_id}_monitor`, and send every returned result to the user with `message`.
 
 Available agent names and aliases: `{available_names}`.
 
 ## CAP Tools
 
 - `{cap_id}_agent_doc`
-- `{cap_id}_train`
+- `{cap_id}_run_pipe`
 - `{cap_id}_monitor`
 
 Selector tools use an `agents` list. Training uses an `agent_options` mapping keyed by agent name or alias. Response keys use each agent's scene-visible mark, usually `alias(agent_name)` when an alias exists.
@@ -22,12 +22,10 @@ Selector tools use an `agents` list. Training uses an `agent_options` mapping ke
 
 Each training request requires:
 
+- `job_options`: A list of job entries. Each entry has a `job` key (job group name, e.g. `"train"`) and an `options` key with job-specific options. The agent configuration determines the training stage (RL or BC).
 - `policy_name`: Configured policy name returned by `agent_doc`.
-- `epoch`: Positive integer number of training epochs requested by the user.
-- `options`: Optional agent-specific training options documented by `agent_doc`, such as `seed`, `train_cfg`, and `record_epoch`.
 
-The agent configuration determines the training stage, such as RL or BC. Do not
-send `method`, `stage`, or other unsupported top-level fields to `{cap_id}_train`.
+Job options for training include `epoch` (positive integer), `seed`, `train_cfg`, `record_epoch`, and other agent-specific options documented by `agent_doc`.
 
 Example:
 
@@ -36,22 +34,23 @@ Example:
   "agent_options": {
     "{agent_name}": {
       "policy_name": "runner",
-      "epoch": 100,
-      "options": {}
+      "job_options": [
+        {"job": "train", "options": {"epoch": 100}}
+      ]
     }
   }
 }
 ```
 
-Never place `epoch` inside `options`. It is a required standard parameter of `train`.
+Do not send `method`, `stage`, or other unsupported top-level fields to `{cap_id}_run_pipe`.
 
 ## Required Workflow
 
 1. Identify the requested agent from `{available_names}` and parse the requested epoch count as a positive integer.
-2. Call `{cap_id}_agent_doc` before training to inspect `policy_doc`, the `train` function signature, and agent-specific options.
+2. Call `{cap_id}_agent_doc` before training to inspect `policy_doc`, the `run_pipe` function signature, and agent-specific options.
 3. Select the policy from the user's request and `agent_doc`. Ask the user only when multiple valid policies remain genuinely ambiguous.
-4. Call `{cap_id}_train` once with all independent target agents in one `agent_options` mapping.
-5. Send a `message` immediately confirming that training started and include the initial train response.
+4. Call `{cap_id}_run_pipe` once with all independent target agents in one `agent_options` mapping.
+5. Send a `message` immediately confirming that training started and include the initial run_pipe response.
 6. Repeatedly call `{cap_id}_monitor` with `wait_ms=5000` for agents that are still running.
 7. After every monitor call, immediately send the complete returned status and `result` to the user with `message`.
 8. Stop polling an agent when its status has `running=false`.
@@ -87,13 +86,14 @@ Do not use `wait_ms=-1`; the user must receive progress at five-second intervals
 
 ```json
 {
-  "name": "{cap_id}_train",
+  "name": "{cap_id}_run_pipe",
   "arguments": {
     "agent_options": {
       "{agent_name}": {
         "policy_name": "runner",
-        "epoch": 100,
-        "options": {}
+        "job_options": [
+          {"job": "train", "options": {"epoch": 100}}
+        ]
       }
     }
   }
@@ -113,7 +113,7 @@ Send each monitor response with `message` before the next poll.
 1. Trigger this skill whenever the user asks a robot or agent to train for a number of rounds or epochs.
 2. Require `epoch > 0` and preserve the exact number requested by the user.
 3. Read `{cap_id}_agent_doc` before selecting a policy or options.
-4. Call `{cap_id}_train` only once per requested training run.
+4. Call `{cap_id}_run_pipe` only once per requested training run.
 5. Poll only with `{cap_id}_monitor(wait_ms=5000)` while training is running.
 6. Send every monitor result to the user through `message`; do not silently wait for completion.
 7. Do not call `{cap_id}_execute` to train a policy.

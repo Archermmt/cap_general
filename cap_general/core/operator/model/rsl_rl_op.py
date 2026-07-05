@@ -46,7 +46,7 @@ class RslRlOp(ModelOp):
         if obs_device is not None:
             self._actor.to(obs_device)
         self._actor.eval()
-        return {"output": self._actor(obs)}
+        return self._actor(obs)
 
     @to_stage_fn
     def update(self, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -99,12 +99,13 @@ class RslRlOp(ModelOp):
         return actor
 
     def _checkpoint_path(self, log_dir: Path) -> Path:
-        if self._config.ckpt is not None:
-            return log_dir / f"model_{self._config.ckpt}.pt"
-        checkpoint_files = list(log_dir.glob(self._config.checkpoint_pattern))
-        if not checkpoint_files:
-            raise FileNotFoundError(f"No checkpoint files found in {log_dir}")
-        return max(checkpoint_files, key=self._checkpoint_number)
+        ckpt = self._config.ckpt
+        if ckpt is None:
+            checkpoint_files = list(log_dir.glob(self._config.checkpoint_pattern))
+            if not checkpoint_files:
+                raise FileNotFoundError(f"No checkpoint files found in {log_dir}")
+            return max(checkpoint_files, key=self._checkpoint_number)
+        return log_dir / f"model_{ckpt}.pt"
 
     @staticmethod
     def _checkpoint_number(path: Path) -> int:

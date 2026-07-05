@@ -7,7 +7,6 @@ from typing import Any
 
 from cap_general.core.operator.base_operator import BaseOperator, to_stage_fn
 from cap_general.core.operator.model.base_model_op import ModelOp
-from cap_general.core.policy.policy_result import PolicyResult
 
 
 @dataclass
@@ -145,16 +144,13 @@ class HuggingFaceOp(ModelOp):
                     generated_text = generated_text[:idx]
                     break
         return {
-            "output": PolicyResult(
-                code=generated_text,
-                policy_name="huggingface",
-                metadata={
-                    "backend": "transformers",
-                    "model_path": self._config.model_path,
-                    "device": self._config.device,
-                    "max_new_tokens": kwargs["max_new_tokens"],
-                    "temperature": resolved_temperature,
-                    "top_p": resolved_top_p,
-                },
-            )
+            "output": generated_text,
+            "metadata": {
+                "backend": "transformers",
+                "model_path": self._config.model_path,
+                "device": self._config.device,
+                "max_new_tokens": kwargs["max_new_tokens"],
+                "temperature": resolved_temperature,
+                "top_p": resolved_top_p,
+            },
         }

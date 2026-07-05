@@ -24,96 +24,98 @@ vis_options:
   rendered_envs_idx:
   - 0
 record_dir: ./outputs/genesis
+export_dir: ./export/genesis
 agents:
 - name: go2
-  alias:
-  - 七仔
-  config:
+  alias: 七仔
+  type: genesis_go2
+  max_retry: 5
+  reset_mode: never
+  record_execute: true
+  horizon: 1000
+  robot:
     type: genesis_go2
-    max_retry: 5
-    reset_mode: never
-    record_execute: true
-    policy: runner
-    horizon: 1000
-    train_cfg:
-      algorithm:
-        class_name: PPO
-        clip_param: 0.2
-        desired_kl: 0.01
-        entropy_coef: 0.01
-        gamma: 0.99
-        lam: 0.95
-        learning_rate: 0.001
-        max_grad_norm: 1.0
-        num_learning_epochs: 5
-        num_mini_batches: 4
-        schedule: adaptive
-        use_clipped_value_loss: true
-        value_loss_coef: 1.0
-      actor:
-        class_name: MLPModel
-        hidden_dims: [512, 256, 128]
-        activation: elu
-        distribution_cfg:
-          class_name: GaussianDistribution
-          init_std: 1.0
-          std_type: scalar
-      critic:
-        class_name: MLPModel
-        hidden_dims: [512, 256, 128]
-        activation: elu
-      obs_groups:
-        actor: [policy]
-        critic: [policy]
-      num_steps_per_env: 24
-      save_interval: 100
-      run_name: runner
-      logger: tensorboard
-    robot:
-      type: genesis_go2
-      video_fmt: mp4
-      seed: 7
-      reset_time: 0
-      example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
-      log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-      num_envs: 1
-      image_keys:
-      - body_camera_image
-      camera_enabled: true
-      camera_res:
-      - 320
-      - 240
-      camera_fov: 40.0
-      camera_pos:
-      - 2.0
-      - 0.0
-      - 2.5
-      camera_lookat:
-      - 0.0
-      - 0.0
-      - 0.5
-      camera_attach_to_base: false
-      camera_near: 0.05
-      camera_far: 20.0
-      turn_action_scale: 0.35
-      base_init_pos:
-      - 0.0
-      - 0.0
-      - 0.42
-      max_episode_steps: 1000000
-    policies:
-      runner:
-        type: base
-        graph:
-          name: runner
-          nodes:
-          - name: model
-            op_group: model
-            op_type: rsl_rl
-            config:
-              log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-              ckpt: 100
-              train_cfg_index: 4
+    video_fmt: mp4
+    seed: 7
+    reset_time: 0
+    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
+    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+    num_envs: 1
+    image_keys:
+    - body_camera_image
+    camera_enabled: true
+    camera_res:
+    - 320
+    - 240
+    camera_fov: 40.0
+    camera_pos:
+    - 2.0
+    - 0.0
+    - 2.5
+    camera_lookat:
+    - 0.0
+    - 0.0
+    - 0.5
+    camera_attach_to_base: false
+    camera_near: 0.05
+    camera_far: 20.0
+    turn_action_scale: 0.35
+    base_init_pos:
+    - 0.0
+    - 0.0
+    - 0.42
+    max_episode_steps: 1000000
+  policies:
+    runner:
+      type: base
+      graph:
+        name: runner
+        nodes:
+        - name: model
+          type: model::rsl_rl
+          config:
+            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+            ckpt: 100
+            train_cfg_index: 4
+  pipeline:
+    jobs:
+    - type: train::genesis_train
+      config:
+        stage: rl
+        train_cfg:
+          algorithm:
+            class_name: PPO
+            clip_param: 0.2
+            desired_kl: 0.01
+            entropy_coef: 0.01
+            gamma: 0.99
+            lam: 0.95
+            learning_rate: 0.001
+            max_grad_norm: 1.0
+            num_learning_epochs: 5
+            num_mini_batches: 4
+            schedule: adaptive
+            use_clipped_value_loss: true
+            value_loss_coef: 1.0
+          actor:
+            class_name: MLPModel
+            hidden_dims: [512, 256, 128]
+            activation: elu
+            distribution_cfg:
+              class_name: GaussianDistribution
+              init_std: 1.0
+              std_type: scalar
+          critic:
+            class_name: MLPModel
+            hidden_dims: [512, 256, 128]
+            activation: elu
+          obs_groups:
+            actor: [policy]
+            critic: [policy]
+          num_steps_per_env: 24
+          save_interval: 100
+          run_name: runner
+          logger: tensorboard
 server:
   cap_id: cap
   host: 127.0.0.1

@@ -32,8 +32,7 @@ agents:
             name: sam3
             nodes:
               - name: model
-                op_group: model
-                op_type: sam3
+                type: model::sam3
                 config:
                   device: cuda
                   load_from_hf: false
@@ -46,8 +45,7 @@ agents:
             name: graspnet
             nodes:
               - name: model
-                op_group: model
-                op_type: graspnet
+                type: model::graspnet
                 config:
                   vendor_root: /home/genie_store/nfs_datas/tm/codes/cap-x/capx/third_party/contact_graspnet_pytorch
                   device: cuda
@@ -57,8 +55,7 @@ agents:
             name: pyroki
             nodes:
               - name: model
-                op_group: model
-                op_type: pyroki
+                type: model::pyroki
                 config:
                   robot_urdf_name: panda_description
                   target_link_name: panda_hand

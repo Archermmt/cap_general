@@ -104,13 +104,12 @@ class BaseOperator:
     def _on_eval(self) -> None:
         """Hook called after entering evaluation mode."""
 
-    def run(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Execute the current stage with *inputs* and return a dict output."""
+    def run(self, inputs: dict[str, Any]) -> Any:
+        """Execute the current stage with *inputs* and return the raw result."""
         method = self._stage_funcs.get(self._stage)
         if method is None:
             raise AttributeError(f"{type(self).__name__} has no stage {self._stage!r}")
-        result = method(inputs)
-        return result if isinstance(result, dict) else {"output": result}
+        return method(inputs)
 
     def get_model(self) -> Any:
         """Return the underlying trainable model, or None if not applicable."""

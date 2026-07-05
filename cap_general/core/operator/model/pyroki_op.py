@@ -115,7 +115,7 @@ class PyrokiOp(ModelOp):
                 target_wxyz=pose[:-3],
                 prev_cfg=prev,
             )
-        return {"output": PyrokiIkResult(joint_positions=list(map(float, joints)))}
+        return PyrokiIkResult(joint_positions=list(map(float, joints)))
 
     @to_stage_fn
     def plan(self, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +131,7 @@ class PyrokiOp(ModelOp):
             end_wxyz=end[:4],
             num_waypoints=timesteps,
         )
-        return {"output": PyrokiPlanResult(waypoints=np.asarray(trajectory).tolist(), dt=float(dt))}
+        return PyrokiPlanResult(waypoints=np.asarray(trajectory).tolist(), dt=float(dt))
 
     def _plan_trajectory_linear_ik(self, start_pos, start_wxyz, end_pos, end_wxyz, num_waypoints) -> np.ndarray:
         positions = np.linspace(start_pos, end_pos, num_waypoints)
@@ -143,7 +143,7 @@ class PyrokiOp(ModelOp):
             if prev_cfg is not None:
                 inp["prev_cfg"] = prev_cfg
             result = self.solve_ik(inp)
-            prev_cfg = np.asarray(result["output"].joint_positions)
+            prev_cfg = np.asarray(result.joint_positions)
             trajectory.append(prev_cfg)
         return np.asarray(trajectory)
 

@@ -18,10 +18,24 @@ from cap_general.core.policy import BasePolicy, BasePolicyConfig
 from cap_general.core.robot import BaseRobot
 from cap_general.core.scene import BaseScene
 from cap_general.core.scene.base_scene import AgentInfo
+from cap_general.core.pipeline.job.base_job import BaseJob
+from cap_general.core.pipeline.job.train_job import TrainJob, TrainJobConfig
 from cap_general.core.utils.config import parse_cli_overrides
 
 _ALPHA_KEY = "a(alpha)"
 _BETA_KEY = "b(beta)"
+
+
+@BaseJob.register()
+class SceneDummyTrainJob(TrainJob):
+    """Minimal train job for scene routing tests."""
+
+    job_group = "train"
+    job_type = "scene_dummy"
+    config_cls = TrainJobConfig
+
+    def _execute(self, policy, robot, options=None):
+        return policy.to_dict(), {}
 
 
 @BaseRobot.register()
@@ -84,16 +98,6 @@ class SceneDummyAgent(BaseAgent):
     def echo(self, value: str) -> str:
         return value
 
-    def _train(self, policy, epoch, options):
-        return (
-            {
-                "policy_name": policy.name,
-                "epoch": epoch,
-                "options": options,
-            },
-            {},
-        )
-
 
 def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
     agent_names = agent_names or ("alpha",)
@@ -105,21 +109,22 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
         "agents": [
             {
                 "name": agent_name,
-                "alias": [agent_name[0]],
-                "config": {
-                    "type": "scene_dummy",
-                    "robot": {"type": "scene_dummy", "reset_time": 0},
-                    "policies": {
-                        "test": {
-                            "type": "scene_dummy",
-                            "graph": {
-                                "name": "scene_dummy",
-                                "nodes": [
-                                    {"name": "model", "node_type": "test::scene_dummy", "config": {}}
-                                ],
-                            },
-                        }
-                    },
+                "alias": agent_name[0],
+                "type": "scene_dummy",
+                "robot": {"type": "scene_dummy", "reset_time": 0},
+                "policies": {
+                    "test": {
+                        "type": "scene_dummy",
+                        "graph": {
+                            "name": "scene_dummy",
+                            "nodes": [
+                                {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                            ],
+                        },
+                    }
+                },
+                "pipeline": {
+                    "jobs": [{"type": "train::scene_dummy", "config": {"epoch": 1}}]
                 },
             }
             for agent_name in agent_names
@@ -331,12 +336,10 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
-        await scene.train(
+        await scene.run_pipe(
             {
                 "alpha": {
-                    "policy_name": "test",
-                    "epoch": 2,
-                    "options": {},
+                    "job_options": [{"job": "train", "options": {"epoch": 2}}],
                 }
             }
         )
@@ -349,12 +352,10 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
-        await scene.train(
+        await scene.run_pipe(
             {
                 "alpha": {
-                    "policy_name": "test",
-                    "epoch": 2,
-                    "options": {},
+                    "job_options": [{"job": "train", "options": {"epoch": 2}}],
                 }
             }
         )
@@ -399,7 +400,7 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         "get_obs",
         "retry",
         "monitor",
-        "train",
+        "run_pipe",
         "monitor",
     ]
     assert all(m["role"] == "user" for m in request_messages)
@@ -410,9 +411,7 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     assert request_messages[-2]["request"] == {
         "agent_options": {
             "alpha": {
-                "policy_name": "test",
-                "epoch": 2,
-                "options": {},
+                "job_options": [{"job": "train", "options": {"epoch": 2}}],
             }
         }
     }
@@ -423,7 +422,7 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         "get_obs",
         "retry",
         "monitor",
-        "train",
+        "run_pipe",
         "monitor",
     ]
     assert response_messages[0]["role"] == _ALPHA_KEY
@@ -438,8 +437,8 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     assert response_messages[-7]["response"]["running"] is True
     assert response_messages[-6]["response"]["result"]["result"] == {"value": "enabled"}
     assert response_messages[-2]["response"]["running"] is True
-    assert response_messages[-1]["response"]["method"] == "train"
-    assert response_messages[-1]["response"]["result"]["policy_name"] == "Scene Dummy Policy"
+    assert response_messages[-1]["response"]["method"] == "run_pipe"
+    assert response_messages[-1]["response"]["result"]["ok"] is True
 
 
 def test_scene_debug_visualizes_policy_graphs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -476,21 +475,19 @@ def test_scene_debug_visualizes_policy_graphs(tmp_path: Path, monkeypatch: pytes
             "agents": [
                 {
                     "name": "alpha",
-                    "alias": ["a"],
-                    "config": {
-                        "type": "scene_dummy",
-                        "robot": {"type": "scene_dummy", "reset_time": 0},
-                        "policies": {
-                            "test": {
-                                "type": "scene_dummy",
-                                "graph": {
-                                    "name": "scene_dummy",
-                                    "nodes": [
-                                        {"name": "model", "node_type": "test::scene_dummy", "config": {}}
-                                    ],
-                                },
-                            }
-                        },
+                    "alias": "a",
+                    "type": "scene_dummy",
+                    "robot": {"type": "scene_dummy", "reset_time": 0},
+                    "policies": {
+                        "test": {
+                            "type": "scene_dummy",
+                            "graph": {
+                                "name": "scene_dummy",
+                                "nodes": [
+                                    {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                                ],
+                            },
+                        }
                     },
                 }
             ],
@@ -536,21 +533,19 @@ def test_scene_debug_visualize_falls_back_to_dot(tmp_path: Path, monkeypatch: py
             "agents": [
                 {
                     "name": "alpha",
-                    "alias": ["a"],
-                    "config": {
-                        "type": "scene_dummy",
-                        "robot": {"type": "scene_dummy", "reset_time": 0},
-                        "policies": {
-                            "test": {
-                                "type": "scene_dummy",
-                                "graph": {
-                                    "name": "scene_dummy",
-                                    "nodes": [
-                                        {"name": "model", "node_type": "test::scene_dummy", "config": {}}
-                                    ],
-                                },
-                            }
-                        },
+                    "alias": "a",
+                    "type": "scene_dummy",
+                    "robot": {"type": "scene_dummy", "reset_time": 0},
+                    "policies": {
+                        "test": {
+                            "type": "scene_dummy",
+                            "graph": {
+                                "name": "scene_dummy",
+                                "nodes": [
+                                    {"name": "model", "node_type": "test::scene_dummy", "config": {}}
+                                ],
+                            },
+                        }
                     },
                 }
             ],
@@ -575,14 +570,12 @@ record_dir: outputs/test_scene_yaml
 debug: false
 agents:
   - name: alpha
-    alias:
-      - a
-    config:
+    alias: a
+    type: scene_dummy
+    robot:
       type: scene_dummy
-      robot:
-        type: scene_dummy
-        reset_time: 0
-      policies: {}
+      reset_time: 0
+    policies: {}
 """,
         encoding="utf-8",
     )
@@ -591,8 +584,8 @@ agents:
         [
             "--server.port",
             "9001",
-            "--agents[0].alias=[renamed]",
-            "--agents[0].config.robot.reset_time",
+            "--agents[0].alias=renamed",
+            "--agents[0].robot.reset_time",
             "0.01",
         ]
     )

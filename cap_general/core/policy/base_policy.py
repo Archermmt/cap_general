@@ -10,7 +10,16 @@ from typing import Any, ClassVar
 from cap_general.core.base import RegisteredBase
 from cap_general.core.graph.cap_graph import CapGraph
 from cap_general.core.operator.base_operator import BaseOperator
-from cap_general.core.policy.policy_result import PolicyResult
+
+
+@dataclass
+class PolicyResult:
+    """Result from policy inference."""
+
+    success: bool
+    policy_name: str
+    stage: str
+    output: Any
 
 
 @dataclass
@@ -59,7 +68,7 @@ class BasePolicy(RegisteredBase):
     def run(self, stage: str, inputs: dict[str, Any]) -> PolicyResult:
         """Execute *stage* across all graph nodes and return a PolicyResult."""
         self.set_stage(stage)
-        last_output: dict[str, Any] = {}
+        last_output: Any = {}
         for node in self._graph.nodes():
             op = self._operators[node.name]
             if not node.inputs:
@@ -69,20 +78,31 @@ class BasePolicy(RegisteredBase):
                 for _, (parent_node, output_idx) in sorted(node.inputs.items()):
                     op_inputs.update(parent_node.output(output_idx).values)
             last_output = op.run(op_inputs)
-            node.output(0).update(last_output)
+            routing = last_output if isinstance(last_output, dict) else {"output": last_output}
+            node.output(0).update(routing)
 
-        return PolicyResult(code="success", policy_name=self._name, output=last_output)
+        return PolicyResult(success=True, policy_name=self._name, stage=stage, output=last_output)
 
     def _create_operators(self) -> None:
         for node in self._graph.nodes():
             self._operators[node.name] = BaseOperator.create(node.op_group, node.op_type, node.config, self._logger)
             self._operators[node.name].reset()
 
-    def reset(self, *args: Any, **kwargs: Any) -> None:
-        """Rebuild the graph and re-instantiate all operators."""
+    def reset(self) -> None:
+        """Rebuild the graph, re-instantiate all operators, and switch to eval mode."""
         self._operators = {}
         self._graph = CapGraph.from_dict(self._config.graph)
         self._create_operators()
+        self.eval()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the policy (config + current graph) to a plain dict."""
+        import dataclasses
+
+        cfg = dataclasses.asdict(self._config)
+        cfg["type"] = type(self).policy_type
+        cfg["graph"] = self._graph.to_dict()
+        return cfg
 
     def get_model(self, node_name: str | None = None) -> Any:
         """Return the trainable model from the named node's operator, or the first one found."""
@@ -142,4 +162,4 @@ class BasePolicy(RegisteredBase):
         return self._training
 
 
-BasePolicy._registry["base"] = BasePolicy
+BasePolicy.register()(BasePolicy)

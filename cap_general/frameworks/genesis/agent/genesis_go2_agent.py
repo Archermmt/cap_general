@@ -27,20 +27,16 @@ class GenesisGo2Agent(GenesisBaseAgent):
     config_cls = GenesisGo2AgentConfig
     train_best_metric = "mean_episode_rew_tracking_lin_vel"
 
-    def _execute_rules(self) -> str:
-        return (
-            "The Genesis GO2 agent evaluates locomotion policies in a robot-controlled scene. "
-            "Use walk_forward(max_steps=..., turn_angle=0.0) to make GO2 walk forward "
-            "and optionally turn by a yaw angle in radians. Use stand_still(time_s=...) "
-            "to keep GO2 standing still for a duration in seconds. Do not create "
-            "Genesis scenes or robots in generated code."
-        )
-
     def functions(self) -> dict[str, Callable[..., Any]]:
         return {"walk_forward": self.walk_forward, "stand_still": self.stand_still}
 
     def walk_forward(self, max_steps: int | None = None, turn_angle: float = 0.0) -> dict[str, Any]:
-        """Make GO2 walk forward and smoothly turn by biasing policy actions."""
+        """Make GO2 walk forward and optionally turn by a yaw angle.
+
+        Args:
+            max_steps: Maximum simulation steps (default: agent horizon).
+            turn_angle: Yaw bias in radians applied to policy actions during the walk.
+        """
         steps = int(max_steps or self._config.horizon)
         self._robot.set_walk_command(turn_angle=0.0, steps=steps)
         self._run_policy_steps(
@@ -51,7 +47,11 @@ class GenesisGo2Agent(GenesisBaseAgent):
         return {"steps": steps, "turn_angle": float(turn_angle)}
 
     def stand_still(self, time_s: float) -> dict[str, Any]:
-        """Keep GO2 standing still for time_s seconds."""
+        """Keep GO2 standing still for the given duration.
+
+        Args:
+            time_s: Duration in seconds.
+        """
         duration = max(float(time_s), 0.0)
         steps = int(round(duration / max(float(self._robot.dt), 1e-6)))
         self._robot.stop_command()

@@ -15,6 +15,7 @@ class GenesisGraspAgentConfig(GenesisBaseAgentConfig):
 
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_grasp"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
+    rl_policy: str = "runner"
     bc_policy: str = "bc"
     horizon: int = 1000
     run_demo_after_episode: bool = True
@@ -28,18 +29,17 @@ class GenesisGraspAgent(GenesisBaseAgent):
     config_cls = GenesisGraspAgentConfig
     train_best_metric = "mean_episode_rew_keypoints"
 
-    def _execute_rules(self) -> str:
-        return (
-            "The Genesis grasp agent evaluates RL or BC policies in a robot-controlled "
-            "Franka grasp scene. Use grasp_episode(stage='rl'|'bc', max_steps=...). "
-            "Do not create Genesis scenes, robots, cameras, or policies in generated code."
-        )
-
     def functions(self) -> dict[str, Callable[..., Any]]:
         return {"grasp_episode": self.grasp_episode}
 
     def grasp_episode(self, stage: str | None = None, max_steps: int | None = None) -> dict[str, Any]:
-        """Run one Genesis grasp episode with an RL or BC policy."""
+        """Run one Genesis grasp episode with an RL or BC policy.
+
+        Args:
+            stage: ``'rl'`` for the RL runner policy, ``'bc'`` for the behavior-cloning policy.
+                Defaults to the agent's configured stage.
+            max_steps: Maximum simulation steps (default: agent horizon).
+        """
         current_stage = stage or self._config.stage
         steps = int(max_steps or self._config.horizon)
         obs = self._robot.policy_obs

@@ -15,7 +15,8 @@ from typing import Any, ClassVar
 
 from cap_general.core import utils as cap_utils
 from cap_general.core.base import RegisteredBase
-from cap_general.core.policy import BasePolicy, BasePolicyConfig
+from cap_general.core.pipeline import BasePipeline
+from cap_general.core.policy import BasePolicy
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
 
 
@@ -40,7 +41,8 @@ class BaseAgentConfig:
     """Configuration for constructing an agent."""
 
     robot: BaseRobotConfig
-    policies: dict[str, BasePolicyConfig] = field(default_factory=dict)
+    policies: dict[str, Any] = field(default_factory=dict)
+    pipeline: dict[str, Any] = field(default_factory=dict)
     name: str | None = None
     alias: str | None = None
     record_dir: str | Path = "outputs"
@@ -62,8 +64,22 @@ class BaseAgent(RegisteredBase):
         """Initialize an agent from config."""
         self._config, self._logger = config, logger
         self._record_dir = Path(self._config.record_dir).expanduser().resolve()
-        self._robot: BaseRobot = self._build_robot(self._config.robot, self._logger)
-        self._policies = self._build_policies(self._config.policies, self._logger)
+        self._robot: BaseRobot = BaseRobot.from_config(self._config.robot, logger=self._logger)
+
+        # Policies are always present; key is used as policy name if not set.
+        self._policies: dict[str, BasePolicy] = {}
+        for policy_name, policy_cfg in (config.policies or {}).items():
+            cfg = dict(policy_cfg)
+            cfg.setdefault("name", policy_name)
+            self._policies[policy_name] = BasePolicy.from_config(cfg, logger=self._logger)
+
+        # Pipeline is optional — only needed for production jobs (training etc.).
+        self._pipeline: BasePipeline | None = (
+            BasePipeline.from_config(config.pipeline, logger=self._logger)
+            if config.pipeline
+            else None
+        )
+
         self._exec_globals: dict[str, Any] = {}
         self._exec_cnt, self._trial_cnt = 0, 0
         self._step_infos, self._step_codes = [], []
@@ -71,26 +87,14 @@ class BaseAgent(RegisteredBase):
         self._reset_mode = cap_utils.ResetMode(self._config.reset_mode)
         self._clear_record_dir_contents()
 
-    @staticmethod
-    def _build_robot(config: dict[str, Any], logger: logging.Logger) -> BaseRobot:
-        return BaseRobot.from_config(config, logger=logger)
-
-    @staticmethod
-    def _build_policies(configs: dict[str, dict[str, Any]], logger: logging.Logger) -> dict[str, Any]:
-        return {
-            name: BasePolicy.from_config({**config, "name": name}, logger=logger) for name, config in configs.items()
-        }
-
     def post_build(self, scene: Any) -> None:
         """Initialize the robot and policies after the scene is built."""
         self._robot.post_build(scene)
         self._robot.reset()
-        visualize_dir = self.viz_dir
         for policy in self._policies.values():
             policy.reset()
-            policy.eval()
             try:
-                policy.visualize(visualize_dir)
+                policy.visualize(self.viz_dir)
             except Exception as exc:
                 self._logger.warning("Skip policy DAG visualization for %s: %s", policy.name, exc)
 
@@ -181,42 +185,38 @@ class BaseAgent(RegisteredBase):
         self._trial_cnt += 1
         return self._execute_once(self._step_codes[-1])
 
-    def train(self, policy_name: str, epoch: int, options: dict[str, Any] | None = None):
-        """Train a configured policy.
-
-        Validates the requested policy, switches both the policy and robot into
-        training mode for the duration of the run, and delegates the actual
-        training logic to :meth:`_train`, which subclasses should override.
+    def run_pipe(
+        self,
+        job_options: list[dict[str, Any]],
+        policy_name: str = "policy::base",
+    ) -> dict[str, Any]:
+        """Run a sequence of pipeline jobs in order.
 
         Args:
-            policy_name: Name of the policy to train, as configured in
-                ``policies``.
-            epoch: Number of training epochs to run. Must be positive.
-            options: [_options_doc()]
+            job_options: Ordered list of job entries.  Each entry is a dict
+                with keys ``job`` (job group name) and ``options`` (runtime
+                options for that job).
+                Example: ``[{"job": "train", "options": {"epoch": 100}}]``.
+                Per-job available options:
+                [_options_doc()]
+            policy_name: Policy key to operate on (default ``"policy::base"``).
 
         Returns:
-            A flat dict with ``ok`` and the fields returned by ``_train``.
+            A dict with ``ok`` and per-job ``report``.
         """
-        if epoch <= 0:
-            raise ValueError("epoch must be a positive integer")
-        policy = self._policies.get(policy_name)
-        if policy is None:
-            raise ValueError(f"Unknown policy requested: {policy_name!r}")
-        options = dict(options or {})
-        self._logger.info("Starting train: policy=%s epoch=%s options=%s", policy_name, epoch, options)
-        policy.train()
-        self._robot.train()
+        if self._pipeline is None:
+            raise ValueError("No pipeline configured for this agent")
+        policy = self._get_policy(policy_name)
+        actual_name = policy_name if policy_name in self._policies else next(iter(self._policies))
+        jobs = [jo["job"] for jo in job_options]
+        options = {jo["job"]: jo.get("options", {}) for jo in job_options}
         try:
-            result, new_policy = self._train(policy=policy, epoch=epoch, options=options)
-            self._update_policy(policy_name, **new_policy)
-            response = {"ok": True, **result}
+            new_policy, report = self._pipeline.execute(jobs, policy, self._robot, options)
+            self._policies[actual_name] = new_policy
         except Exception as exc:
-            self._logger.exception("Train failed: policy=%s", policy_name)
-            response = {"ok": False, "error": str(exc)}
-        finally:
-            policy.eval()
-            self._robot.eval()
-        return response
+            self._logger.exception("run_pipe failed")
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "report": report}
 
     def record(self, step_idx: int = -1):
         """Persist execution artifacts and return their metadata.
@@ -311,36 +311,35 @@ class BaseAgent(RegisteredBase):
             "result": self._exec_globals.get("RESULT"),
         }
 
-    def _run_policy(self, policy_name: str, stage: str = "inference", inputs: dict[str, Any] | None = None) -> Any:
-        """Run a configured policy by name via the unified ``run`` interface."""
-        if policy_name not in self._policies:
-            self._logger.warning("Unknown policy requested: %s", policy_name)
+    def _get_policy(self, policy_name: str) -> BasePolicy:
+        """Return the named policy, or the only policy if there is exactly one."""
+        if len(self._policies) == 1:
+            return next(iter(self._policies.values()))
+        policy = self._policies.get(policy_name)
+        if policy is None:
+            raise ValueError(f"Policy {policy_name!r} not found. Available: {list(self._policies)}")
+        return policy
+
+    def _run_policy(
+        self,
+        policy_name: str = "policy::base",
+        stage: str = "inference",
+        inputs: dict[str, Any] | None = None,
+    ) -> Any:
+        """Run *stage* on the named policy and return the output."""
+        policy = self._get_policy(policy_name)
+        try:
+            result = policy.run(stage, inputs or {})
+            if not result.success:
+                return None
+            return result.output
+        except Exception as exc:
+            self._logger.warning("Policy %r stage %r failed: %s", policy_name, stage, exc)
             return None
-        result = self._policies[policy_name].run(stage, inputs or {})
-        if result.code != "success":
-            self._logger.warning("Policy %r returned code %r for stage %r", policy_name, result.code, stage)
-            return None
-        output = result.output
-        if isinstance(output, dict) and "output" in output:
-            return output["output"]
-        return output
 
-    def _train(self, policy: Any, epoch: int, options: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-        """Hook for subclasses to implement the actual training logic.
-
-        Args:
-            policy: Configured policy object to train.
-            epoch: Number of training epochs to run.
-            options: Training options/hyperparameters.
-
-        Returns:
-            A pair containing the subclass-defined result and new policy data.
-        """
-        raise NotImplementedError(f"{type(self).__name__} does not implement _train")
-
-    def _update_policy(self, policy_name: str, **new_policy: Any) -> Any:
-        """Update a configured policy by name."""
-        return self._run_policy(policy_name, stage="update", inputs=new_policy)
+    def _update_policy(self, policy_name: str = "policy::base", **new_policy: Any) -> Any:
+        """Update the named policy via the 'update' stage."""
+        return self._run_policy(policy_name=policy_name, stage="update", inputs=new_policy)
 
     def _compute_reward(self) -> float:
         """Compute the current reward."""
@@ -361,7 +360,10 @@ class BaseAgent(RegisteredBase):
         available, the placeholder line is removed.
         """
         lines: list[str] = []
-        all_fns: dict[str, Callable] = {"reset": self.reset, "train": self.train, **self.functions()}
+        base_fns: dict[str, Callable] = {"reset": self.reset}
+        if self._pipeline is not None:
+            base_fns["run_pipe"] = self.run_pipe
+        all_fns: dict[str, Callable] = {**base_fns, **self.functions()}
         placeholder = "options: [_options_doc()]"
         for name, fn in all_fns.items():
             try:
@@ -394,11 +396,8 @@ class BaseAgent(RegisteredBase):
                 "reset_level: 0 resets only the robot pose, 1 resets the robot "
                 "controller, and 2 resets the full agent state. Defaults to 2."
             )
-        if method_name == "train":
-            return (
-                "Method-specific training options. Refer to the concrete agent's "
-                "training implementation for supported fields."
-            )
+        if method_name == "run_pipe":
+            return self._pipeline.options_doc() if self._pipeline is not None else ""
         return ""
 
     def _policy_doc(self) -> dict[str, dict[str, str]]:
@@ -407,7 +406,7 @@ class BaseAgent(RegisteredBase):
 
     @staticmethod
     def _step_dir_name(exec_cnt: int, trial_cnt: int) -> str:
-        return "step_{}/trial_{}".format(exec_cnt, trial_cnt)
+        return f"step_{exec_cnt}/trial_{trial_cnt}"
 
     def _current_step_dir_path(self) -> Path:
         return self._record_dir / self._step_dir_name(self._exec_cnt, self._trial_cnt)
@@ -448,11 +447,6 @@ class BaseAgent(RegisteredBase):
         return self._get_sub_dir("visualize")
 
     @property
-    def train_dir(self) -> Path:
-        """Path to the train output directory."""
-        return self._get_sub_dir("train")
-
-    @property
     def mark(self) -> str:
         """Scene-visible mark such as ``alias(name)``."""
         cfg_name = self._config.name
@@ -463,7 +457,7 @@ class BaseAgent(RegisteredBase):
         return f"{cfg_alias}({name})" if cfg_alias else name
 
     @property
-    def policies(self) -> dict[str, Any]:
+    def policies(self) -> dict[str, BasePolicy]:
         """Configured policies keyed by policy name."""
         return self._policies
 

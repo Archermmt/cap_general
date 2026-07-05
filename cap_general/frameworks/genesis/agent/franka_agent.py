@@ -32,17 +32,6 @@ class GenesisFrankaAgent(GenesisBaseAgent):
         self.horizon = int(config.horizon)
         super().__init__(config=config, logger=logger)
 
-    def _execute_rules(self) -> str:
-        """Return valid rules for execute for the Genesis Franka robot."""
-        return (
-            "The Genesis Franka scene is controlled by robot. It contains one Franka arm "
-            "and configured objects such as boxes, spheres, or cylinders. Generated code should "
-            "use robot methods such as robot.step(...), robot.get_observation(...), "
-            "robot.set_joint_positions(...), robot.move_to_pose(...), robot.grasp(), "
-            "robot.release(), and robot.step_simulation(). Do not create scenes, robots, "
-            "or objects in execute code."
-        )
-
     def functions(self) -> dict[str, Callable[..., Any]]:
         """Return Genesis Franka functions exposed to generated code."""
         return {"franka_episode": self.franka_episode}
@@ -53,6 +42,11 @@ class GenesisFrankaAgent(GenesisBaseAgent):
         max_steps: int | None = None,
     ) -> dict[str, Any]:
         """Run a Franka episode using robot-controlled scene logic.
+
+        The scene contains one Franka arm and configured objects. Use robot methods such as
+        ``robot.step()``, ``robot.get_observation()``, ``robot.set_joint_positions()``,
+        ``robot.move_to_pose()``, ``robot.grasp()``, ``robot.release()``, and
+        ``robot.step_simulation()`` inside the actions list or via execute code.
 
         Args:
             actions: Optional low-level robot action dictionaries. When omitted,

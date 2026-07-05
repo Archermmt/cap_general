@@ -12,16 +12,20 @@ class CapGraph:
     """DAG of CapNodes. Nodes are executed in topological order."""
 
     def __init__(self, name: str) -> None:
-        self.name = name
+        self._name = name
         self._nodes: dict[str, CapNode] = {}
         self._node_names: list[str] = []
 
     def __str__(self) -> str:
         return (
-            f"GRAPH({self.name},nodes_num={len(self._node_names)})"
+            f"GRAPH({self._name},nodes_num={len(self._node_names)})"
             + "\n\nNODES:\n"
             + "\n\n".join(str(self._nodes[n]) for n in self._node_names)
         )
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def add_node(
         self,
@@ -32,7 +36,7 @@ class CapGraph:
     ) -> CapNode:
         """Add a node and wire parent -> child edges from ``inputs``."""
         if name in self._nodes:
-            raise ValueError(f"Duplicate node name in CapGraph {self.name!r}: {name}")
+            raise ValueError(f"Duplicate node name in CapGraph {self._name!r}: {name}")
         node = CapNode(name=name, node_type=node_type, config=config or {})
         self._nodes[name] = node
         self._node_names.append(name)
@@ -85,7 +89,7 @@ class CapGraph:
                 if in_degree[child.name] == 0:
                     queue.append(child)
         if len(result) != len(self._nodes):
-            raise ValueError(f"CapGraph '{self.name}' contains a cycle")
+            raise ValueError(f"CapGraph '{self._name}' contains a cycle")
         return result
 
     def visualize(self, directory: str | Path, name: str | None = None, fmt: str = "png") -> str:
@@ -98,7 +102,7 @@ class CapGraph:
         except ImportError as exc:
             raise ImportError("pip install graphviz to use CapGraph.visualize()") from exc
 
-        graph_name = name or self.name
+        graph_name = name or self._name
         dot = graphviz.Digraph(
             graph_name,
             node_attr={"shape": "box", "fontname": "Helvetica,Arial,sans-serif", "style": "filled"},
@@ -135,15 +139,19 @@ class CapGraph:
             return str(dot_path)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "nodes": [node.to_dict() for node in self.nodes()]}
+        return {"name": self._name, "nodes": [node.to_dict() for node in self.nodes()]}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CapGraph":
         graph = cls(data["name"])
         for node_data in data["nodes"]:
+            # Accept "type: model::rsl_rl", "node_type: model::rsl_rl", or legacy op_group/op_type.
+            raw_type = node_data.get("type") or node_data.get("node_type")
+            if raw_type is None:
+                raw_type = f"{node_data['op_group']}::{node_data['op_type']}"
             graph.add_node(
                 name=node_data["name"],
-                node_type=node_data.get("node_type") or f"{node_data['op_group']}::{node_data['op_type']}",
+                node_type=raw_type,
                 config=node_data.get("config", {}),
                 inputs=node_data.get("inputs"),
             )

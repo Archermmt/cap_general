@@ -54,7 +54,7 @@ RESULT = {{
 
 def _make_train_request(train_ep: int) -> dict:
     """Build a lightweight DroneAgent training request for smoke tests."""
-    return {"policy_name": "runner", "epoch": train_ep, "options": {"record_epoch": 50}}
+    return {"job_options": [{"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}}], "policy_name": "runner"}
 
 
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
@@ -74,15 +74,15 @@ async def _run_local(
     """Run DroneAgent hover tasks in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
+    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        await scene.train({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
         status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
         test_utils.print_train_summary("[test]", result)
-    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
     for task_idx, target_pos in enumerate(_target_positions(task_num)):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
         await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, target_pos)})
@@ -118,7 +118,7 @@ async def _run_remote(
                 print("\n[mcp_test] --- Train smoke test ---")
                 await test_utils.call_tool(
                     session,
-                    "train",
+                    "run_pipe",
                     {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
                 )
                 status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
