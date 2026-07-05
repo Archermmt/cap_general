@@ -128,7 +128,7 @@ When `obs.main_image` is present, call `media` in analyze mode to judge task out
 }
 ```
 
-Then record exactly one verification event using `tool: verify`:
+Then record exactly one verification event using `update_history` with `tool: plan`:
 
 ```json
 {

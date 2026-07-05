@@ -17,6 +17,7 @@ class GenesisGraspAgentConfig(GenesisBaseAgentConfig):
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     rl_policy: str = "runner"
     bc_policy: str = "bc"
+    stage: str = "bc"
     max_steps: int = 100
     run_demo_after_episode: bool = True
 
