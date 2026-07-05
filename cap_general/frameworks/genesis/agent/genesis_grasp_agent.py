@@ -17,7 +17,7 @@ class GenesisGraspAgentConfig(GenesisBaseAgentConfig):
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     rl_policy: str = "runner"
     bc_policy: str = "bc"
-    horizon: int = 1000
+    max_steps: int = 100
     run_demo_after_episode: bool = True
 
 
@@ -38,10 +38,10 @@ class GenesisGraspAgent(GenesisBaseAgent):
         Args:
             stage: ``'rl'`` for the RL runner policy, ``'bc'`` for the behavior-cloning policy.
                 Defaults to the agent's configured stage.
-            max_steps: Maximum simulation steps (default: agent horizon).
+            max_steps: Maximum simulation steps (default: agent max_steps).
         """
         current_stage = stage or self._config.stage
-        steps = int(max_steps or self._config.horizon)
+        steps = int(max_steps or self._config.max_steps)
         obs = self._robot.policy_obs
         for _ in range(steps):
             if current_stage == "rl":

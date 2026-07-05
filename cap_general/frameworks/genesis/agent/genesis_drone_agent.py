@@ -16,7 +16,7 @@ class GenesisDroneAgentConfig(GenesisBaseAgentConfig):
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_drone"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     policy: str = "runner"
-    horizon: int = 1000
+    max_steps: int = 100
 
 
 @GenesisBaseAgent.register()
@@ -37,9 +37,9 @@ class GenesisDroneAgent(GenesisBaseAgent):
 
         Args:
             target_pos: Target [x, y, z] position in world coordinates.
-            max_steps: Maximum simulation steps (default: agent horizon).
+            max_steps: Maximum simulation steps (default: agent max_steps).
         """
-        steps = int(max_steps or self._config.horizon)
+        steps = int(max_steps or self._config.max_steps)
         self._robot.set_target_position(target_pos)
         executed_steps = self._run_policy_steps(steps=steps)
         return {"steps": executed_steps, "target_pos": list(target_pos)}

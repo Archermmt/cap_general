@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_reset_agent
-description: Reset one or more CAP agents with the batched reset tool, then display each returned obs.main_image. Available names are {available_names}.
+description: Reset one or more CAP agents with the batched reset tool, then display each returned obs.main_image. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🔄"}}
 ---
 

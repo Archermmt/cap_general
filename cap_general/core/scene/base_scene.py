@@ -30,6 +30,7 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8080
     skill_folder: str = "skills"
+    fast: bool = True
 
 
 @dataclass
@@ -483,7 +484,7 @@ class BaseScene(RegisteredBase):
         return formatted
 
     def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
-        """Render scene-bound skills under ``skill_folder/cap_id``."""
+        """Render scene-bound skills in bundled or prefixed fast mode."""
         source_dir = Path(__file__).resolve().parents[2] / "skills"
         skill_root = Path(server_config.skill_folder).expanduser()
         target_dir = skill_root / server_config.cap_id
@@ -493,31 +494,40 @@ class BaseScene(RegisteredBase):
         if not source_dir.exists():
             self._logger.warning("Skill source directory does not exist: %s", source_dir)
             return target_dir
-        if target_dir.resolve() == source_dir.resolve():
-            raise ValueError("server.skill_folder/cap_id must not point to the source skills directory")
-
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
         replacements = {
             "{cap_id}": server_config.cap_id,
             "{available_names}": ", ".join(sorted(self._agent_aliases)),
         }
-        for source_path in source_dir.rglob("*"):
-            if "__pycache__" in source_path.parts:
-                continue
-            target_path = target_dir / source_path.relative_to(source_dir)
-            if source_path.is_dir():
-                target_path.mkdir(parents=True, exist_ok=True)
-                continue
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            if source_path.name == "SKILL.md":
-                content = source_path.read_text(encoding="utf-8")
-                for old, new in replacements.items():
-                    content = content.replace(old, new)
-                target_path.write_text(content, encoding="utf-8")
-            else:
-                shutil.copy2(source_path, target_path)
+
+        def copy_skill_tree(source: Path, target: Path) -> None:
+            if target.resolve() == source.resolve():
+                raise ValueError("server.skill_folder target must not point to the source skills directory")
+            if target.exists():
+                shutil.rmtree(target)
+            target.mkdir(parents=True, exist_ok=True)
+            for source_path in source.rglob("*"):
+                if "__pycache__" in source_path.parts:
+                    continue
+                target_path = target / source_path.relative_to(source)
+                if source_path.is_dir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if source_path.name == "SKILL.md":
+                    content = source_path.read_text(encoding="utf-8")
+                    for old, new in replacements.items():
+                        content = content.replace(old, new)
+                    target_path.write_text(content, encoding="utf-8")
+                else:
+                    shutil.copy2(source_path, target_path)
+
+        if server_config.fast:
+            for source_path in source_dir.iterdir():
+                if source_path.is_dir() and source_path.name != "__pycache__":
+                    copy_skill_tree(source_path, skill_root / f"{server_config.cap_id}_{source_path.name}")
+            return target_dir
+
+        copy_skill_tree(source_dir, target_dir)
         return target_dir
 
     @property

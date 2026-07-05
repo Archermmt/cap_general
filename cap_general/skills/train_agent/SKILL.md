@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_train_agent
-description: Train one or more CAP robot agents for a user-requested number of epochs. Use whenever the user asks a robot or agent to train, learn, fine-tune, or continue training for a specific number of rounds or epochs. Available names are {available_names}.
+description: Train one or more CAP robot agents for a user-requested number of epochs. Use whenever the user asks a robot or agent to train, learn, fine-tune, or continue training for a specific number of rounds or epochs. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🏋️"}}
 ---
 

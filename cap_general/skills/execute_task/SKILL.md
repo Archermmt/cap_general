@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_execute_task
-description: Execute robot tasks with one or more CAP agents, recording only LLM-generated plans and result judgments while agent task results are traced automatically. Available names are {available_names}.
+description: Execute robot tasks with one or more CAP agents, recording only LLM-generated plans and result judgments while agent task results are traced automatically. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 

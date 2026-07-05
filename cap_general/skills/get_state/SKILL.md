@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_get_state
-description: Get and display current observations for one or more agents from {available_names} with the batched get_obs tool.
+description: Get and display current observations for one or more agents from {available_names} with the batched get_obs tool. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"📍"}}
 ---
 

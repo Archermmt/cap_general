@@ -16,7 +16,7 @@ class GenesisGo2AgentConfig(GenesisBaseAgentConfig):
     robot: dict[str, Any] = field(default_factory=lambda: {"type": "genesis_go2"})
     policies: dict[str, dict[str, Any]] = field(default_factory=dict)
     policy: str = "runner"
-    horizon: int = 1000
+    max_steps: int = 100
 
 
 @GenesisBaseAgent.register()
@@ -34,10 +34,10 @@ class GenesisGo2Agent(GenesisBaseAgent):
         """Make GO2 walk forward and optionally turn by a yaw angle.
 
         Args:
-            max_steps: Maximum simulation steps (default: agent horizon).
+            max_steps: Maximum simulation steps (default: agent max_steps).
             turn_angle: Yaw bias in radians applied to policy actions during the walk.
         """
-        steps = int(max_steps or self._config.horizon)
+        steps = int(max_steps or self._config.max_steps)
         self._robot.set_walk_command(turn_angle=0.0, steps=steps)
         self._run_policy_steps(
             steps=steps,

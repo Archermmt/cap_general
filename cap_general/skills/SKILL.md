@@ -1,6 +1,6 @@
 ---
 name: {cap_id}_skills
-description: Use cap_general scene tools with one or more agents from {available_names}. Read the relevant skill before getting state, resetting agents, training policies, or executing tasks.
+description: Before interacting with any agent in {available_names}, read this skill and the relevant child skill; only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🧭"}}
 ---
 
