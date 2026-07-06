@@ -38,6 +38,7 @@ def _make_code(max_steps: int) -> str:
     """Build GraspAgent execution code with values baked in."""
     return f"""\
 RESULT = grasp_episode(stage="rl", max_steps={max_steps})
+release_grasp()
 """
 
 
@@ -66,12 +67,15 @@ async def _run_local(
     """Run GraspAgent task episodes or training in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
-    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
+    scene_doc = scene.agent_doc([_DEFAULT_AGENT])["scene"]
+    async_task = scene_doc.get("async_task", True)
+    print(f"[test] agent_doc {next(iter(scene_doc['agents'].values()))}")
 
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
-        status = await scene.monitor([_DEFAULT_AGENT])
+        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        if async_task:
+            status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
@@ -81,8 +85,9 @@ async def _run_local(
 
     for task_idx in range(task_num):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num} ---")
-        await scene.execute({_DEFAULT_AGENT: _make_code(max_steps)})
-        status = await scene.monitor([_DEFAULT_AGENT])
+        status = await scene.execute({_DEFAULT_AGENT: _make_code(max_steps)})
+        if async_task:
+            status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("stderr") or result)
@@ -110,15 +115,17 @@ async def _run_remote(
         async with ClientSession(read, write) as session:
             await session.initialize()
             await test_utils.call_tool(session, "reset", {"agent_options": {_DEFAULT_AGENT: {}}})
+            scene_doc = (await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]}))["scene"]
+            async_task = scene_doc.get("async_task", True)
 
             if train_ep > 0:
                 print("\n[mcp_test] --- Train smoke test ---")
-                await test_utils.call_tool(
-                    session,
-                    "run_pipe",
+                status = await test_utils.call_tool(
+                    session, "run_pipe",
                     {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
                 )
-                status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                if async_task:
+                    status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
                 result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)
@@ -130,13 +137,13 @@ async def _run_remote(
 
             for task_idx in range(task_num):
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num} ---")
-                await test_utils.call_tool(
-                    session,
-                    "execute",
+                status = await test_utils.call_tool(
+                    session, "execute",
                     {"agent_codes": {_DEFAULT_AGENT: _make_code(max_steps)}},
                 )
-                result = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
-                result = test_utils.single_agent_result(result)["result"]
+                if async_task:
+                    status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("stderr") or result)
                 test_utils.print_execution_summary("[mcp_test]", result)

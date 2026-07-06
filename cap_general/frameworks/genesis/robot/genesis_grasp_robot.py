@@ -27,10 +27,10 @@ class GenesisGraspRobotConfig(BaseRobotConfig):
     box_fixed: bool = False
     visualize_camera: bool = False
     camera_res: tuple[int, int] = (320, 240)
-    camera_fov: float = 90.0
-    camera_pos: tuple[float, float, float] = (0.0, 0.0, 0.10)
-    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.45)
-    camera_up: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    camera_fov: float = 65.0
+    camera_pos: tuple[float, float, float] = (0.22, 0.0, 0.08)
+    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.13)
+    camera_up: tuple[float, float, float] = (0.0, 0.0, -1.0)
     camera_near: float = 0.02
     camera_far: float = 5.0
     record_video: dict[str, str] | None = None
@@ -195,30 +195,39 @@ class GenesisGraspRobot(BaseRobot):
         return torch.cat([rgb_left, rgb_right], dim=1)
 
     def grasp_and_lift_demo(self) -> bool:
-        """Run the demo lift sequence."""
-        import torch
-
-        total_steps = 500
+        """Grasp the object and lift it to the final position; gripper stays closed."""
+        phase_steps = 125
         goal_pose = self.robot.ee_pose.clone()
-        lift_height = 0.3
         lift_pose = goal_pose.clone()
-        lift_pose[:, 2] += lift_height
+        lift_pose[:, 2] += 0.3
         final_pose = goal_pose.clone()
         final_pose[:, 0] = 0.3 + self.scene_offset[0]
         final_pose[:, 1] = self.scene_offset[1]
         final_pose[:, 2] = 0.4
+        for target in (goal_pose, lift_pose, final_pose):
+            for _ in range(phase_steps):
+                self.robot.go_to_goal(target, open_gripper=False)
+                self._scene.step_scene()
+                self._step_cnt += 1
+                obs = self._build_observation()
+                self._last_obs = obs
+                self._record_frame(obs)
+        return True
+
+    def release_grasp(self) -> bool:
+        """Open the gripper and return to the reset position."""
+        import torch
+
+        phase_steps = 125
         reset_pose = torch.tensor([0.2, 0.0, 0.4, 0.0, 1.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
         reset_pose[:, :3] += self.scene_offset.reshape(1, 3)
-        for i in range(total_steps):
-            if i < total_steps / 4:
-                self.robot.go_to_goal(goal_pose, open_gripper=False)
-            elif i < total_steps / 2:
-                self.robot.go_to_goal(lift_pose, open_gripper=False)
-            elif i < total_steps * 3 / 4:
-                self.robot.go_to_goal(final_pose, open_gripper=False)
-            else:
-                self.robot.go_to_goal(reset_pose, open_gripper=True)
+        for _ in range(phase_steps):
+            self.robot.go_to_goal(reset_pose, open_gripper=True)
             self._scene.step_scene()
+            self._step_cnt += 1
+            obs = self._build_observation()
+            self._last_obs = obs
+            self._record_frame(obs)
         return True
 
     def init_genesis(self, gs_scene: Any) -> None:

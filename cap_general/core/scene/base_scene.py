@@ -51,7 +51,7 @@ class BaseSceneConfig:
     record_dir: str | Path = "outputs/scene"
     export_dir: str | Path = "outputs/export"
     debug: bool = False
-    async_task: bool = True
+    async_task: bool = False
     trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
 
 
@@ -212,13 +212,18 @@ class BaseScene(RegisteredBase):
         return results
 
     @trace_result
-    def agent_doc(self, agents: list[str]) -> dict[str, dict]:
+    def agent_doc(self, agents: list[str]) -> dict[str, Any]:
         """Return documentation for the selected agents, or all agents if omitted."""
-        results: dict[str, dict[str, Any]] = {}
+        agents_doc = {}
         for canonical in self._resolve_names(agents):
             agent = self._get_agent(canonical)
-            results[agent.mark] = agent.agent_doc()
-        return results
+            agents_doc[agent.mark] = agent.agent_doc()
+        return {
+            "scene": {
+                "async_task": self._config.async_task,
+                "agents": agents_doc,
+            }
+        }
 
     @trace_result
     async def execute(self, agent_codes: dict[str, str]) -> dict[str, dict[str, Any]]:
@@ -261,12 +266,12 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.get_obs()
         return results
 
-    def record(self, agents: list[str]) -> dict[str, Any]:
+    def record(self, agents: list[str], clean_frames: bool = False) -> dict[str, Any]:
         """Record complete run artifacts for selected agents, or all agents if omitted."""
         results: dict[str, Any] = {}
         for canonical in self._resolve_names(agents):
             agent = self._get_agent(canonical)
-            results[agent.mark] = agent.record(step_idx=-1)
+            results[agent.mark] = agent.record(step_idx=-1, clean_frames=clean_frames)
         return results
 
     def update_history(self, agent_messages: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -359,13 +364,6 @@ class BaseScene(RegisteredBase):
         async def _run() -> dict[str, Any]:
             try:
                 result = await self._dispatch_task(method, kwargs)
-                if (
-                    self._trace_level is cap_utils.TraceLevel.ALL
-                    and method_name in {"execute", "retry"}
-                    and isinstance(result, dict)
-                    and "step_start" in result
-                ):
-                    agent_info.agent.record(len(agent_info.agent._step_infos) - 1)
             except BaseException as exc:
                 self._logger.exception("Agent task failed: %s.%s", canonical, method_name)
                 result = {"ok": False, "error": type(exc).__name__, "err_msg": str(exc)}
@@ -380,8 +378,10 @@ class BaseScene(RegisteredBase):
             agent_info.status = status
             return status
 
-        agent_info.task = asyncio.create_task(_run())
-        return cap_utils.to_json_safe(agent_info.status)
+        if self._config.async_task:
+            agent_info.task = asyncio.create_task(_run())
+            return cap_utils.to_json_safe(agent_info.status)
+        return await _run()
 
     async def _dispatch_task(self, method: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
         """Dispatch an agent method according to the scene execution mode."""

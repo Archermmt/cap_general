@@ -31,7 +31,10 @@ class GenesisGraspAgent(GenesisBaseAgent):
     train_best_metric = "mean_episode_rew_keypoints"
 
     def functions(self) -> dict[str, Callable[..., Any]]:
-        return {"grasp_episode": self.grasp_episode}
+        return {
+            "grasp_episode": self.grasp_episode,
+            "release_grasp": self.release_grasp,
+        }
 
     def grasp_episode(self, stage: str | None = None, max_steps: int | None = None) -> dict[str, Any]:
         """Run one Genesis grasp episode with an RL or BC policy.
@@ -64,3 +67,8 @@ class GenesisGraspAgent(GenesisBaseAgent):
         if self._config.run_demo_after_episode:
             self._robot.grasp_and_lift_demo()
         return {"stage": current_stage}
+
+    def release_grasp(self) -> dict[str, Any]:
+        """Open the gripper and return to reset position after a grasp episode."""
+        self._robot.release_grasp()
+        return {"ok": True}

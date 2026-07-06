@@ -57,16 +57,18 @@ async def _run_local(
     """Run three Genesis GraspAgent tasks in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({agent: {} for agent in _AGENTS})
-    agent_docs = scene.agent_doc(list(_AGENTS))
-    for response_key, agent_doc in agent_docs.items():
-        print(f"[test] {response_key} agent_doc {agent_doc}")
+    scene_doc = scene.agent_doc(list(_AGENTS))["scene"]
+    async_task = scene_doc.get("async_task", True)
+    for mark, agent_doc in scene_doc["agents"].items():
+        print(f"[test] {mark} agent_doc {agent_doc}")
 
     records: dict[str, dict] = {}
     for task_idx in range(task_num):
         task_agents = _AGENTS if parallel else (_AGENTS[task_idx % len(_AGENTS)],)
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: agents={task_agents} ---")
-        await scene.execute({agent: _make_grasp_code(max_steps) for agent in task_agents})
-        statuses = await scene.monitor(list(task_agents))
+        statuses = await scene.execute({agent: _make_grasp_code(max_steps) for agent in task_agents})
+        if async_task:
+            statuses = await scene.monitor(list(task_agents))
         for agent, status in statuses.items():
             test_utils.print_execution_summary(f"[test][{agent}]", status["result"])
 
@@ -97,23 +99,22 @@ async def _run_remote(
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
             await test_utils.call_tool(session, "reset", {"agent_options": {agent: {} for agent in _AGENTS}})
-            agent_docs = await test_utils.call_tool(session, "agent_doc", {"agents": list(_AGENTS)})
-            for response_key, agent_doc in agent_docs.items():
-                print(f"[mcp_test] {response_key} agent_doc {agent_doc}")
+            scene_doc = (await test_utils.call_tool(session, "agent_doc", {"agents": list(_AGENTS)}))["scene"]
+            async_task = scene_doc.get("async_task", True)
+            for mark, agent_doc in scene_doc["agents"].items():
+                print(f"[mcp_test] {mark} agent_doc {agent_doc}")
 
             for task_idx in range(task_num):
                 task_agents = _AGENTS if parallel else (_AGENTS[task_idx % len(_AGENTS)],)
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: agents={task_agents} ---")
-                await test_utils.call_tool(
-                    session,
-                    "execute",
+                statuses = await test_utils.call_tool(
+                    session, "execute",
                     {"agent_codes": {agent: _make_grasp_code(max_steps) for agent in task_agents}},
                 )
-                statuses = await test_utils.call_tool(
-                    session,
-                    "monitor",
-                    {"agents": list(task_agents)},
-                )
+                if async_task:
+                    statuses = await test_utils.call_tool(
+                        session, "monitor", {"agents": list(task_agents)},
+                    )
                 for agent, status in statuses.items():
                     test_utils.print_execution_summary(f"[mcp_test][{agent}]", status["result"])
 

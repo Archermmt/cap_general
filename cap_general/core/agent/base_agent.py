@@ -218,7 +218,7 @@ class BaseAgent(RegisteredBase):
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "report": report}
 
-    def record(self, step_idx: int = -1):
+    def record(self, step_idx: int = -1, clean_frames: bool = False):
         """Persist execution artifacts and return their metadata.
 
         Args:
@@ -253,6 +253,8 @@ class BaseAgent(RegisteredBase):
         record = self._robot.record(record_path, start_frm=start_frm, end_frm=end_frm)
         cap_utils.write_json(record_path / "info.json", info)
         cap_utils.write_text(record_path / "code.py", code)
+        if clean_frames:
+            self._robot.clean_frames()
         return {**record, "info": info, "code": code}
 
     def get_obs(self) -> dict[str, Any]:

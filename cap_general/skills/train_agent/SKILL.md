@@ -47,18 +47,17 @@ Do not send `method`, `stage`, or other unsupported top-level fields to `{cap_id
 ## Required Workflow
 
 1. Identify the requested agent from `{available_names}` and parse the requested epoch count as a positive integer.
-2. Call `{cap_id}_agent_doc` before training to inspect `policy_doc`, the `run_pipe` function signature, and agent-specific options.
+2. Call `{cap_id}_agent_doc` before training to inspect `policy_doc`, the `run_pipe` function signature, and agent-specific options. Read `result["scene"]["async_task"]` and store it as `async_task`.
 3. Select the policy from the user's request and `agent_doc`. Ask the user only when multiple valid policies remain genuinely ambiguous.
 4. Call `{cap_id}_run_pipe` once with all independent target agents in one `agent_options` mapping.
 5. Send a `message` immediately confirming that training started and include the initial run_pipe response.
-6. Repeatedly call `{cap_id}_monitor` with `wait_ms=5000` for agents that are still running.
-7. After every monitor call, immediately send the complete returned status and `result` to the user with `message`.
-8. Stop polling an agent when its status has `running=false`.
-9. Send a final `message` containing the complete `result`, including any error details when training fails.
+6. If `async_task=true`: repeatedly call `{cap_id}_monitor` with `wait_ms=5000` for agents that are still running. After every monitor call, immediately send the complete returned status and `result` to the user with `message`. Stop polling an agent when its status has `running=false`.
+   If `async_task=false`: the `run_pipe` response already contains the final result — skip monitor polling and send the result directly with `message`.
+7. Send a final `message` containing the complete `result`, including any error details when training fails.
 
 ## Monitor Loop
 
-Use a five-second wait on every poll:
+Only applicable when `async_task=true`. Use a five-second wait on every poll:
 
 ```json
 {
@@ -112,9 +111,9 @@ Send each monitor response with `message` before the next poll.
 
 1. Trigger this skill whenever the user asks a robot or agent to train for a number of rounds or epochs.
 2. Require `epoch > 0` and preserve the exact number requested by the user.
-3. Read `{cap_id}_agent_doc` before selecting a policy or options.
+3. Read `{cap_id}_agent_doc` before selecting a policy or options; check `result["scene"]["async_task"]`.
 4. Call `{cap_id}_run_pipe` only once per requested training run.
-5. Poll only with `{cap_id}_monitor(wait_ms=5000)` while training is running.
-6. Send every monitor result to the user through `message`; do not silently wait for completion.
-7. Do not call `{cap_id}_execute` to train a policy.
-8. Do not modify YAML configuration files during training.
+5. If `async_task=true`: poll only with `{cap_id}_monitor(wait_ms=5000)` while training is running and send every monitor result to the user through `message`.
+   If `async_task=false`: skip monitor entirely; the final result is already in the `run_pipe` response.
+6. Do not call `{cap_id}_execute` to train a policy.
+7. Do not modify YAML configuration files during training.

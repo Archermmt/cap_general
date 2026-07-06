@@ -119,6 +119,11 @@ class BaseRobot(RegisteredBase, GymEnv):
         if clear:
             self._video_frames = {key: [] for key in self._image_keys}
 
+    def clean_frames(self) -> None:
+        """Clear all recorded video frames and reset the step counter."""
+        self._video_frames = {key: [] for key in self._image_keys}
+        self._step_cnt = 0
+
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""
         images = {}

@@ -74,19 +74,23 @@ async def _run_local(
     """Run DroneAgent hover tasks in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
-    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
+    scene_doc = scene.agent_doc([_DEFAULT_AGENT])["scene"]
+    async_task = scene_doc.get("async_task", True)
+    print(f"[test] agent_doc {next(iter(scene_doc['agents'].values()))}")
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
-        status = await scene.monitor([_DEFAULT_AGENT])
+        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        if async_task:
+            status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
         test_utils.print_train_summary("[test]", result)
     for task_idx, target_pos in enumerate(_target_positions(task_num)):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
-        await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, target_pos)})
-        status = await scene.monitor([_DEFAULT_AGENT])
+        status = await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, target_pos)})
+        if async_task:
+            status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         test_utils.print_execution_summary("[test]", result)
     record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
@@ -114,32 +118,31 @@ async def _run_remote(
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
             await test_utils.call_tool(session, "reset", {"agent_options": {_DEFAULT_AGENT: {}}})
+            doc_result = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
+            scene_doc = doc_result["scene"]
+            async_task = scene_doc.get("async_task", True)
+            print(f"[mcp_test] agent_doc {next(iter(scene_doc['agents'].values()))}")
             if train_ep > 0:
                 print("\n[mcp_test] --- Train smoke test ---")
-                await test_utils.call_tool(
-                    session,
-                    "run_pipe",
+                status = await test_utils.call_tool(
+                    session, "run_pipe",
                     {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
                 )
-                status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                if async_task:
+                    status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
                 result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)
                 test_utils.print_train_summary("[mcp_test]", result)
-            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
-            agent_doc = test_utils.single_agent_result(agent_doc)
-            print(f"[mcp_test] agent_doc {agent_doc}")
             for task_idx, target_pos in enumerate(_target_positions(task_num)):
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
-                result = await test_utils.call_tool(
-                    session,
-                    "execute",
+                status = await test_utils.call_tool(
+                    session, "execute",
                     {"agent_codes": {_DEFAULT_AGENT: _make_code(max_steps, target_pos)}},
                 )
-                result = await test_utils.call_tool(
-                    session, "monitor", {"agents": [_DEFAULT_AGENT]}
-                )
-                result = test_utils.single_agent_result(result)["result"]
+                if async_task:
+                    status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                result = test_utils.single_agent_result(status)["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(
                 session, "record", {"agents": [_DEFAULT_AGENT]}

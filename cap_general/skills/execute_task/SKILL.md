@@ -40,8 +40,6 @@ This skill executes many steps before the final response. The user sees nothing 
 }
 ```
 
-Use `media` with `mode="analyze"` for verification images; it displays the image automatically. Use `media` with `mode="display"` for final videos.
-
 ## Workflow
 
 ### 1. Reset And Inspect
@@ -61,6 +59,8 @@ Call the tools directly without history updates:
 ```
 
 Treat `function_doc`, `execute_rules`, `policy_doc`, and `max_retry` from `agent_doc` as authoritative. For LIBERO, use task descriptions from `execute_rules` verbatim.
+
+Read `result["scene"]["async_task"]` from the `agent_doc` response. Store it as `async_task`. When `async_task=false`, calls to `{cap_id}_execute`, `{cap_id}_retry`, and `{cap_id}_run_pipe` return the final result immediately — skip `{cap_id}_monitor` in that case. When `async_task=true`, always call `{cap_id}_monitor` after each of those calls to wait for completion.
 
 ### 2. Plan
 
@@ -104,29 +104,19 @@ Independent agents may be sent in one `agent_codes` mapping. Dependent subtasks 
 
 ### 4. Monitor
 
-Wait for completion:
+If `async_task=true`, wait for completion:
 
 ```json
 {"name": "{cap_id}_monitor", "arguments": {"agents": ["{agent_name}"], "wait_ms": -1}}
 ```
 
+If `async_task=false`, the result from `{cap_id}_execute` or `{cap_id}_retry` is already final — skip this step.
+
 Inspect the result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt`, and `obs.main_image`.
 
 ### 5. Analyze And Verify
 
-When `obs.main_image` is present, call `media` in analyze mode to judge task outcome (this also displays the image automatically):
-
-```json
-{
-  "name": "media",
-  "arguments": {
-    "media_type": "image",
-    "mode": "analyze",
-    "media_path": "<absolute path from obs.main_image>",
-    "prompt": "The robot was attempting to: <subtask>. Did it succeed? Answer YES or NO and briefly explain what you see."
-  }
-}
-```
+When `obs.main_image` is present, use an image tool to analyze task outcome. Pass the absolute path from `obs.main_image` and a prompt asking whether the subtask succeeded.
 
 Then record exactly one verification event using `update_history` with `tool: plan`:
 
@@ -166,7 +156,7 @@ If the image analysis indicates failure, call retry directly:
 {"name": "{cap_id}_retry", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
-Then go back to **Monitor → Analyze And Verify** using the new `exec_cnt` and `trial_cnt`. Do not manually record the retry result; Agent auto trace handles it.
+If `async_task=true`, go back to **Monitor → Analyze And Verify** using the new `exec_cnt` and `trial_cnt`. If `async_task=false`, the retry result is already final — go directly to **Analyze And Verify**. Do not manually record the retry result; Agent auto trace handles it.
 
 Retry no more than `max_retry`. Stop if the result contains `error: "max_retry_exceeded"`.
 
@@ -175,7 +165,7 @@ Retry no more than `max_retry`. Stop if the result contains `error: "max_retry_e
 After all subtasks, call record once:
 
 ```json
-{"name": "{cap_id}_record", "arguments": {"agents": ["{agent_name}"]}}
+{"name": "{cap_id}_record", "arguments": {"agents": ["{agent_name}"], "clean_frames": true}}
 ```
 
 Send the executed code with `message`:
@@ -189,17 +179,14 @@ Send the executed code with `message`:
 }
 ```
 
-Then display each useful final video with `media`:
-
-```json
-{"name": "media", "arguments": {"media_type": "video", "mode": "display", "media_path": "<absolute path from main_video>", "prompt": "Full task execution video"}}
-```
+Then use an video tool to display `main_video` path in the record result.
 
 ## Conceptual Pseudo-Code
 
 ```python
 reset(agent)
 doc = agent_doc(agent)
+async_task = doc["scene"]["async_task"]
 obs = get_obs(agent)
 
 subtasks = decompose(doc, obs)
@@ -208,8 +195,9 @@ message(f"Task: ...\n\nSubtasks:\n1. ...")
 
 for subtask in subtasks:
     execute(agent, make_code(subtask))  # auto-traced by Agent
-    status = monitor(agent, wait_ms=-1)
-    judgment = media(media_type="image", mode="analyze", media_path=status.main_image, prompt=subtask)
+    if async_task:
+        status = monitor(agent, wait_ms=-1)
+    judgment = analyze_image(status.main_image, prompt=subtask)  # use image-capable tool
     update_history(agent, {
         "role": "user", "tool": "verify", "response": judgment,
     })
@@ -217,27 +205,25 @@ for subtask in subtasks:
 
     while not judgment.success and status.trial_cnt <= doc.max_retry:
         retry(agent)  # auto-traced by Agent
-        status = monitor(agent, wait_ms=-1)
-        judgment = media(media_type="image", mode="analyze", media_path=status.main_image, prompt=subtask)
+        if async_task:
+            status = monitor(agent, wait_ms=-1)
+        judgment = analyze_image(status.main_image, prompt=subtask)  # use image-capable tool
         update_history(agent, {
             "role": "user", "tool": "verify", "response": judgment,
         })
         message(f"Verification result (Exec {exec_cnt} Trial {trial_cnt}): {subtask}\nResult: ...")
 
-record_result = record(agent)
+record_result = record(agent, clean_frames=True)
 message(f"Executed code:\n\n```python\n{record_result.code}\n```")
-media(record_result.main_video)
+display_video(record_result.main_video)  # use image-capable tool in display mode
 ```
 
 ## Important Rules
 
 1. Always call `message` immediately after planning and after each verification — the user sees nothing otherwise.
-2. Always call `media` with `media_type="image"` and `mode="analyze"` after monitor before deciding to retry or record verify.
-3. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
-4. Keep `role`, `tool`, and `request` or `response` at the top level of each history message.
-5. Never duplicate auto-traced `execute`, `retry`, or `train` results.
-6. Read `agent_doc` before generating execution code.
-7. Use exact LIBERO task strings from `execute_rules`.
-8. Use `monitor(..., wait_ms=-1)` for final execution results.
-9. Call `record` once after all subtasks.
-10. Do not modify YAML configuration files while executing this skill.
+2. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
+3. Keep `role`, `tool`, and `request` or `response` at the top level of each history message.
+4. Never duplicate auto-traced `execute`, `retry`, or `train` results.
+5. Read `agent_doc` before generating execution code.
+6. Call `record` once after all subtasks.
+7. Do not modify YAML configuration files while executing this skill.

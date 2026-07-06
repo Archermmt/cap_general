@@ -55,17 +55,18 @@ async def _run_local(
     """Run FrankaAgent episodes in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
-    print(f"[test] agent_doc {test_utils.single_agent_result(scene.agent_doc([_DEFAULT_AGENT]))}")
+    scene_doc = scene.agent_doc([_DEFAULT_AGENT])["scene"]
+    async_task = scene_doc.get("async_task", True)
+    print(f"[test] agent_doc {next(iter(scene_doc['agents'].values()))}")
     for trial_idx in range(trial_num):
         print(f"\n[test] --- Trial {trial_idx + 1}/{trial_num} ---")
         if trial_idx == 0:
-            await scene.execute({_DEFAULT_AGENT: _make_code(max_steps)})
-            status = await scene.monitor([_DEFAULT_AGENT])
-            result = test_utils.single_agent_result(status)["result"]
+            status = await scene.execute({_DEFAULT_AGENT: _make_code(max_steps)})
         else:
-            await scene.retry([_DEFAULT_AGENT])
+            status = await scene.retry([_DEFAULT_AGENT])
+        if async_task:
             status = await scene.monitor([_DEFAULT_AGENT])
-            result = test_utils.single_agent_result(status)["result"]
+        result = test_utils.single_agent_result(status)["result"]
         test_utils.print_execution_summary("[test]", result)
     record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
     test_utils.print_record("[test]", record)
@@ -88,27 +89,21 @@ async def _run_remote(
             tool_names = [tool.name for tool in (await session.list_tools()).tools]
             print(f"[mcp_test]({url}) Available tools: {tool_names}")
             await test_utils.call_tool(session, "reset", {"agent_options": {_DEFAULT_AGENT: {}}})
-            agent_doc = await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]})
-            agent_doc = test_utils.single_agent_result(agent_doc)
-            print(f"[mcp_test] agent_doc {agent_doc}")
+            scene_doc = (await test_utils.call_tool(session, "agent_doc", {"agents": [_DEFAULT_AGENT]}))["scene"]
+            async_task = scene_doc.get("async_task", True)
+            print(f"[mcp_test] agent_doc {next(iter(scene_doc['agents'].values()))}")
             for trial_idx in range(trial_num):
                 print(f"\n[mcp_test] --- Trial {trial_idx + 1}/{trial_num} ---")
                 if trial_idx == 0:
-                    result = await test_utils.call_tool(
-                        session,
-                        "execute",
+                    status = await test_utils.call_tool(
+                        session, "execute",
                         {"agent_codes": {_DEFAULT_AGENT: _make_code(max_steps)}},
                     )
-                    result = await test_utils.call_tool(
-                        session, "monitor", {"agents": [_DEFAULT_AGENT]}
-                    )
-                    result = test_utils.single_agent_result(result)["result"]
                 else:
-                    await test_utils.call_tool(session, "retry", {"agents": [_DEFAULT_AGENT]})
-                    result = await test_utils.call_tool(
-                        session, "monitor", {"agents": [_DEFAULT_AGENT]}
-                    )
-                    result = test_utils.single_agent_result(result)["result"]
+                    status = await test_utils.call_tool(session, "retry", {"agents": [_DEFAULT_AGENT]})
+                if async_task:
+                    status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
+                result = test_utils.single_agent_result(status)["result"]
                 test_utils.print_execution_summary("[mcp_test]", result)
             record = await test_utils.call_tool(
                 session, "record", {"agents": [_DEFAULT_AGENT]}
