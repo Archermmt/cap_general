@@ -150,4 +150,6 @@ server:
   cap_id: cap
   host: 127.0.0.1
   port: 8903
-  skill_folder: /Users/tongmeng/Desktop/codes/nanobot/nanobot/skills
+  skill_folders:
+    nanobot: ~/.nanobot/workspace/skills
+    codex: ~/.codex/skills

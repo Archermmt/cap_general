@@ -93,8 +93,10 @@ capcmd server \
 Start a CAP scene as an MCP server:
 
 ```bash
-capcmd server --config configs/genesis/genesis_grasp_agent.yaml
+capcmd server --config configs/genesis/genesis_grasp_agent.yaml --agent codex
 ```
+
+`--agent` selects a key from `server.skill_folders` and defaults to `nanobot`.
 
 The scene exposes tools including:
 

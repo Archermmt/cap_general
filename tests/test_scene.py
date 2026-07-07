@@ -200,7 +200,11 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     (skill_root / "cap" / "stale.txt").touch()
 
     result = scene._copy_skills_for_server(
-        ServerConfig(cap_id="cap", skill_folder=str(skill_root))
+        ServerConfig(
+            cap_id="cap",
+            skill_folders={"nanobot": str(tmp_path / "nanobot-skills"), "codex": str(skill_root)},
+        ),
+        agent_type="codex",
     )
 
     assert result == skill_root / "cap"
@@ -222,7 +226,7 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
     (skill_root / ".keep").touch()
 
     result = scene._copy_skills_for_server(
-        ServerConfig(cap_id="cap", skill_folder=str(skill_root), fast=False)
+        ServerConfig(cap_id="cap", skill_folders={"nanobot": str(skill_root)}, fast=False)
     )
 
     assert result == skill_root / "cap"

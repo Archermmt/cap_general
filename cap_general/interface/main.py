@@ -28,6 +28,7 @@ def _parse_server_args(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
     )
     parser.add_argument("--config", required=True, help="Scene config path.")
     parser.add_argument("--transport", default="streamable-http")
+    parser.add_argument("--agent", default="nanobot", help="Agent type used to select a server skill folder.")
     args, override_args = parser.parse_known_args(argv)
     return args, parse_cli_overrides(override_args)
 
@@ -52,7 +53,7 @@ def main():
     if parsed.subcommand in ("server"):
         args, overrides = _parse_server_args(sys.argv[2:])
         scene = BaseScene.from_yaml(args.config, overrides=overrides)
-        scene.serve(transport=args.transport)
+        scene.serve(transport=args.transport, agent_type=args.agent)
     else:
         raise ValueError(f"Unknown subcommand: {parsed.subcommand}")
     # pylint: enable=import-outside-toplevel

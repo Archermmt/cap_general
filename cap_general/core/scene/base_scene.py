@@ -29,7 +29,7 @@ class ServerConfig:
     cap_id: str = "cap"
     host: str = "127.0.0.1"
     port: int = 8080
-    skill_folder: str = "skills"
+    skill_folders: dict[str, str] = field(default_factory=lambda: {"nanobot": "skills"})
     fast: bool = True
 
 
@@ -306,7 +306,7 @@ class BaseScene(RegisteredBase):
         """Set the scene history trace level."""
         self._trace_level = cap_utils.TraceLevel(level)
 
-    def serve(self, transport: str = "streamable-http") -> None:
+    def serve(self, transport: str = "streamable-http", agent_type: str = "nanobot") -> None:
         """Start an MCP server exposing scene-routed agent tools."""
         try:
             from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found]
@@ -314,7 +314,7 @@ class BaseScene(RegisteredBase):
             raise ImportError("Serving a scene over MCP requires the mcp package") from exc
 
         s_config = self._server_config
-        self._copy_skills_for_server(s_config)
+        self._copy_skills_for_server(s_config, agent_type=agent_type)
         server = FastMCP(s_config.cap_id, host=s_config.host, port=s_config.port)
         for method_name in (
             "reset",
@@ -485,13 +485,18 @@ class BaseScene(RegisteredBase):
             formatted[agent.mark] = result
         return formatted
 
-    def _copy_skills_for_server(self, server_config: ServerConfig) -> Path:
+    def _copy_skills_for_server(self, server_config: ServerConfig, agent_type: str = "nanobot") -> Path:
         """Render scene-bound skills in bundled or prefixed fast mode."""
         source_dir = Path(__file__).resolve().parents[2] / "skills"
-        skill_root = Path(server_config.skill_folder).expanduser()
+        if agent_type not in server_config.skill_folders:
+            raise KeyError(
+                f"Unknown server agent type {agent_type!r}. "
+                f"Available skill folders: {sorted(server_config.skill_folders)}"
+            )
+        skill_root = Path(server_config.skill_folders[agent_type]).expanduser()
         target_dir = skill_root / server_config.cap_id
         if not skill_root.exists() or not any(skill_root.iterdir()):
-            self._logger.info("Skip copying skills because skill_folder is missing or empty: %s", skill_root)
+            self._logger.info("Skip copying skills because the selected skill folder is missing or empty: %s", skill_root)
             return target_dir
         if not source_dir.exists():
             self._logger.warning("Skill source directory does not exist: %s", source_dir)
@@ -503,7 +508,7 @@ class BaseScene(RegisteredBase):
 
         def copy_skill_tree(source: Path, target: Path) -> None:
             if target.resolve() == source.resolve():
-                raise ValueError("server.skill_folder target must not point to the source skills directory")
+                raise ValueError("server.skill_folders target must not point to the source skills directory")
             if target.exists():
                 shutil.rmtree(target)
             target.mkdir(parents=True, exist_ok=True)
