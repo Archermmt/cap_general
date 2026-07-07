@@ -202,6 +202,7 @@ class BaseScene(RegisteredBase):
         for agent_info in self._agents.values():
             agent_info.agent.post_build(self)
 
+    @trace_result
     def reset(self, agent_options: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Reset multiple agents from an agent-to-options mapping."""
         requests = self._resolve_kwargs(agent_options)
@@ -266,6 +267,7 @@ class BaseScene(RegisteredBase):
             results[agent.mark] = agent.get_obs()
         return results
 
+    @trace_result
     def record(self, agents: list[str], clean_frames: bool = False) -> dict[str, Any]:
         """Record complete run artifacts for selected agents, or all agents if omitted."""
         results: dict[str, Any] = {}

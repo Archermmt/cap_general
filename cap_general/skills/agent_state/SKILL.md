@@ -1,10 +1,10 @@
 ---
-name: {cap_id}_get_state
+name: {cap_id}_agent_state
 description: Get and display current observations for one or more agents from {available_names} with the batched get_obs tool. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"📍"}}
 ---
 
-# Get State Skill
+# Agent State Skill
 
 Get current agent states by calling `{cap_id}_get_obs` with an `agents` list. Each result key uses `alias(agent_name)` when an alias exists, otherwise `agent_name`; each value contains that agent's latest observation.
 Selected names and aliases must come from `{available_names}`.
@@ -45,7 +45,7 @@ Get the latest observation from the agent:
 
 ### Inspect Returned Images
 
-If the response contains an `images` object or `main_image`, use those paths for visual inspection. After calling `get_obs`, use an image-capable tool to display or analyze the primary image.
+If the response contains an `images` object or `main_image`, use those paths for visual inspection. After calling `get_obs`, use an image-capable tool to analyze the primary image.
 
 Example response shape:
 

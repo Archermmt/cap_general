@@ -35,7 +35,7 @@ agents:
 - name: grasp_0
   type: genesis_grasp
   max_retry: 5
-  reset_mode: never
+  reset_mode: per_exec
   record_execute: true
   stage: rl
   horizon: 1000
@@ -78,7 +78,7 @@ agents:
 - name: grasp_1
   type: genesis_grasp
   max_retry: 5
-  reset_mode: never
+  reset_mode: per_exec
   record_execute: true
   stage: rl
   horizon: 1000
@@ -121,7 +121,7 @@ agents:
 - name: grasp_2
   type: genesis_grasp
   max_retry: 5
-  reset_mode: never
+  reset_mode: per_exec
   record_execute: true
   stage: rl
   horizon: 1000

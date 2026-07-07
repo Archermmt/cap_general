@@ -437,6 +437,13 @@ class GenesisGraspRobot(BaseRobot):
         import torch
         from genesis.utils.geom import transform_quat_by_quat
 
+        # reset_buf may be an inference tensor leaked from training's inference_mode context;
+        # clone to a regular tensor so in-place ops below work outside inference_mode.
+        if self.reset_buf is not None and self.reset_buf.is_inference():
+            self.reset_buf = self.reset_buf.clone()
+        if envs_idx is not None and envs_idx.is_inference():
+            envs_idx = envs_idx.clone()
+
         self.robot.reset(envs_idx)
 
         random_x = torch.rand(self.num_envs, device=self.device) * 0.4 + 0.2

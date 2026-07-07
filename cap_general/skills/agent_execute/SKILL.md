@@ -1,10 +1,10 @@
 ---
-name: {cap_id}_execute_task
+name: {cap_id}_agent_execute
 description: Execute robot tasks with one or more CAP agents, recording only LLM-generated plans and result judgments while agent task results are traced automatically. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 
-# Execute Task Skill
+# Agent Execute Skill
 
 Decompose robot tasks into verifiable subtasks, execute independent agents concurrently, verify outcomes, retry failures, and retain concise reasoning history.
 
@@ -12,7 +12,6 @@ Available agent names and aliases: `{available_names}`.
 
 ## CAP Tools
 
-- `{cap_id}_reset`
 - `{cap_id}_agent_doc`
 - `{cap_id}_execute`
 - `{cap_id}_monitor`
@@ -23,32 +22,19 @@ Available agent names and aliases: `{available_names}`.
 
 Selector tools use an `agents` list. Tools with per-agent values use mappings keyed by agent name. Response keys use each agent's scene-visible `mark`, typically `alias(agent_name)` when an alias exists. Never pass a formatted response key back as an agent selector.
 
-## CRITICAL: Use `message` For Mid-Task Notifications
+## CRITICAL: Notify The User At Key Checkpoints
 
-This skill executes many steps before the final response. The user sees nothing during that time unless you proactively send updates. You MUST call `message` at these checkpoints:
+This skill executes many steps before the final response. You MUST use the messaging tool to notify the user at these checkpoints:
 
 1. **After planning** — immediately after `update_history` with the plan, send the main task and numbered subtask list.
 2. **After each verification** — immediately after `update_history` with the verify result, send the SUCCESS/FAIL result and brief notes.
 3. **After final record** — send the returned `code` in a fenced Python block.
 
-```json
-{
-  "name": "message",
-  "arguments": {
-    "content": "<text to show the user>"
-  }
-}
-```
-
 ## Workflow
 
-### 1. Reset And Inspect
+### 1. Inspect
 
 Call the tools directly without history updates:
-
-```json
-{"name": "{cap_id}_reset", "arguments": {"agent_options": {"{agent_name}": {}}}}
-```
 
 ```json
 {"name": "{cap_id}_agent_doc", "arguments": {"agents": ["{agent_name}"]}}
@@ -58,9 +44,9 @@ Call the tools directly without history updates:
 {"name": "{cap_id}_get_obs", "arguments": {"agents": ["{agent_name}"]}}
 ```
 
-Treat `function_doc`, `execute_rules`, `policy_doc`, and `max_retry` from `agent_doc` as authoritative. For LIBERO, use task descriptions from `execute_rules` verbatim.
+Treat `function_doc`, `execute_rules`, `policy_doc`, and `max_retry` from `agent_doc` as authoritative. Always follow the constraints and task descriptions in `execute_rules` exactly as specified.
 
-Read `result["scene"]["async_task"]` from the `agent_doc` response. Store it as `async_task`. When `async_task=false`, calls to `{cap_id}_execute`, `{cap_id}_retry`, and `{cap_id}_run_pipe` return the final result immediately — skip `{cap_id}_monitor` in that case. When `async_task=true`, always call `{cap_id}_monitor` after each of those calls to wait for completion.
+Read `result["scene"]["async_task"]` from the `agent_doc` response. Store it as `async_task`.
 
 ### 2. Plan
 
@@ -81,16 +67,7 @@ Build ordered atomic subtasks. Then call `update_history` with `tool: plan`:
 }
 ```
 
-Immediately after, send the plan with `message`:
-
-```json
-{
-  "name": "message",
-  "arguments": {
-    "content": "Task: <original task>\n\nSubtasks:\n1. <subtask 1>\n2. <subtask 2>"
-  }
-}
-```
+Immediately after, use a messaging tool to notify the user: `Task: <original task>\n\nSubtasks:\n1. <subtask 1>\n2. <subtask 2>`
 
 ### 3. Execute
 
@@ -118,7 +95,7 @@ Inspect the result's `ok`, `result`, `stdout`, `stderr`, `exec_cnt`, `trial_cnt`
 
 When `obs.main_image` is present, use an image tool to analyze task outcome. Pass the absolute path from `obs.main_image` and a prompt asking whether the subtask succeeded.
 
-Then record exactly one verification event using `update_history` with `tool: plan`:
+Then record exactly one verification event using `update_history` with `tool: verify`:
 
 ```json
 {
@@ -137,16 +114,7 @@ Then record exactly one verification event using `update_history` with `tool: pl
 }
 ```
 
-Immediately after, send the result with `message`:
-
-```json
-{
-  "name": "message",
-  "arguments": {
-    "content": "Verification result (Exec <exec_cnt> Trial <trial_cnt>): <subtask>\nResult: <SUCCESS or FAIL>\nNotes: <brief assessment>"
-  }
-}
-```
+Immediately after, use a messaging tool to notify the user: `Verification result (Exec <exec_cnt> Trial <trial_cnt>): <subtask>\nResult: <SUCCESS or FAIL>\nNotes: <brief assessment>`
 
 ### 6. Retry
 
@@ -168,23 +136,13 @@ After all subtasks, call record once:
 {"name": "{cap_id}_record", "arguments": {"agents": ["{agent_name}"], "clean_frames": true}}
 ```
 
-Send the executed code with `message`:
+Use a messaging tool to send the executed code to the user in a fenced Python block.
 
-```json
-{
-  "name": "message",
-  "arguments": {
-    "content": "Executed code:\n\n```python\n<record.code>\n```"
-  }
-}
-```
-
-Then use an video tool to display `main_video` path in the record result.
+Then use a video tool to display `main_video` path in the record result.
 
 ## Conceptual Pseudo-Code
 
 ```python
-reset(agent)
 doc = agent_doc(agent)
 async_task = doc["scene"]["async_task"]
 obs = get_obs(agent)
@@ -220,7 +178,7 @@ display_video(record_result.main_video)  # use image-capable tool in display mod
 
 ## Important Rules
 
-1. Always call `message` immediately after planning and after each verification — the user sees nothing otherwise.
+1. Always use the messaging tool immediately after planning and after each verification — the user sees nothing otherwise.
 2. Call `update_history` only for completed LLM planning (`tool: plan`) and verification (`tool: verify`).
 3. Keep `role`, `tool`, and `request` or `response` at the top level of each history message.
 4. Never duplicate auto-traced `execute`, `retry`, or `train` results.

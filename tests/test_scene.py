@@ -206,11 +206,11 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     assert result == skill_root / "cap"
     assert (result / "stale.txt").is_file()
     assert not (result / "SKILL.md").exists()
-    assert (result / "cap_get_state" / "SKILL.md").is_file()
-    assert (result / "cap_reset_agent" / "SKILL.md").is_file()
+    assert (result / "cap_agent_state" / "SKILL.md").is_file()
+    assert (result / "cap_agent_reset" / "SKILL.md").is_file()
     assert (result / "cap_train_agent" / "SKILL.md").is_file()
-    assert (result / "cap_execute_task" / "SKILL.md").is_file()
-    content = (result / "cap_get_state" / "SKILL.md").read_text(encoding="utf-8")
+    assert (result / "cap_agent_execute" / "SKILL.md").is_file()
+    content = (result / "cap_agent_state" / "SKILL.md").read_text(encoding="utf-8")
     assert "{cap_id}" not in content
     assert "{available_names}" not in content
 
@@ -227,7 +227,7 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
 
     assert result == skill_root / "cap"
     assert (result / "SKILL.md").is_file()
-    assert (result / "get_state" / "SKILL.md").is_file()
+    assert (result / "agent_state" / "SKILL.md").is_file()
 
 
 def test_scene_trace_splits_batch_results_into_agent_history_entries():

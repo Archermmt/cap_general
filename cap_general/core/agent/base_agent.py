@@ -49,7 +49,7 @@ class BaseAgentConfig:
     max_steps: int = 5000
     max_retry: int = 5
     debug: bool = False
-    reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.NEVER
+    reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.PER_EXEC
 
 
 class BaseAgent(RegisteredBase):
@@ -212,7 +212,9 @@ class BaseAgent(RegisteredBase):
         options = {jo["job"]: jo.get("options", {}) for jo in job_options}
         try:
             new_policy, report = self._pipeline.execute(jobs, policy, self._robot, options)
+            new_policy.reset()
             self._policies[actual_name] = new_policy
+            self.reset(options={"reset_level": cap_utils.ResetLevel.AGENT})
         except Exception as exc:
             self._logger.exception("run_pipe failed")
             return {"ok": False, "error": str(exc)}

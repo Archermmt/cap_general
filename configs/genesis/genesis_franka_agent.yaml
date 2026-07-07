@@ -28,7 +28,7 @@ agents:
   alias: 七仔
   type: franka
   max_retry: 5
-  reset_mode: never
+  reset_mode: per_exec
   record_execute: true
   horizon: 100
   robot:

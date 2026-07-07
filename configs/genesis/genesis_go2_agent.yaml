@@ -30,7 +30,7 @@ agents:
   alias: 七仔
   type: genesis_go2
   max_retry: 5
-  reset_mode: never
+  reset_mode: per_exec
   record_execute: true
   horizon: 1000
   robot:
