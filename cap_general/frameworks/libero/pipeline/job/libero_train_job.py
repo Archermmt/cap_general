@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 class LiberoTrainJobConfig(TrainJobConfig):
     """Configuration for a LiberoTrainJob."""
 
+    starvla_root: str = "/Users/tongmeng/Desktop/codes/starVLA"
     accelerate_config: dict[str, Any] = field(default_factory=dict)
     deepspeed_config: dict[str, Any] = field(default_factory=dict)
     train_config: dict[str, Any] = field(default_factory=dict)
@@ -50,9 +51,7 @@ class LiberoTrainJob(TrainJob):
         """Run StarVLA training and return ``(policy_config_dict, report)``."""
         epoch = options.get("epoch", self._config.epoch)
         policy_name = policy.name
-
-        starvla_root = Path(options.get("starvla_root", "/Users/tongmeng/Desktop/codes/starVLA")).expanduser()
-
+        starvla_root = Path(self._config.starvla_root).expanduser()
         if str(starvla_root) not in sys.path:
             sys.path.insert(0, str(starvla_root))
 
@@ -285,7 +284,6 @@ class LiberoTrainJob(TrainJob):
     def options_doc(self) -> str:
         return (
             "epoch: max training steps (default: config value)\n"
-            "starvla_root: StarVLA repository root\n"
             "base_vlm: base VLM path or model identifier\n"
             "data_root: LIBERO LeRobot dataset root\n"
             "data_mix: dataset mixture name (default libero_all)\n"

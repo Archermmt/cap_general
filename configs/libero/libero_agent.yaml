@@ -45,6 +45,7 @@ agents:
         - type: train::libero_train
           config:
             epoch: 1
+            starvla_root: /Users/tongmeng/Desktop/codes/starVLA
             accelerate_config:
               compute_environment: LOCAL_MACHINE
               debug: false
