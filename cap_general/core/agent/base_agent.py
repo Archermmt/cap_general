@@ -75,9 +75,7 @@ class BaseAgent(RegisteredBase):
 
         # Pipeline is optional — only needed for production jobs (training etc.).
         self._pipeline: BasePipeline | None = (
-            BasePipeline.from_config(config.pipeline, logger=self._logger)
-            if config.pipeline
-            else None
+            BasePipeline.from_config(config.pipeline, logger=self._logger) if config.pipeline else None
         )
 
         self._exec_globals: dict[str, Any] = {}
@@ -276,7 +274,6 @@ class BaseAgent(RegisteredBase):
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         step_start, time_start = self._robot.step_cnt, time.time()
         exec_result = self._execute_code(code)
-        max_steps = self._config.max_steps
         info = {
             **exec_result,
             "step_start": step_start,
@@ -285,7 +282,6 @@ class BaseAgent(RegisteredBase):
             "exec_cnt": self._exec_cnt,
             "trial_cnt": self._trial_cnt,
             "reward": self._compute_reward(),
-            "truncated": self._robot.step_cnt > max_steps,
             "obs": self.get_obs(),
         }
         self._step_infos.append(info)
@@ -343,7 +339,7 @@ class BaseAgent(RegisteredBase):
 
     def _compute_reward(self) -> float:
         """Compute the current reward."""
-        return 0.0
+        return self._robot._last_reward
 
     def _function_doc(self) -> str:
         """Aggregate function docs in a simple, consistent format.

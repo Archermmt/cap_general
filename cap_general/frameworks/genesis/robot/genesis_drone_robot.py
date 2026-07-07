@@ -285,9 +285,15 @@ class GenesisDroneRobot(BaseRobot):
         self._last_policy_obs = self._get_observations()
 
     def _on_eval(self) -> None:
-        self.reward_scales = {}
-        self.reward_functions = {}
-        self.episode_sums = {}
+        import genesis as gs
+        import torch
+
+        self.reward_scales = {name: scale * self.dt for name, scale in self._train_reward_scales.items()}
+        self.reward_functions = {name: getattr(self, "_reward_" + name) for name in self.reward_scales}
+        self.episode_sums = {
+            name: torch.zeros((self.num_envs,), dtype=gs.tc_float, device=gs.device)
+            for name in self.reward_scales
+        }
         self._last_policy_obs = self._get_observations()
 
     def compute_reward(self) -> float:

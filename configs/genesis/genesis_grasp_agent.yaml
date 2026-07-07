@@ -73,6 +73,11 @@ agents:
             ckpt: 299
   pipeline:
     jobs:
+    - type: eval::genesis_eval
+      config:
+        epoch: 50
+        stage: rl
+        max_steps: 100
     - type: train::genesis_train
       config:
         stage: rl

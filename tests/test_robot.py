@@ -69,6 +69,8 @@ def test_robot_base_step_returns_gymnasium_tuple_and_tracks_step_count():
     assert truncated is False
     assert info == {"action": {"move": 1}}
     assert robot.step_cnt == 1
+    assert robot._last_obs == obs
+    assert robot._last_reward == reward
 
 
 def test_robot_base_step_uses_compute_reward():
@@ -78,6 +80,7 @@ def test_robot_base_step_uses_compute_reward():
     _, reward, _, _, _ = robot.step({"move": 1})
 
     assert reward == 3.5
+    assert robot._last_reward == 3.5
 
 
 def test_robot_base_step_records_through_hook():
@@ -98,6 +101,8 @@ def test_robot_train_and_eval_switch_reset_and_step_semantics():
     assert robot.training is True
     assert robot.reset(options={"seed": 1}) == {"mode": "train", "options": {"seed": 1}}
     assert robot.step({"move": 1}) == ({"mode": "train"}, 1.0, False, {"action": {"move": 1}})
+    assert robot._last_obs == {"mode": "train"}
+    assert robot._last_reward == 1.0
     assert robot.step_cnt == 0
 
     assert robot.eval() is robot

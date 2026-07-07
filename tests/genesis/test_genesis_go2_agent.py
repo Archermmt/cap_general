@@ -67,9 +67,15 @@ RESULT = {{
 """
 
 
-def _make_train_request(train_ep: int) -> dict:
-    """Build a lightweight Go2Agent training request for smoke tests."""
-    return {"job_options": [{"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}}], "policy_name": "runner"}
+def _make_train_eval_request(train_ep: int, max_steps: int) -> dict:
+    """Build a lightweight Go2Agent train-then-eval request for smoke tests."""
+    return {
+        "job_options": [
+            {"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}},
+            {"job": "eval", "options": {"epoch": 1, "stage": "rl", "max_steps": max_steps}},
+        ],
+        "policy_name": "runner",
+    }
 
 
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
@@ -94,13 +100,13 @@ async def _run_local(
     print(f"[test] agent_doc {next(iter(scene_doc['agents'].values()))}")
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)})
         if async_task:
             status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
-        test_utils.print_train_summary("[test]", result)
+        test_utils.print_pipeline_summary("[test]", result)
     turn_angles = _random_turn_angles(task_num)
     for task_idx, turn_angle in enumerate(turn_angles):
         print(f"\n[test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
@@ -142,14 +148,14 @@ async def _run_remote(
                 print("\n[mcp_test] --- Train smoke test ---")
                 status = await test_utils.call_tool(
                     session, "run_pipe",
-                    {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
+                    {"agent_options": {_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)}},
                 )
                 if async_task:
                     status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
                 result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)
-                test_utils.print_train_summary("[mcp_test]", result)
+                test_utils.print_pipeline_summary("[mcp_test]", result)
             turn_angles = _random_turn_angles(task_num)
             for task_idx, turn_angle in enumerate(turn_angles):
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")

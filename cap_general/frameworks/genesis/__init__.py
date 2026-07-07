@@ -24,6 +24,7 @@ __all__ = [
     "ObjConfig",
     "GenesisScene",
     "BehaviorCloningPolicy",
+    "GenesisEvalJob",
     "GenesisTrainJob",
 ]
 
@@ -40,6 +41,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "ObjConfig": ("cap_general.frameworks.genesis.robot", "ObjConfig"),
     "GenesisScene": ("cap_general.frameworks.genesis.scene", "GenesisScene"),
     "BehaviorCloningPolicy": ("cap_general.frameworks.genesis.policy", "BehaviorCloningPolicy"),
+    "GenesisEvalJob": ("cap_general.frameworks.genesis.pipeline.job", "GenesisEvalJob"),
     "GenesisTrainJob": ("cap_general.frameworks.genesis.pipeline.job", "GenesisTrainJob"),
 }
 

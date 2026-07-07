@@ -90,10 +90,6 @@ classDiagram
     }
 
     class TrainJob
-    class GenesisScene
-    class GenesisBaseAgent
-    class GenesisFrankaAgent
-    class GenesisFrankaRobot
 
     RegisteredBase <|-- BaseScene
     RegisteredBase <|-- BaseAgent
@@ -116,8 +112,3 @@ classDiagram
     BasePipeline ..> BasePolicy : transforms/rebuilds
     BasePipeline ..> BaseRobot : train/eval target
     BaseJob <|-- TrainJob
-
-    BaseScene <|-- GenesisScene
-    BaseAgent <|-- GenesisBaseAgent
-    GenesisBaseAgent <|-- GenesisFrankaAgent
-    BaseRobot <|-- GenesisFrankaRobot

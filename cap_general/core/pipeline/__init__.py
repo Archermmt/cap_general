@@ -4,6 +4,8 @@ from cap_general.core.pipeline.base_pipeline import BasePipeline, BasePipelineCo
 from cap_general.core.pipeline.job import (
     BaseJob,
     BaseJobConfig,
+    EvalJob,
+    EvalJobConfig,
     TrainJob,
     TrainJobConfig,
 )
@@ -13,6 +15,8 @@ __all__ = [
     "BasePipelineConfig",
     "BaseJob",
     "BaseJobConfig",
+    "EvalJob",
+    "EvalJobConfig",
     "TrainJob",
     "TrainJobConfig",
 ]

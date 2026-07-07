@@ -79,6 +79,13 @@ def test_agent_doc_embeds_reset_options_in_function_doc():
     assert '[_options_doc()]' not in doc["function_doc"]
 
 
+def test_agent_default_reward_uses_robot_last_reward():
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
+    agent._robot._last_reward = 2.5
+
+    assert agent._compute_reward() == 2.5
+
+
 def test_policy_base_cannot_instantiate():
     """Test that base BasePolicy cannot be instantiated directly."""
     with pytest.raises(TypeError):

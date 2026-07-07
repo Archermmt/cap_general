@@ -5,7 +5,7 @@ This directory contains architecture diagrams generated from the unit-test examp
 ## Images
 
 - [core_class_relationship.svg](core_class_relationship.svg): core class relationships.
-- [local_execution_flow.svg](local_execution_flow.svg): local Franka example execution flow.
+- [local_execution_flow.svg](local_execution_flow.svg): core scene/agent execution flow.
 - [skills_mcp_call_flow.svg](skills_mcp_call_flow.svg): skills, MCP server, and CAP runtime call flow.
 - [policy_graph_execution.svg](policy_graph_execution.svg): policy graph/operator execution flow.
 
@@ -21,8 +21,8 @@ The Mermaid source files are kept next to the rendered images:
 Regenerate the SVG files with:
 
 ```bash
-mmdc -p doc/mermaid-puppeteer-config.json -i doc/core_class_relationship.mmd -o doc/core_class_relationship.svg
-mmdc -p doc/mermaid-puppeteer-config.json -i doc/local_execution_flow.mmd -o doc/local_execution_flow.svg
-mmdc -p doc/mermaid-puppeteer-config.json -i doc/skills_mcp_call_flow.mmd -o doc/skills_mcp_call_flow.svg
-mmdc -p doc/mermaid-puppeteer-config.json -i doc/policy_graph_execution.mmd -o doc/policy_graph_execution.svg
+mmdc -p docs/mermaid-puppeteer-config.json -i docs/core_class_relationship.mmd -o docs/core_class_relationship.svg
+mmdc -p docs/mermaid-puppeteer-config.json -i docs/local_execution_flow.mmd -o docs/local_execution_flow.svg
+mmdc -p docs/mermaid-puppeteer-config.json -i docs/skills_mcp_call_flow.mmd -o docs/skills_mcp_call_flow.svg
+mmdc -p docs/mermaid-puppeteer-config.json -i docs/policy_graph_execution.mmd -o docs/policy_graph_execution.svg
 ```

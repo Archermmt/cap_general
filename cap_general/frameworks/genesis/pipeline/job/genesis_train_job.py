@@ -17,6 +17,7 @@ from cap_general.core.utils import tensor_mean_value, tensor_to_scalar
 
 if TYPE_CHECKING:
     from cap_general.core.policy import BasePolicy
+    from cap_general.core.robot import BaseRobot
 
 
 @dataclass
@@ -40,7 +41,7 @@ class GenesisTrainJob(TrainJob):
     def _execute(
         self,
         policy: BasePolicy,
-        robot: Any,
+        robot: BaseRobot,
         options: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """Train *policy* in the Genesis *robot* environment and return ``(policy_config_dict, summary)``."""

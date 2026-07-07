@@ -62,6 +62,11 @@ def print_train_summary(prefix: str, result: dict[str, Any]) -> None:
     print(", ".join(parts))
 
 
+def print_pipeline_summary(prefix: str, result: dict[str, Any]) -> None:
+    """Print all job reports, including evaluation rewards."""
+    print(f"{prefix} Pipeline report: {json.dumps(result.get('report', {}), ensure_ascii=False, default=str)}")
+
+
 def print_record(prefix: str, record: dict[str, Any]) -> None:
     info = record.get("info", {})
     print(

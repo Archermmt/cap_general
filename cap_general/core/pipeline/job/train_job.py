@@ -10,6 +10,7 @@ from cap_general.core.pipeline.job.base_job import BaseJob, BaseJobConfig
 
 if TYPE_CHECKING:
     from cap_general.core.policy import BasePolicy
+    from cap_general.core.robot import BaseRobot
 
 
 @dataclass
@@ -34,7 +35,7 @@ class TrainJob(BaseJob):
     def execute(
         self,
         policy: BasePolicy,
-        robot: Any,
+        robot: BaseRobot,
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """Switch to train mode, run ``_execute``, and restore eval mode."""
@@ -51,7 +52,7 @@ class TrainJob(BaseJob):
     def _execute(
         self,
         policy: BasePolicy,
-        robot: Any,
+        robot: BaseRobot,
         options: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """Implement framework-specific training and return ``(policy_config_dict, report)``."""

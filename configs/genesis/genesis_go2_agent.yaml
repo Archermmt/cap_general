@@ -79,6 +79,11 @@ agents:
             train_cfg_index: 4
   pipeline:
     jobs:
+    - type: eval::genesis_eval
+      config:
+        epoch: 1
+        stage: rl
+        max_steps: 100
     - type: train::genesis_train
       config:
         stage: rl

@@ -42,10 +42,13 @@ release_grasp()
 """
 
 
-def _make_train_request(train_ep: int) -> dict:
-    """Build a lightweight GraspAgent training request for smoke tests."""
+def _make_train_eval_request(train_ep: int, max_steps: int) -> dict:
+    """Build a lightweight GraspAgent train-then-eval request for smoke tests."""
     return {
-        "job_options": [{"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}}],
+        "job_options": [
+            {"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}},
+            {"job": "eval", "options": {"epoch": 10, "stage": "rl", "max_steps": max_steps}},
+        ],
         "policy_name": "runner",
     }
 
@@ -73,13 +76,13 @@ async def _run_local(
 
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_request(train_ep)})
+        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)})
         if async_task:
             status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
-        test_utils.print_train_summary("[test]", result)
+        test_utils.print_pipeline_summary("[test]", result)
         record = test_utils.single_agent_result(scene.record([_DEFAULT_AGENT]))
         test_utils.print_record("[test]", record)
 
@@ -121,15 +124,16 @@ async def _run_remote(
             if train_ep > 0:
                 print("\n[mcp_test] --- Train smoke test ---")
                 status = await test_utils.call_tool(
-                    session, "run_pipe",
-                    {"agent_options": {_DEFAULT_AGENT: _make_train_request(train_ep)}},
+                    session,
+                    "run_pipe",
+                    {"agent_options": {_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)}},
                 )
                 if async_task:
                     status = await test_utils.call_tool(session, "monitor", {"agents": [_DEFAULT_AGENT]})
                 result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)
-                test_utils.print_train_summary("[mcp_test]", result)
+                test_utils.print_pipeline_summary("[mcp_test]", result)
                 record = await test_utils.call_tool(session, "record", {"agents": [_DEFAULT_AGENT]})
                 record = test_utils.single_agent_result(record)
                 test_utils.print_record("[mcp_test]", record)
@@ -138,7 +142,8 @@ async def _run_remote(
             for task_idx in range(task_num):
                 print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num} ---")
                 status = await test_utils.call_tool(
-                    session, "execute",
+                    session,
+                    "execute",
                     {"agent_codes": {_DEFAULT_AGENT: _make_code(max_steps)}},
                 )
                 if async_task:
