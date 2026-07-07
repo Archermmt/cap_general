@@ -128,19 +128,5 @@ class BaseJob:
         """Describe options this job accepts. Override in subclasses."""
         return ""
 
-    @staticmethod
-    def _make_policy_config(policy: BasePolicy, graph: dict[str, Any]) -> dict[str, Any]:
-        """Build a full policy config dict from *policy* with an updated *graph*.
-
-        The returned dict is suitable for passing directly to
-        ``BasePolicy.from_config()``.
-        """
-        import dataclasses
-
-        cfg = dataclasses.asdict(policy._config)
-        cfg["type"] = type(policy).policy_type
-        cfg["graph"] = graph
-        return cfg
-
     def __str__(self) -> str:
         return f"{self.name}({self._config})"

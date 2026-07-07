@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cap_general.core.graph.cap_node import CapNode
+from cap_general.core.policy.graph import CapNode
 from cap_general.core.pipeline.job.base_job import BaseJob
 from cap_general.core.pipeline.job.train_job import TrainJob, TrainJobConfig
 from cap_general.core.utils import tensor_mean_value, tensor_to_scalar

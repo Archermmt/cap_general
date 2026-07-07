@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from cap_general.core.graph.cap_node import CapNode
+from cap_general.core.policy.graph.cap_node import CapNode
 
 
 class CapGraph:

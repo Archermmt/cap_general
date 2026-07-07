@@ -21,10 +21,9 @@ The repository currently integrates Genesis, LIBERO, and Robosuite. Genesis is o
 cap_general/
 ├── core/
 │   ├── agent/       # Agent execution and policy ownership
-│   ├── graph/       # CapGraph, CapNode, and CapData
 │   ├── operator/    # Graph operators and model adapters
 │   ├── pipeline/    # Ordered jobs such as training
-│   ├── policy/      # Policy graph runtime
+│   ├── policy/      # Policy runtime and graph representation
 │   ├── robot/       # Framework-independent robot contract
 │   ├── scene/       # Multi-agent routing, monitoring, MCP, and history
 │   └── utils/

@@ -7,13 +7,15 @@ import os
 import re
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cap_general.core.graph.cap_node import CapNode
+import numpy as np
+
 from cap_general.core.pipeline.job.base_job import BaseJob
 from cap_general.core.pipeline.job.train_job import TrainJob, TrainJobConfig
+from cap_general.core.policy.graph import CapNode
 
 if TYPE_CHECKING:
     from cap_general.core.policy import BasePolicy
@@ -22,6 +24,10 @@ if TYPE_CHECKING:
 @dataclass
 class LiberoTrainJobConfig(TrainJobConfig):
     """Configuration for a LiberoTrainJob."""
+
+    accelerate_config: dict[str, Any] = field(default_factory=dict)
+    deepspeed_config: dict[str, Any] = field(default_factory=dict)
+    train_config: dict[str, Any] = field(default_factory=dict)
 
 
 @BaseJob.register()
@@ -46,22 +52,15 @@ class LiberoTrainJob(TrainJob):
         policy_name = policy.name
 
         starvla_root = Path(options.get("starvla_root", "/Users/tongmeng/Desktop/codes/starVLA")).expanduser()
-        config_yaml = options.get("config_yaml", "examples/LIBERO/train_files/starvla_cotrain_libero.yaml")
-        config_path = Path(config_yaml).expanduser()
-        if not config_path.is_absolute():
-            config_path = starvla_root / config_path
 
         if str(starvla_root) not in sys.path:
             sys.path.insert(0, str(starvla_root))
 
-        import numpy as np
         import torch
         import wandb
         from accelerate import Accelerator, DeepSpeedPlugin
         from accelerate.utils import set_seed
         from omegaconf import OmegaConf
-        from tqdm import tqdm
-
         from starVLA.dataloader import build_dataloader
         from starVLA.model.framework.base_framework import build_framework
         from starVLA.model.framework.share_tools import apply_config_compat
@@ -71,12 +70,18 @@ class LiberoTrainJob(TrainJob):
             normalize_dotlist_args,
             setup_optimizer_and_scheduler,
         )
+        from tqdm import tqdm
 
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         if options.get("wandb_mode"):
             os.environ["WANDB_MODE"] = str(options["wandb_mode"])
 
-        requested_processes = int(options.get("num_processes", os.environ.get("WORLD_SIZE", 1)))
+        requested_processes = int(
+            options.get(
+                "num_processes",
+                self._config.accelerate_config.get("num_processes", os.environ.get("WORLD_SIZE", 1)),
+            )
+        )
         world_size = int(os.environ.get("WORLD_SIZE", 1))
         visible_devices = torch.cuda.device_count()
         use_deepspeed = world_size > 1 or (requested_processes > 1 and visible_devices > 1)
@@ -91,23 +96,14 @@ class LiberoTrainJob(TrainJob):
                 "NCCL_SOCKET_TIMEOUT_MS": "360000",
             }.items():
                 os.environ.setdefault(key, default)
-            accelerate_config = Path(
-                options.get("accelerate_config", "starVLA/config/deepseeds/deepspeed_zero2.yaml")
-            ).expanduser()
-            if not accelerate_config.is_absolute():
-                accelerate_config = starvla_root / accelerate_config
-            accelerate_cfg = OmegaConf.load(accelerate_config)
-            ds_config_path = Path(accelerate_cfg.deepspeed_config.deepspeed_config_file).expanduser()
-            if not ds_config_path.is_absolute():
-                ds_config_path = starvla_root / ds_config_path
-            deepspeed_plugin = DeepSpeedPlugin(hf_ds_config=str(ds_config_path))
+            deepspeed_plugin = DeepSpeedPlugin(hf_ds_config=self._config.deepspeed_config)
 
         def resolve_local_path(value: str) -> str:
             path = Path(value).expanduser()
             candidate = starvla_root / path
             return str(candidate.resolve()) if not path.is_absolute() and candidate.exists() else str(path)
 
-        cfg = OmegaConf.load(config_path)
+        cfg = OmegaConf.create(self._config.train_config)
         runtime_cfg = OmegaConf.create(
             {
                 "framework": {
@@ -142,7 +138,6 @@ class LiberoTrainJob(TrainJob):
         override_args = normalize_dotlist_args(list(map(str, options.get("overrides", []))))
         cfg = OmegaConf.merge(cfg, runtime_cfg, OmegaConf.from_dotlist(override_args))
         cfg = apply_config_compat(cfg)
-        cfg.config_yaml = str(config_path)
 
         train_dir = Path(options.get("train_dir", self._config.export_dir)).expanduser().resolve()
         run_root_dir = Path(options.get("run_root_dir", train_dir)).expanduser().resolve()
@@ -291,14 +286,12 @@ class LiberoTrainJob(TrainJob):
         return (
             "epoch: max training steps (default: config value)\n"
             "starvla_root: StarVLA repository root\n"
-            "config_yaml: training YAML path relative to starvla_root\n"
             "base_vlm: base VLM path or model identifier\n"
             "data_root: LIBERO LeRobot dataset root\n"
             "data_mix: dataset mixture name (default libero_all)\n"
             "run_root_dir: parent directory for training outputs\n"
             "run_id: training run identifier\n"
             "num_processes: requested worker count; DeepSpeed is used only when multiple devices are available\n"
-            "accelerate_config: Accelerate YAML containing the multi-device DeepSpeed config\n"
             "mixed_precision: Accelerator precision mode (default bf16 on CUDA, otherwise no)\n"
             "per_device_batch_size: per-device VLA batch size (default 16)\n"
             "save_interval: checkpoint interval in steps (default 10000)\n"

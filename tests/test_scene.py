@@ -208,7 +208,7 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     assert not (result / "SKILL.md").exists()
     assert (result / "cap_agent_state" / "SKILL.md").is_file()
     assert (result / "cap_agent_reset" / "SKILL.md").is_file()
-    assert (result / "cap_train_agent" / "SKILL.md").is_file()
+    assert (result / "cap_agent_pipeline" / "SKILL.md").is_file()
     assert (result / "cap_agent_execute" / "SKILL.md").is_file()
     content = (result / "cap_agent_state" / "SKILL.md").read_text(encoding="utf-8")
     assert "{cap_id}" not in content

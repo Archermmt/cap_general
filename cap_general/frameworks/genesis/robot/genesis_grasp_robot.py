@@ -432,8 +432,6 @@ class GenesisGraspRobot(BaseRobot):
         self.extras = {}
 
     def _reset_idx(self, envs_idx=None) -> None:
-        import math as _math
-
         import torch
         from genesis.utils.geom import transform_quat_by_quat
 
@@ -453,7 +451,7 @@ class GenesisGraspRobot(BaseRobot):
         random_pos = random_pos + self.scene_offset.reshape(1, 3)
 
         q_downward = torch.tensor([0.0, 1.0, 0.0, 0.0], device=self.device).expand(self.num_envs, -1)
-        random_yaw = (torch.rand(self.num_envs, device=self.device) * 2 * _math.pi - _math.pi) * 0.25
+        random_yaw = (torch.rand(self.num_envs, device=self.device) * 2 * math.pi - math.pi) * 0.25
         q_yaw = torch.stack(
             [
                 torch.cos(random_yaw / 2),

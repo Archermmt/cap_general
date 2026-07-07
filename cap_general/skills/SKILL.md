@@ -20,7 +20,7 @@ The tools support batches: selector-only methods use an `agents` list, while met
 
 1. **Select concrete agents.** Every selected name or alias must come from `{available_names}`. If the target is not explicit, use the active context or ask the user.
 2. **Read the relevant skill before scene tool calls.** Follow its batch parameter and response format.
-3. **Use the skill-specific tool sequence.** For example, use `agent_state` before calling `{cap_id}_get_obs`, `agent_reset` before calling `{cap_id}_reset`, `train_agent` before calling `{cap_id}_train`, and `agent_execute` before calling `{cap_id}_execute` or `{cap_id}_retry`.
+3. **Use the skill-specific tool sequence.** For example, use `agent_state` before calling `{cap_id}_get_obs`, `agent_reset` before calling `{cap_id}_reset`, `agent_pipeline` before calling `{cap_id}_run_pipe`, and `agent_execute` before calling `{cap_id}_execute` or `{cap_id}_retry`.
 4. **Respect exact tool names and schemas.** Call only the MCP-registered tools documented by the relevant skill.
 5. **Use batch routing.** Use `agents` for `agent_doc`, `retry`, `monitor`, `get_obs`, and `record`; use the documented agent-keyed mappings for `reset`, `execute`, and `update_history`.
 6. **Do not use long-goal/long_task mode by default for robot tasks.** Unless the user explicitly says the robot task should run in the background, continue asynchronously, or be tracked as a sustained background objective, do not call `long_task` and do not enter long-goal mode for `{agent_name}` robot operations. Use the normal skill workflow instead.

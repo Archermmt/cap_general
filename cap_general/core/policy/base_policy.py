@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
 from cap_general.core.base import RegisteredBase
-from cap_general.core.graph.cap_graph import CapGraph
 from cap_general.core.operator.base_operator import BaseOperator
+from cap_general.core.policy.graph import CapGraph
 
 
 @dataclass
@@ -97,9 +97,7 @@ class BasePolicy(RegisteredBase):
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the policy (config + current graph) to a plain dict."""
-        import dataclasses
-
-        cfg = dataclasses.asdict(self._config)
+        cfg = asdict(self._config)
         cfg["type"] = type(self).policy_type
         cfg["graph"] = self._graph.to_dict()
         return cfg

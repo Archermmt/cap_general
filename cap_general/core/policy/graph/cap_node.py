@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cap_general.core.graph.cap_data import CapData
+from cap_general.core.policy.graph.cap_data import CapData
 
 
 class CapNode:

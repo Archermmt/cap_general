@@ -341,10 +341,6 @@ class BaseAgent(RegisteredBase):
             self._logger.warning("Policy %r stage %r failed: %s", policy_name, stage, exc)
             return None
 
-    def _update_policy(self, policy_name: str = "policy::base", **new_policy: Any) -> Any:
-        """Update the named policy via the 'update' stage."""
-        return self._run_policy(policy_name=policy_name, stage="update", inputs=new_policy)
-
     def _compute_reward(self) -> float:
         """Compute the current reward."""
         return 0.0

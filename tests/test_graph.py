@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from cap_general.core.graph import CapData, CapGraph
+from cap_general.core.policy.graph import CapData, CapGraph
 from cap_general.core.operator import BaseOperator, to_stage_fn
 from cap_general.core.policy import BasePolicy
 

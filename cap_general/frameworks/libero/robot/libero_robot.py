@@ -31,8 +31,6 @@ def build_example_from_obs(raw_obs: dict, task_description: str) -> dict:
 
 def _quat2axisangle(quat: Any) -> Any:
     """Convert a xyzw quaternion to an axis-angle vector."""
-    import numpy as np
-
     quat_arr = np.array(quat, dtype=np.float64)
     if quat_arr[3] > 1.0:
         quat_arr[3] = 1.0
@@ -47,8 +45,6 @@ def _quat2axisangle(quat: Any) -> Any:
 
 def _binarize_gripper_open(val: Any) -> Any:
     """Convert a LIBERO gripper value to StarVLA-style open/close signal."""
-    import numpy as np
-
     v = float(np.asarray(val).reshape(-1)[0])
     return np.asarray([1.0 - 2.0 * (v > 0.5)], dtype=np.float32)
 
@@ -292,8 +288,6 @@ class LiberoRobot(BaseRobot):
         rotation_delta: Any,
         open_gripper: Any,
     ) -> list[float]:
-        import numpy as np
-
         return [
             *np.asarray(world_vector, dtype=float).reshape(-1)[:3].tolist(),
             *np.asarray(rotation_delta, dtype=float).reshape(-1)[:3].tolist(),

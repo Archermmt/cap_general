@@ -1,0 +1,44 @@
+sequenceDiagram
+    participant UT as test_genesis_franka_agent.py
+    participant Scene as BaseScene / GenesisScene
+    participant Agent as GenesisFrankaAgent
+    participant Robot as GenesisFrankaRobot
+    participant Code as exec(code)
+
+    UT->>Scene: BaseScene.from_yaml(configs/genesis/genesis_franka_agent.yaml)
+    Scene->>Scene: import/register framework classes
+    Scene->>Agent: BaseAgent.from_config(type="franka")
+    Agent->>Robot: BaseRobot.from_config(type="genesis_franka")
+    Scene->>Agent: post_build(scene)
+    Agent->>Robot: post_build(scene)
+
+    UT->>Scene: reset({"franka": {}})
+    Scene->>Agent: reset(options)
+    Agent->>Robot: reset(options)
+
+    UT->>Scene: agent_doc(["franka"])
+    Scene->>Agent: agent_doc()
+    Agent-->>UT: function_doc / policy_doc / execute_rules / max_retry
+
+    UT->>Scene: execute({"franka": code})
+    Scene->>Scene: _start_task("franka", "execute")
+    Scene->>Agent: execute(code)
+    Agent->>Agent: _execute_once(code)
+    Agent->>Code: exec with globals robot + franka_episode()
+    Code->>Agent: franka_episode(max_steps)
+    loop max_steps
+        Agent->>Robot: step(action)
+        Robot->>Scene: step_scene()
+    end
+    Agent->>Robot: get_observation(step_dir)
+    Agent-->>Scene: status/result/obs/stdout/stderr
+    Scene-->>UT: keyed by mark, e.g. alias(name)
+
+    opt async_task=true
+      UT->>Scene: monitor(["franka"])
+      Scene-->>UT: final status
+    end
+
+    UT->>Scene: record(["franka"])
+    Scene->>Agent: record()
+    Agent->>Robot: record(...)
