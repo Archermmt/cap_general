@@ -48,8 +48,6 @@ agents:
     - hand_camera_image
     seed: 7
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
     stage: rl
     num_envs: 1
     box_fixed: false
@@ -72,9 +70,24 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            train_cfg_index: 3
-            ckpt: 299
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_step: 299
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
 - name: grasp_1
   type: genesis_grasp
   max_retry: 5
@@ -91,8 +104,6 @@ agents:
     - hand_camera_image
     seed: 11
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
     stage: rl
     num_envs: 1
     box_fixed: false
@@ -115,9 +126,24 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            train_cfg_index: 3
-            ckpt: 299
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_step: 299
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
 - name: grasp_2
   type: genesis_grasp
   max_retry: 5
@@ -134,8 +160,6 @@ agents:
     - hand_camera_image
     seed: 7
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
     stage: rl
     num_envs: 1
     box_fixed: false
@@ -158,9 +182,24 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            train_cfg_index: 3
-            ckpt: 299
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_step: 299
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
 server:
   cap_id: cap
   host: 127.0.0.1

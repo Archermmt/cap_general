@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,8 +18,75 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 class GenesisGo2RobotConfig(BaseRobotConfig):
     """Configuration for the Genesis GO2 locomotion example."""
 
-    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/locomotion"
-    log_dir: str | Path = "logs/go2-walking"
+    env_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "num_actions": 12,
+            "default_joint_angles": {
+                "FL_hip_joint": 0.0,
+                "FR_hip_joint": 0.0,
+                "RL_hip_joint": 0.0,
+                "RR_hip_joint": 0.0,
+                "FL_thigh_joint": 0.8,
+                "FR_thigh_joint": 0.8,
+                "RL_thigh_joint": 1.0,
+                "RR_thigh_joint": 1.0,
+                "FL_calf_joint": -1.5,
+                "FR_calf_joint": -1.5,
+                "RL_calf_joint": -1.5,
+                "RR_calf_joint": -1.5,
+            },
+            "joint_names": [
+                "FR_hip_joint",
+                "FR_thigh_joint",
+                "FR_calf_joint",
+                "FL_hip_joint",
+                "FL_thigh_joint",
+                "FL_calf_joint",
+                "RR_hip_joint",
+                "RR_thigh_joint",
+                "RR_calf_joint",
+                "RL_hip_joint",
+                "RL_thigh_joint",
+                "RL_calf_joint",
+            ],
+            "kp": 20.0,
+            "kd": 0.5,
+            "termination_if_roll_greater_than": 10,
+            "termination_if_pitch_greater_than": 10,
+            "base_init_quat": [1.0, 0.0, 0.0, 0.0],
+            "episode_length_s": 20.0,
+            "resampling_time_s": 4.0,
+            "action_scale": 0.25,
+            "simulate_action_latency": True,
+            "clip_actions": 100.0,
+        }
+    )
+    obs_cfg: dict[str, Any] = field(
+        default_factory=lambda: {"obs_scales": {"lin_vel": 2.0, "ang_vel": 0.25, "dof_pos": 1.0, "dof_vel": 0.05}}
+    )
+    reward_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "tracking_sigma": 0.25,
+            "base_height_target": 0.3,
+            "feet_height_target": 0.075,
+            "reward_scales": {
+                "tracking_lin_vel": 1.0,
+                "tracking_ang_vel": 0.2,
+                "lin_vel_z": -1.0,
+                "base_height": -50.0,
+                "action_rate": -0.005,
+                "similar_to_default": -0.1,
+            },
+        }
+    )
+    command_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "num_commands": 3,
+            "lin_vel_x_range": [0.5, 0.5],
+            "lin_vel_y_range": [0, 0],
+            "ang_vel_range": [0, 0],
+        }
+    )
     num_envs: int = 1
     image_keys: list[str] = field(default_factory=lambda: ["body_camera_image"])
     camera_enabled: bool = True
@@ -33,7 +99,7 @@ class GenesisGo2RobotConfig(BaseRobotConfig):
     camera_far: float = 20.0
     turn_action_scale: float = 0.35
     max_episode_steps: int | None = 1_000_000
-    base_init_pos: tuple[float, float, float] | None = None
+    base_init_pos: tuple[float, float, float] = (0.0, 0.0, 0.42)
 
 
 def gs_rand(lower, upper, batch_shape):
@@ -297,24 +363,24 @@ class GenesisGo2Robot(BaseRobot):
                 device=gs.device,
             )
 
-        self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"])
+        self.actions.copy_(torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]))
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
         self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
         self._scene.step_scene()
 
         self.episode_length_buf += 1
-        self.base_pos = self.robot.get_pos()
-        self.base_quat = self.robot.get_quat()
-        self.base_euler = quat_to_xyz(
-            transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
+        self.base_pos.copy_(self.robot.get_pos())
+        self.base_quat.copy_(self.robot.get_quat())
+        self.base_euler.copy_(
+            quat_to_xyz(transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True)
         )
         inv_base_quat = inv_quat(self.base_quat)
-        self.base_lin_vel = transform_by_quat(self.robot.get_vel(), inv_base_quat)
-        self.base_ang_vel = transform_by_quat(self.robot.get_ang(), inv_base_quat)
-        self.projected_gravity = transform_by_quat(self.global_gravity, inv_base_quat)
-        self.dof_pos = self.robot.get_dofs_position(self.motors_dof_idx)
-        self.dof_vel = self.robot.get_dofs_velocity(self.motors_dof_idx)
+        self.base_lin_vel.copy_(transform_by_quat(self.robot.get_vel(), inv_base_quat))
+        self.base_ang_vel.copy_(transform_by_quat(self.robot.get_ang(), inv_base_quat))
+        self.projected_gravity.copy_(transform_by_quat(self.global_gravity, inv_base_quat))
+        self.dof_pos.copy_(self.robot.get_dofs_position(self.motors_dof_idx))
+        self.dof_vel.copy_(self.robot.get_dofs_velocity(self.motors_dof_idx))
 
         self.rew_buf.zero_()
         for name, reward_func in self.reward_functions.items():
@@ -324,7 +390,7 @@ class GenesisGo2Robot(BaseRobot):
 
         self._resample_commands(self.episode_length_buf % int(self.env_cfg["resampling_time_s"] / self.dt) == 0)
 
-        self.reset_buf = self.episode_length_buf > self.max_episode_length
+        self.reset_buf.copy_(self.episode_length_buf > self.max_episode_length)
         self.reset_buf |= torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
         self.reset_buf |= torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
         self.reset_buf |= self._scene.gs_scene.rigid_solver.get_error_envs_mask()
@@ -358,13 +424,13 @@ class GenesisGo2Robot(BaseRobot):
     def init_genesis(self, gs_scene: Any) -> None:
         import genesis as gs
 
-        env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
-        env_cfg = dict(env_cfg)
+        env_cfg = dict(self._config.env_cfg)
         if self._config.max_episode_steps is not None:
             env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.02
-        if self._config.base_init_pos is not None:
-            env_cfg["base_init_pos"] = list(self._config.base_init_pos)
-        reward_cfg = dict(reward_cfg)
+        env_cfg["base_init_pos"] = list(self._config.base_init_pos)
+        obs_cfg = dict(self._config.obs_cfg)
+        reward_cfg = dict(self._config.reward_cfg)
+        command_cfg = dict(self._config.command_cfg)
         self._train_reward_scales = dict(reward_cfg["reward_scales"])
         reward_cfg["reward_scales"] = {}
         self.num_envs = self._config.num_envs
@@ -392,10 +458,6 @@ class GenesisGo2Robot(BaseRobot):
 
         if self._config.camera_enabled:
             self._add_body_camera(gs_scene)
-
-    def _load_cfgs(self):
-        with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
-            return pickle.load(file)
 
     def _add_body_camera(self, scene: Any) -> None:
         try:

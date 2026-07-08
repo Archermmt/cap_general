@@ -90,6 +90,7 @@ classDiagram
     }
 
     class TrainJob
+    class EvalJob
 
     RegisteredBase <|-- BaseScene
     RegisteredBase <|-- BaseAgent
@@ -112,3 +113,4 @@ classDiagram
     BasePipeline ..> BasePolicy : transforms/rebuilds
     BasePipeline ..> BaseRobot : train/eval target
     BaseJob <|-- TrainJob
+    BaseJob <|-- EvalJob

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import pickle
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,11 +16,11 @@ from cap_general.core.operator.model.base_model_op import ModelOp
 class RslRlConfig:
     """Configuration for RslRlOp."""
 
-    log_dir: str | Path = "logs"
-    ckpt: int | None = None
+    ckpt_dir: str | Path = "logs"
+    ckpt_step: int = -1
+    actor_cfg: dict[str, Any] | None = None
+    obs_groups: dict[str, Any] | None = None
     checkpoint_pattern: str = "model_*.pt"
-    train_cfg_index: int = 4
-    cfgs_filename: str = "cfgs.pkl"
     device: str | None = None
 
 
@@ -61,15 +60,18 @@ class RslRlOp(ModelOp):
         except ImportError as exc:
             raise ImportError("RslRlOp requires torch, tensordict, and rsl-rl-lib") from exc
 
-        log_dir = Path(self._config.log_dir).expanduser()
+        ckpt_dir = Path(self._config.ckpt_dir).expanduser()
         device = self._config.device or "cpu"
 
-        with (log_dir / self._config.cfgs_filename).open("rb") as file:
-            train_cfg = copy.deepcopy(pickle.load(file)[self._config.train_cfg_index])
-        actor_cfg = train_cfg["actor"]
+        if self._config.actor_cfg is None:
+            raise ValueError("RslRlOp requires actor_cfg in config")
+        if self._config.obs_groups is None:
+            raise ValueError("RslRlOp requires obs_groups in config")
+        actor_cfg = copy.deepcopy(self._config.actor_cfg)
+        obs_groups = copy.deepcopy(self._config.obs_groups)
         actor_class = resolve_callable(actor_cfg.pop("class_name"))
         checkpoint = torch.load(
-            self._checkpoint_path(log_dir),
+            self._checkpoint_path(ckpt_dir),
             map_location=device,
             weights_only=False,
         )
@@ -86,26 +88,26 @@ class RslRlOp(ModelOp):
             raise ValueError("RSL-RL checkpoint contains no MLP actor weights")
         input_dim = int(mlp_weights[0][1].shape[1])
         output_dim = int(actor_state.get("distribution.std_param", mlp_weights[-1][1]).shape[0])
-        actor_obs_groups = train_cfg["obs_groups"]["actor"]
+        actor_obs_groups = obs_groups["actor"]
         if len(actor_obs_groups) != 1:
             raise ValueError("RslRlOp requires exactly one actor observation group")
         obs = TensorDict(
             {actor_obs_groups[0]: torch.zeros((1, input_dim), device=device)},
             batch_size=[1],
         )
-        actor = actor_class(obs, train_cfg["obs_groups"], "actor", output_dim, **actor_cfg).to(device)
+        actor = actor_class(obs, obs_groups, "actor", output_dim, **actor_cfg).to(device)
         actor.load_state_dict(actor_state)
         actor.eval()
         return actor
 
-    def _checkpoint_path(self, log_dir: Path) -> Path:
-        ckpt = self._config.ckpt
-        if ckpt is None:
-            checkpoint_files = list(log_dir.glob(self._config.checkpoint_pattern))
+    def _checkpoint_path(self, ckpt_dir: Path) -> Path:
+        ckpt_step = self._config.ckpt_step
+        if ckpt_step == -1:
+            checkpoint_files = list(ckpt_dir.glob(self._config.checkpoint_pattern))
             if not checkpoint_files:
-                raise FileNotFoundError(f"No checkpoint files found in {log_dir}")
+                raise FileNotFoundError(f"No checkpoint files found in {ckpt_dir}")
             return max(checkpoint_files, key=self._checkpoint_number)
-        return log_dir / f"model_{ckpt}.pt"
+        return ckpt_dir / f"model_{ckpt_step}.pt"
 
     @staticmethod
     def _checkpoint_number(path: Path) -> int:

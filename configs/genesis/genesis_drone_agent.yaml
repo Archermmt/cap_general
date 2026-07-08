@@ -39,8 +39,6 @@ agents:
     video_fmt: mp4
     seed: 7
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
     num_envs: 1
     visualize_target: true
     visualize_camera: false
@@ -79,9 +77,23 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
-            ckpt: 300
-            train_cfg_index: 4
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+            ckpt_step: 300
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 128
+              - 128
+              activation: tanh
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
   pipeline:
     jobs:
     - type: eval::genesis_eval
@@ -109,7 +121,9 @@ agents:
             value_loss_coef: 1.0
           actor:
             class_name: MLPModel
-            hidden_dims: [128, 128]
+            hidden_dims:
+            - 128
+            - 128
             activation: tanh
             distribution_cfg:
               class_name: GaussianDistribution
@@ -117,11 +131,15 @@ agents:
               std_type: scalar
           critic:
             class_name: MLPModel
-            hidden_dims: [128, 128]
+            hidden_dims:
+            - 128
+            - 128
             activation: tanh
           obs_groups:
-            actor: [policy]
-            critic: [policy]
+            actor:
+            - policy
+            critic:
+            - policy
           num_steps_per_env: 100
           save_interval: 100
           run_name: runner

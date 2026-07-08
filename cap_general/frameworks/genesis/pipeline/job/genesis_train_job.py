@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import copy
-import importlib
-import pickle
-import sys
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,6 +12,7 @@ from cap_general.core.policy.graph import CapNode
 from cap_general.core.pipeline.job.base_job import BaseJob
 from cap_general.core.pipeline.job.train_job import TrainJob, TrainJobConfig
 from cap_general.core.utils import tensor_mean_value, tensor_to_scalar
+from cap_general.frameworks.genesis.policy import behavior_cloning_policy
 
 if TYPE_CHECKING:
     from cap_general.core.policy import BasePolicy
@@ -65,20 +64,16 @@ class GenesisTrainJob(TrainJob):
         log_dir.mkdir(parents=True, exist_ok=True)
 
         initial_ckpt = 0
-        train_cfg_index = 4
         for node_dict in policy.to_dict()["graph"]["nodes"]:
             if CapNode.is_group(node_dict, "model"):
-                initial_ckpt = int(node_dict["config"].get("ckpt") or 0)
-                train_cfg_index = int(node_dict["config"].get("train_cfg_index", 4))
+                initial_ckpt = self._checkpoint_step(node_dict["config"])
                 break
 
         if stage == "rl":
             train_cfg = copy.deepcopy(self._config.train_cfg)
             train_cfg.update(options.get("train_cfg", {}))
-            cfgs = [None] * (train_cfg_index + 1)
-            cfgs[train_cfg_index] = copy.deepcopy(train_cfg)
-            with (log_dir / "cfgs.pkl").open("wb") as _f:
-                pickle.dump(cfgs, _f)
+            policy_actor_cfg = copy.deepcopy(train_cfg["actor"])
+            policy_obs_groups = copy.deepcopy(train_cfg["obs_groups"])
             runner = OnPolicyRunner(robot, train_cfg, str(log_dir), device=robot.device)
             self._load_model_to_runner(model, runner, robot)
             summary = self._capture_rl_summary(
@@ -89,14 +84,11 @@ class GenesisTrainJob(TrainJob):
             )
             new_state_dict = runner.alg.get_policy().state_dict()
         else:
-            example_root = str(robot._config.example_root)
-            if example_root not in sys.path:
-                sys.path.insert(0, example_root)
-            behavior_cloning_module = importlib.import_module("behavior_cloning")
-            behavior_cloning_cls = behavior_cloning_module.BehaviorCloning
-
+            train_cfg = copy.deepcopy(self._config.train_cfg)
+            policy_actor_cfg = copy.deepcopy(train_cfg["actor"])
+            policy_obs_groups = copy.deepcopy(train_cfg["obs_groups"])
             rl_runner = OnPolicyRunner(
-                robot, copy.deepcopy(self._config.train_cfg), str(log_dir), device=robot.device
+                robot, copy.deepcopy(train_cfg), str(log_dir), device=robot.device
             )
             rl_policy: BasePolicy | None = options.get("rl_policy")
             if rl_policy is None:
@@ -107,11 +99,11 @@ class GenesisTrainJob(TrainJob):
 
             bc_train_cfg = copy.deepcopy(self._config.bc_train_cfg)
             bc_train_cfg.update(options.get("train_cfg", {}))
-            runner = behavior_cloning_cls(robot, bc_train_cfg, teacher_policy, device=robot.device)
+            runner = behavior_cloning_policy.BehaviorCloning(robot, bc_train_cfg, teacher_policy, device=robot.device)
             self._load_model_to_runner(model, runner, robot)
             summary = self._capture_bc_summary(
                 runner,
-                behavior_cloning_module,
+                behavior_cloning_policy,
                 interval=record_epoch,
                 num_learning_iterations=epoch,
                 log_dir=str(log_dir),
@@ -131,8 +123,10 @@ class GenesisTrainJob(TrainJob):
         for node_dict in policy_dict["graph"]["nodes"]:
             if CapNode.is_group(node_dict, "model"):
                 node_dict["config"].update({
-                    "log_dir": str(log_dir),
-                    "ckpt": final_step,
+                    "ckpt_dir": str(log_dir),
+                    "ckpt_step": final_step,
+                    "actor_cfg": policy_actor_cfg,
+                    "obs_groups": policy_obs_groups,
                 })
         return policy_dict, summary
 
@@ -149,6 +143,22 @@ class GenesisTrainJob(TrainJob):
 
     # ------------------------------------------------------------------
     # Summary helpers
+
+    @staticmethod
+    def _checkpoint_step(config: dict[str, Any]) -> int:
+        ckpt_step = int(config.get("ckpt_step", config.get("ckpt", 0)) or 0)
+        if ckpt_step >= 0:
+            return ckpt_step
+        ckpt_dir = config.get("ckpt_dir", config.get("log_dir"))
+        if not ckpt_dir:
+            return 0
+        checkpoint_files = list(Path(ckpt_dir).expanduser().glob(config.get("checkpoint_pattern", "model_*.pt")))
+        if not checkpoint_files:
+            return 0
+        return max(
+            int(match.group()) if (match := re.search(r"\d+", checkpoint.stem)) else 0
+            for checkpoint in checkpoint_files
+        )
 
     @staticmethod
     def _summary(*, stage: str, interval: int) -> dict[str, Any]:

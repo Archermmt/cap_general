@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 import math
-import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
-from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -20,8 +18,26 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 class GenesisGraspRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis grasp manipulation example."""
 
-    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/manipulation"
-    log_dir: str | Path = "logs/grasp_rl"
+    env_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "num_actions": 6,
+            "action_scales": [0.05, 0.05, 0.05, 0.05, 0.05, 0.05],
+            "episode_length_s": 3.0,
+            "ctrl_dt": 0.01,
+            "box_size": [0.08, 0.03, 0.06],
+            "image_resolution": [64, 64],
+        }
+    )
+    reward_cfg: dict[str, Any] = field(default_factory=lambda: {"keypoints": 1.0})
+    robot_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "ee_link_name": "hand",
+            "gripper_link_names": ["left_finger", "right_finger"],
+            "default_arm_dof": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
+            "default_gripper_dof": [0.04, 0.04],
+            "ik_method": "dls_ik",
+        }
+    )
     stage: str = "rl"
     num_envs: int = 1
     box_fixed: bool = False
@@ -235,8 +251,7 @@ class GenesisGraspRobot(BaseRobot):
         import torch
         from genesis.vis.camera import Camera
 
-        env_cfg, reward_cfg, robot_cfg, *_ = self._load_cfgs()
-        env_cfg = dict(env_cfg)
+        env_cfg = dict(self._config.env_cfg)
         self._train_episode_length_s = float(env_cfg["episode_length_s"])
         env_cfg["num_envs"] = self._config.num_envs
         env_cfg["box_fixed"] = self._config.box_fixed
@@ -250,7 +265,7 @@ class GenesisGraspRobot(BaseRobot):
             env_cfg["robot_pos"] = list(self._config.robot_pos)
         if self._config.object_pos_offset is not None:
             env_cfg["object_pos_offset"] = list(self._config.object_pos_offset)
-        reward_cfg = dict(reward_cfg)
+        reward_cfg = dict(self._config.reward_cfg)
         self.num_actions = env_cfg["num_actions"]
         self.cfg = env_cfg
         self._env_cfg = env_cfg
@@ -269,7 +284,7 @@ class GenesisGraspRobot(BaseRobot):
         self.image_width = env_cfg["image_resolution"][0]
         self.image_height = env_cfg["image_resolution"][1]
 
-        robot_cfg_with_pos = dict(robot_cfg)
+        robot_cfg_with_pos = dict(self._config.robot_cfg)
         if "robot_pos" in env_cfg:
             robot_cfg_with_pos["robot_pos"] = env_cfg["robot_pos"]
         self.robot = Manipulator(
@@ -339,10 +354,6 @@ class GenesisGraspRobot(BaseRobot):
 
         if self._config.visualize_camera:
             self._add_hand_camera(gs_scene)
-
-    def _load_cfgs(self):
-        with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
-            return pickle.load(file)
 
     def _add_hand_camera(self, scene: Any) -> None:
         try:

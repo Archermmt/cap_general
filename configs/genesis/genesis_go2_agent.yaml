@@ -38,8 +38,6 @@ agents:
     video_fmt: mp4
     seed: 7
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
     num_envs: 1
     image_keys:
     - body_camera_image
@@ -60,10 +58,6 @@ agents:
     camera_near: 0.05
     camera_far: 20.0
     turn_action_scale: 0.35
-    base_init_pos:
-    - 0.0
-    - 0.0
-    - 0.42
     max_episode_steps: 1000000
   policies:
     runner:
@@ -74,9 +68,24 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-            ckpt: 100
-            train_cfg_index: 4
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+            ckpt_step: 100
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 512
+              - 256
+              - 128
+              activation: elu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
   pipeline:
     jobs:
     - type: eval::genesis_eval
@@ -104,7 +113,10 @@ agents:
             value_loss_coef: 1.0
           actor:
             class_name: MLPModel
-            hidden_dims: [512, 256, 128]
+            hidden_dims:
+            - 512
+            - 256
+            - 128
             activation: elu
             distribution_cfg:
               class_name: GaussianDistribution
@@ -112,11 +124,16 @@ agents:
               std_type: scalar
           critic:
             class_name: MLPModel
-            hidden_dims: [512, 256, 128]
+            hidden_dims:
+            - 512
+            - 256
+            - 128
             activation: elu
           obs_groups:
-            actor: [policy]
-            critic: [policy]
+            actor:
+            - policy
+            critic:
+            - policy
           num_steps_per_env: 24
           save_interval: 100
           run_name: runner

@@ -48,8 +48,43 @@ agents:
     - hand_camera_image
     seed: 7
     reset_time: 0
-    example_root: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation
-    log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+    env_cfg:
+      num_actions: 6
+      action_scales:
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      episode_length_s: 3.0
+      ctrl_dt: 0.01
+      box_size:
+      - 0.08
+      - 0.03
+      - 0.06
+      image_resolution:
+      - 64
+      - 64
+    reward_cfg:
+      keypoints: 1.0
+    robot_cfg:
+      ee_link_name: hand
+      gripper_link_names:
+      - left_finger
+      - right_finger
+      default_arm_dof:
+      - 0.0
+      - -0.785
+      - 0.0
+      - -2.356
+      - 0.0
+      - 1.571
+      - 0.785
+      default_gripper_dof:
+      - 0.04
+      - 0.04
+      ik_method: dls_ik
     stage: rl
     num_envs: 1
     box_fixed: false
@@ -68,16 +103,26 @@ agents:
         - name: model
           type: model::rsl_rl
           config:
-            log_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            train_cfg_index: 3
-            ckpt: 299
+            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_step: 299
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
   pipeline:
     jobs:
-    - type: eval::genesis_eval
-      config:
-        epoch: 50
-        stage: rl
-        max_steps: 100
     - type: train::genesis_train
       config:
         stage: rl
@@ -100,7 +145,10 @@ agents:
             value_loss_coef: 1.0
           actor:
             class_name: MLPModel
-            hidden_dims: [256, 256, 128]
+            hidden_dims:
+            - 256
+            - 256
+            - 128
             activation: relu
             distribution_cfg:
               class_name: GaussianDistribution
@@ -108,11 +156,16 @@ agents:
               std_type: scalar
           critic:
             class_name: MLPModel
-            hidden_dims: [256, 256, 128]
+            hidden_dims:
+            - 256
+            - 256
+            - 128
             activation: relu
           obs_groups:
-            actor: [policy]
-            critic: [policy]
+            actor:
+            - policy
+            critic:
+            - policy
           num_steps_per_env: 24
           save_interval: 100
           run_name: runner
@@ -144,13 +197,23 @@ agents:
               pooling: adaptive_avg
             action_head:
               state_obs_dim: 7
-              hidden_dims: [128, 128, 64]
+              hidden_dims:
+              - 128
+              - 128
+              - 64
             pose_head:
-              hidden_dims: [64, 64]
+              hidden_dims:
+              - 64
+              - 64
           buffer_size: 1000
           log_freq: 10
           save_freq: 50
           eval_freq: 50
+    - type: eval::genesis_eval
+      config:
+        epoch: 50
+        stage: rl
+        max_steps: 100
 server:
   cap_id: cap
   host: 127.0.0.1

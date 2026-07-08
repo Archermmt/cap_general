@@ -5,8 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
-import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +19,52 @@ from cap_general.core.utils import tensor_to_image_array, tensor_to_list
 class GenesisDroneRobotConfig(BaseRobotConfig):
     """Configuration for the Genesis drone hover example."""
 
-    example_root: str | Path = "/Users/archer/Desktop/codes/genesis-world/examples/drone"
-    log_dir: str | Path = "logs/drone-hovering"
+    env_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "num_actions": 4,
+            "termination_if_roll_greater_than": 180,
+            "termination_if_pitch_greater_than": 180,
+            "termination_if_close_to_ground": 0.1,
+            "termination_if_x_greater_than": 3.0,
+            "termination_if_y_greater_than": 3.0,
+            "termination_if_z_greater_than": 2.0,
+            "base_init_quat": [1.0, 0.0, 0.0, 0.0],
+            "episode_length_s": 15.0,
+            "at_target_threshold": 0.1,
+            "resampling_time_s": 3.0,
+            "simulate_action_latency": True,
+            "clip_actions": 1.0,
+        }
+    )
+    obs_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "obs_scales": {
+                "rel_pos": 0.3333333333333333,
+                "lin_vel": 0.3333333333333333,
+                "ang_vel": 0.31831015504887655,
+            }
+        }
+    )
+    reward_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "yaw_lambda": -10.0,
+            "reward_scales": {
+                "target": 10.0,
+                "smooth": -0.0001,
+                "yaw": 0.01,
+                "angular": -0.0002,
+                "crash": -10.0,
+            },
+        }
+    )
+    command_cfg: dict[str, Any] = field(
+        default_factory=lambda: {
+            "num_commands": 3,
+            "pos_x_range": [-1.0, 1.0],
+            "pos_y_range": [-1.0, 1.0],
+            "pos_z_range": [1.0, 1.0],
+        }
+    )
     num_envs: int = 1
     visualize_target: bool = True
     visualize_camera: bool = False
@@ -36,7 +79,7 @@ class GenesisDroneRobotConfig(BaseRobotConfig):
     max_visualize_fps: int = 60
     max_episode_steps: int | None = 1_000_000
     auto_reset: bool = False
-    base_init_pos: tuple[float, float, float] | None = None
+    base_init_pos: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
 
 def gs_rand_float(lower, upper, shape, device):
@@ -160,8 +203,8 @@ class GenesisDroneRobot(BaseRobot):
         target = self._target_tensor(target_pos)
         self.lock_commands = True
         self.commands.copy_(target)
-        self.rel_pos = self.commands - self.base_pos
-        self.last_rel_pos = self.commands - self.last_base_pos
+        self.rel_pos = (self.commands - self.base_pos).clone()
+        self.last_rel_pos = (self.commands - self.last_base_pos).clone()
         if self.target is not None:
             self.target.set_pos(self.commands, zero_velocity=True)
         self._update_observation()
@@ -208,7 +251,7 @@ class GenesisDroneRobot(BaseRobot):
             )
 
         self._being_stepped = True
-        self.actions = torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]).detach()
+        self.actions.copy_(torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]))
         rpm = ((1 + self.actions * 0.8) * 14468.429183500699).detach()
         self.drone.set_propellers_rpm(rpm)
         if self.target is not None:
@@ -219,12 +262,12 @@ class GenesisDroneRobot(BaseRobot):
         self.episode_length_buf += 1
         self.last_base_pos[:] = self.base_pos[:]
         self.base_pos[:] = self.drone.get_pos()
-        self.rel_pos = self.commands - self.base_pos
-        self.last_rel_pos = self.commands - self.last_base_pos
+        self.rel_pos = (self.commands - self.base_pos).clone()
+        self.last_rel_pos = (self.commands - self.last_base_pos).clone()
         self.base_quat[:] = self.drone.get_quat()
         self.base_euler = quat_to_xyz(
             transform_quat_by_quat(self.inv_base_init_quat, self.base_quat), rpy=True, degrees=True
-        )
+        ).clone()
         inv_base_quat = inv_quat(self.base_quat)
         self.base_lin_vel[:] = transform_by_quat(self.drone.get_vel(), inv_base_quat)
         self.base_ang_vel[:] = transform_by_quat(self.drone.get_ang(), inv_base_quat)
@@ -240,8 +283,8 @@ class GenesisDroneRobot(BaseRobot):
             | (torch.abs(self.rel_pos[:, 1]) > self.env_cfg["termination_if_y_greater_than"])
             | (torch.abs(self.rel_pos[:, 2]) > self.env_cfg["termination_if_z_greater_than"])
             | (self.base_pos[:, 2] < self.env_cfg["termination_if_close_to_ground"])
-        )
-        self.reset_buf = (self.episode_length_buf > self.max_episode_length) | self.crash_condition
+        ).clone()
+        self.reset_buf.copy_((self.episode_length_buf > self.max_episode_length) | self.crash_condition)
         time_out_idx = (self.episode_length_buf > self.max_episode_length).nonzero(as_tuple=False).reshape((-1,))
         self.extras["time_outs"] = torch.zeros_like(self.reset_buf, device=gs.device, dtype=gs.tc_float)
         self.extras["time_outs"][time_out_idx] = 1.0
@@ -313,17 +356,17 @@ class GenesisDroneRobot(BaseRobot):
         import torch
         from genesis.utils.geom import inv_quat
 
-        env_cfg, obs_cfg, reward_cfg, command_cfg, _ = self._load_cfgs()
-        env_cfg = dict(env_cfg)
+        env_cfg = dict(self._config.env_cfg)
         env_cfg["visualize_target"] = self._config.visualize_target
         env_cfg["visualize_camera"] = self._config.visualize_camera and not self._config.camera_enabled
         env_cfg["max_visualize_FPS"] = int(self._config.max_visualize_fps)
         env_cfg["auto_reset"] = bool(self._config.auto_reset)
         if self._config.max_episode_steps is not None:
             env_cfg["episode_length_s"] = float(self._config.max_episode_steps) * 0.01
-        if self._config.base_init_pos is not None:
-            env_cfg["base_init_pos"] = list(self._config.base_init_pos)
-        reward_cfg = dict(reward_cfg)
+        env_cfg["base_init_pos"] = list(self._config.base_init_pos)
+        obs_cfg = dict(self._config.obs_cfg)
+        reward_cfg = dict(self._config.reward_cfg)
+        command_cfg = dict(self._config.command_cfg)
         self._train_reward_scales = dict(reward_cfg["reward_scales"])
         reward_cfg["reward_scales"] = {}
         self.num_envs = self._config.num_envs
@@ -377,10 +420,6 @@ class GenesisDroneRobot(BaseRobot):
         # add body camera (must happen before gs_scene.build())
         if self._config.camera_enabled:
             self._add_body_camera(gs_scene)
-
-    def _load_cfgs(self):
-        with (Path(self._config.log_dir).expanduser() / "cfgs.pkl").open("rb") as file:
-            return pickle.load(file)
 
     def _add_body_camera(self, scene: Any) -> None:
         try:
@@ -512,8 +551,8 @@ class GenesisDroneRobot(BaseRobot):
             )
             self.episode_sums[key][envs_idx] = 0.0
         self._resample_commands(envs_idx)
-        self.rel_pos = self.commands - self.base_pos
-        self.last_rel_pos = self.commands - self.last_base_pos
+        self.rel_pos = (self.commands - self.base_pos).clone()
+        self.last_rel_pos = (self.commands - self.last_base_pos).clone()
 
     # ------------ reward functions ----------------
 
