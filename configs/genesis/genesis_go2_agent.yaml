@@ -69,7 +69,7 @@ agents:
           type: model::rsl_rl
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
-            ckpt_step: 100
+            ckpt_step: -1
             actor_cfg:
               class_name: MLPModel
               hidden_dims:

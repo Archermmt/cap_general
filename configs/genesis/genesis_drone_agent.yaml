@@ -78,7 +78,7 @@ agents:
           type: model::rsl_rl
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
-            ckpt_step: 300
+            ckpt_step: -1
             actor_cfg:
               class_name: MLPModel
               hidden_dims:

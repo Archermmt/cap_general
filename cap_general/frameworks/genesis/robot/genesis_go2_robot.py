@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
-from cap_general.core.utils import tensor_to_image_array, tensor_to_list
+from cap_general.core.utils import ResetLevel, tensor_to_image_array, tensor_to_list
 
 
 @dataclass
@@ -310,6 +310,15 @@ class GenesisGo2Robot(BaseRobot):
         return adjusted
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
+        if not self._training and reset_level == ResetLevel.ROBOT:
+            self._reset_robot_pose()
+            self._update_observation()
+            obs = self._get_observations()
+            self._last_policy_obs = obs
+            self._last_reward = 0.0
+            self._last_done = False
+            return self._build_observation(), {"mock": False, "options": options or {}, "reset_level": "robot"}
         self._reset_idx()
         self._update_observation()
         obs = self._get_observations()
@@ -320,6 +329,19 @@ class GenesisGo2Robot(BaseRobot):
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"mock": False, "options": options or {}}
+
+    def _reset_robot_pose(self) -> None:
+        """Reset GO2 controls and joint posture without teleporting the floating base."""
+        self.robot.control_dofs_position(
+            self.default_dof_pos.repeat(self.num_envs, 1)[:, self.actions_dof_idx],
+            slice(6, 18),
+        )
+        self.commands.zero_()
+        self.actions.zero_()
+        self.last_actions.zero_()
+        self.last_dof_vel.zero_()
+        self.episode_length_buf.zero_()
+        self.reset_buf.fill_(False)
 
     def _on_train(self) -> None:
         import genesis as gs

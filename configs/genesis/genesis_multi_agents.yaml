@@ -71,7 +71,7 @@ agents:
           type: model::rsl_rl
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            ckpt_step: 299
+            ckpt_step: -1
             actor_cfg:
               class_name: MLPModel
               hidden_dims:
@@ -127,7 +127,7 @@ agents:
           type: model::rsl_rl
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            ckpt_step: 299
+            ckpt_step: -1
             actor_cfg:
               class_name: MLPModel
               hidden_dims:
@@ -183,7 +183,7 @@ agents:
           type: model::rsl_rl
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
-            ckpt_step: 299
+            ckpt_step: -1
             actor_cfg:
               class_name: MLPModel
               hidden_dims:

@@ -11,7 +11,7 @@ from typing import Any, Literal
 import numpy as np
 
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
-from cap_general.core.utils import tensor_to_image_array, tensor_to_list
+from cap_general.core.utils import ResetLevel, tensor_to_image_array, tensor_to_list
 
 
 @dataclass
@@ -136,6 +136,14 @@ class GenesisGraspRobot(BaseRobot):
         return self._get_observations()
 
     def _reset(self, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+        reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
+        if not self._training and reset_level == ResetLevel.ROBOT:
+            self._reset_robot_pose()
+            obs = self._get_observations()
+            self._last_policy_obs = obs
+            self._last_reward = 0.0
+            self._last_done = False
+            return self._build_observation(), {"options": options or {}, "reset_level": "robot"}
         self._reset_idx()
         obs = self._get_observations()
         if self._training:
@@ -145,6 +153,14 @@ class GenesisGraspRobot(BaseRobot):
         self._last_reward = 0.0
         self._last_done = False
         return self._build_observation(), {"options": options or {}}
+
+    def _reset_robot_pose(self) -> None:
+        """Reset only the manipulator pose; keep the object where it is."""
+        self.robot.reset()
+        self.episode_length_buf.zero_()
+        self.reset_buf.fill_(False)
+        self.left_cam._stale = True
+        self.right_cam._stale = True
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         import genesis as gs
