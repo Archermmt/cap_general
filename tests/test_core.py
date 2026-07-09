@@ -86,6 +86,46 @@ def test_agent_default_reward_uses_robot_last_reward():
     assert agent._compute_reward() == 2.5
 
 
+def test_agent_records_each_execute_by_default():
+    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy", "reset_time": 0}), logger=LOGGER)
+    record_calls = []
+
+    def fake_record(step_idx: int = -1, clean_frames: bool = False):
+        record_calls.append({"step_idx": step_idx, "clean_frames": clean_frames})
+        return {}
+
+    agent.record = fake_record
+
+    result = agent.execute("RESULT = add(1, 2)")
+
+    assert result["ok"] is True
+    assert result["result"] == 3
+    assert record_calls == [{"step_idx": 0, "clean_frames": False}]
+
+
+def test_agent_can_disable_execute_recording():
+    agent = SimpleAgent(
+        config=BaseAgentConfig(
+            robot={"type": "core_dummy", "reset_time": 0},
+            record_execute=False,
+        ),
+        logger=LOGGER,
+    )
+    record_calls = []
+
+    def fake_record(step_idx: int = -1, clean_frames: bool = False):
+        record_calls.append({"step_idx": step_idx, "clean_frames": clean_frames})
+        return {}
+
+    agent.record = fake_record
+
+    result = agent.execute("RESULT = multiply(2, 4)")
+
+    assert result["ok"] is True
+    assert result["result"] == 8
+    assert record_calls == []
+
+
 def test_policy_base_cannot_instantiate():
     """Test that base BasePolicy cannot be instantiated directly."""
     with pytest.raises(TypeError):

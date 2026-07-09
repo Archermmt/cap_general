@@ -50,6 +50,7 @@ class BaseAgentConfig:
     max_retry: int = 5
     debug: bool = False
     reset_mode: cap_utils.ResetMode | str = cap_utils.ResetMode.PER_EXEC
+    record_execute: bool = True
 
 
 class BaseAgent(RegisteredBase):
@@ -286,6 +287,8 @@ class BaseAgent(RegisteredBase):
         }
         self._step_infos.append(info)
         self._step_codes.append(code)
+        if self._config.record_execute:
+            self.record(step_idx=len(self._step_infos) - 1)
         return info
 
     def _execute_code(self, code: str) -> dict[str, Any]:

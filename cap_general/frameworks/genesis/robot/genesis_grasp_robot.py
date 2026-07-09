@@ -53,6 +53,7 @@ class GenesisGraspRobotConfig(BaseRobotConfig):
     max_episode_steps: int | None = 1_000_000
     robot_pos: tuple[float, float, float] | None = None
     object_pos_offset: tuple[float, float, float] | None = None
+    smooth_reset_steps: int = 125
 
 
 @BaseRobot.register()
@@ -156,11 +157,19 @@ class GenesisGraspRobot(BaseRobot):
 
     def _reset_robot_pose(self) -> None:
         """Reset only the manipulator pose; keep the object where it is."""
-        self.robot.reset()
+        smooth_steps = max(int(self._config.smooth_reset_steps), 0)
+        self.robot.reset(smooth_steps=smooth_steps, step_callback=self._advance_reset_step)
         self.episode_length_buf.zero_()
         self.reset_buf.fill_(False)
         self.left_cam._stale = True
         self.right_cam._stale = True
+
+    def _advance_reset_step(self) -> None:
+        self._scene.step_scene()
+        self._step_cnt += 1
+        obs = self._build_observation()
+        self._last_obs = obs
+        self._record_frame(obs)
 
     def _step(self, action: Any = None) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
         import genesis as gs
@@ -665,7 +674,10 @@ class Manipulator:
         dls_lam_device = "cpu" if self._dls_solve_on_cpu else self._device
         self._dls_lambda_matrix = (0.01**2) * torch.eye(6, device=dls_lam_device)
 
-    def reset(self, envs_idx=None, skip_forward=True):
+    def reset(self, envs_idx=None, skip_forward=True, smooth_steps: int = 0, step_callback=None):
+        if smooth_steps > 0 and step_callback is not None:
+            self._smooth_reset(envs_idx=envs_idx, steps=smooth_steps, step_callback=step_callback)
+            return
         self._robot_entity.set_qpos(
             self._init_qpos,
             envs_idx=envs_idx,
@@ -675,6 +687,46 @@ class Manipulator:
         # In a shared scene, inactive manipulators are still advanced by
         # other agents' scene steps. Keep their PD target at the reset pose so
         # they do not collapse while waiting for their turn.
+        try:
+            self._robot_entity.control_dofs_position(position=self._init_qpos, envs_idx=envs_idx)
+        except TypeError:
+            self._robot_entity.control_dofs_position(position=self._init_qpos)
+
+    def _smooth_reset(self, envs_idx=None, steps: int = 125, step_callback=None) -> None:
+        import math
+        import torch
+
+        current_qpos = self._robot_entity.get_qpos()
+        target_qpos = self._init_qpos.to(device=current_qpos.device, dtype=current_qpos.dtype)
+
+        if current_qpos.ndim == 1:
+            start_qpos = current_qpos
+            target_qpos = target_qpos.reshape_as(start_qpos)
+            selected_envs = envs_idx
+        else:
+            target_qpos = target_qpos.reshape(1, -1).expand_as(current_qpos)
+            if envs_idx is None:
+                start_qpos = current_qpos.clone()
+                selected_envs = None
+            else:
+                selected_envs = envs_idx
+                start_qpos = current_qpos[envs_idx].clone()
+                target_qpos = target_qpos[envs_idx]
+
+        total_steps = max(int(steps), 1)
+        transition_steps = max(int(total_steps * 0.8), 1)
+        for step in range(1, total_steps + 1):
+            if step <= transition_steps:
+                alpha = 0.5 - 0.5 * math.cos(math.pi * step / transition_steps)
+            else:
+                alpha = 1.0
+            target = torch.lerp(start_qpos, target_qpos, alpha)
+            try:
+                self._robot_entity.control_dofs_position(position=target, envs_idx=selected_envs)
+            except TypeError:
+                self._robot_entity.control_dofs_position(position=target)
+            step_callback()
+
         try:
             self._robot_entity.control_dofs_position(position=self._init_qpos, envs_idx=envs_idx)
         except TypeError:
