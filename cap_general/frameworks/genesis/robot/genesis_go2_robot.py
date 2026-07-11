@@ -92,9 +92,9 @@ class GenesisGo2RobotConfig(BaseRobotConfig):
     camera_enabled: bool = True
     camera_res: tuple[int, int] = (320, 240)
     camera_fov: float = 40.0
-    camera_pos: tuple[float, float, float] = (2.0, 0.0, 2.5)
-    camera_lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
-    camera_attach_to_base: bool = False
+    camera_pos: tuple[float, float, float] = (0.05, 0.0, 0.18)
+    camera_lookat: tuple[float, float, float] = (1.0, 0.0, 0.08)
+    camera_attach_to_base: bool = True
     camera_near: float = 0.05
     camera_far: float = 20.0
     turn_action_scale: float = 0.35

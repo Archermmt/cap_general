@@ -47,18 +47,22 @@ agents:
     - 240
     camera_fov: 40.0
     camera_pos:
-    - 2.0
+    - 0.05
     - 0.0
-    - 2.5
+    - 0.18
     camera_lookat:
+    - 1.0
     - 0.0
-    - 0.0
-    - 0.5
-    camera_attach_to_base: false
+    - 0.08
+    camera_attach_to_base: true
     camera_near: 0.05
     camera_far: 20.0
     turn_action_scale: 0.35
     max_episode_steps: 1000000
+    base_init_pos:
+    - 0.0
+    - 0.0
+    - 0.42
   policies:
     runner:
       type: base

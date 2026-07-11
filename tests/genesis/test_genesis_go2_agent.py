@@ -29,17 +29,17 @@ _DEFAULT_AGENT = "go2"
 ROUND_NUM = 10
 
 
-def test_go2_config_initial_pose_matches_eval() -> None:
-    """Go2 should start where the genesis-world eval viewer is looking."""
+def test_go2_config_initial_pose_and_body_camera() -> None:
+    """Go2 should start at eval height and expose a forward-facing body camera."""
     import yaml
 
     with Path(_DEFAULT_CONFIG).open() as file:
         config = yaml.safe_load(file)
-    robot_cfg = config["agents"][0]["config"]["robot"]
+    robot_cfg = config["agents"][0]["robot"]
     assert robot_cfg["base_init_pos"] == [0.0, 0.0, 0.42]
-    assert robot_cfg["camera_pos"] == [2.0, 0.0, 2.5]
-    assert robot_cfg["camera_lookat"] == [0.0, 0.0, 0.5]
-    assert robot_cfg["camera_attach_to_base"] is False
+    assert robot_cfg["camera_pos"] == [0.05, 0.0, 0.18]
+    assert robot_cfg["camera_lookat"] == [1.0, 0.0, 0.08]
+    assert robot_cfg["camera_attach_to_base"] is True
     assert config["viewer_options"]["camera_pos"] == [2.0, 0.0, 2.5]
     assert config["viewer_options"]["camera_lookat"] == [0.0, 0.0, 0.5]
 
@@ -195,7 +195,8 @@ def test_local_go2_agent() -> None:
     """Smoke test: run a Go2Agent episode in-process."""
     result = run_go2_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
-    assert result.get("ok"), result
+    assert result.get("info", {}).get("total_execute") == _DEFAULT_TASK_NUM
+    assert result.get("main_video") or result.get("videos"), result
 
 
 if __name__ == "__main__":

@@ -495,9 +495,9 @@ class BaseScene(RegisteredBase):
             )
         skill_root = Path(server_config.skill_folders[agent_type]).expanduser()
         target_dir = skill_root / server_config.cap_id
-        if not skill_root.exists() or not any(skill_root.iterdir()):
-            self._logger.info("Skip copying skills because the selected skill folder is missing or empty: %s", skill_root)
-            return target_dir
+        if not skill_root.exists():
+            self._logger.info("Creating missing skill folder root: %s", skill_root)
+            skill_root.mkdir(parents=True, exist_ok=True)
         if not source_dir.exists():
             self._logger.warning("Skill source directory does not exist: %s", source_dir)
             return target_dir
@@ -505,6 +505,7 @@ class BaseScene(RegisteredBase):
             "{cap_id}": server_config.cap_id,
             "{available_names}": ", ".join(sorted(self._agent_aliases)),
         }
+        copied_targets: list[Path] = []
 
         def copy_skill_tree(source: Path, target: Path) -> None:
             if target.resolve() == source.resolve():
@@ -527,14 +528,21 @@ class BaseScene(RegisteredBase):
                     target_path.write_text(content, encoding="utf-8")
                 else:
                     shutil.copy2(source_path, target_path)
+            copied_targets.append(target)
 
         if server_config.fast:
+            self._logger.info("Copying skills for cap_id=%s from %s into prefixed folders under %s", server_config.cap_id, source_dir, skill_root)
             for source_path in source_dir.iterdir():
                 if source_path.is_dir() and source_path.name != "__pycache__":
-                    copy_skill_tree(source_path, skill_root / f"{server_config.cap_id}_{source_path.name}")
+                    target_path = skill_root / f"{server_config.cap_id}_{source_path.name}"
+                    self._logger.info("Copy skill folder %s -> %s", source_path, target_path)
+                    copy_skill_tree(source_path, target_path)
+            self._logger.info("Finished copying skills for cap_id=%s: %s", server_config.cap_id, copied_targets)
             return target_dir
 
+        self._logger.info("Copying skills for cap_id=%s from %s -> %s", server_config.cap_id, source_dir, target_dir)
         copy_skill_tree(source_dir, target_dir)
+        self._logger.info("Finished copying skills for cap_id=%s: %s", server_config.cap_id, copied_targets)
         return target_dir
 
     @property
