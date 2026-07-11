@@ -1,12 +1,16 @@
 ---
 name: {cap_id}_agent_pipeline
-description: Run one or more pipeline jobs (train, eval, compile, or any combination) for CAP agents via run_pipe. Use whenever the user asks a robot or agent to train, evaluate, compile, or run a pipeline stage. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
+description: Run one or more pipeline jobs (train, eval, compile, or any combination) to operate on an agent's policy via run_pipe. Use this skill only for policy pipeline work, not for task execution. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"⚙️"}}
 ---
 
 # Agent Pipeline Skill
 
+Use this skill only when the user wants to train, evaluate, or compile an agent policy.
+
 Run ordered pipeline jobs for selected agents with `{cap_id}_run_pipe`. A single call can chain multiple stages — for example train then eval — executed in sequence. Poll async status with `{cap_id}_monitor` when needed.
+
+Do not use this skill for agent task execution, subtasks, verification, or `execute` / `retry` / `record`. Those belong to the agent execute skill.
 
 Available agent names and aliases: `{available_names}`.
 
@@ -57,6 +61,7 @@ Do not send `method`, `stage`, or other unsupported top-level fields to `{cap_id
 6. If `async_task=true`: repeatedly call `{cap_id}_monitor` with `wait_ms=5000` for agents that are still running. After every monitor call, use a messaging tool to send the user the complete status and result. Stop polling an agent when its status has `running=false`.
    If `async_task=false`: the `run_pipe` response already contains the final result — skip monitor polling and use a messaging tool to send the result to the user.
 7. Use a messaging tool to send the user a final message containing the complete `result`, including any error details when a job fails.
+8. Do not use `{cap_id}_execute`, `{cap_id}_retry`, or `{cap_id}_record` in this skill.
 
 ## Monitor Loop
 

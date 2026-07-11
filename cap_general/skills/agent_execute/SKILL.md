@@ -1,12 +1,16 @@
 ---
 name: {cap_id}_agent_execute
-description: Execute robot tasks with one or more CAP agents, recording only LLM-generated plans and result judgments while agent task results are traced automatically. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
+description: Execute robot tasks with one or more CAP agents. Use this skill only for agent task execution and verification, not for training or policy pipeline jobs. Available names are {available_names}. Read this skill before execute, only then call {cap_id}-prefixed tools.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 
 # Agent Execute Skill
 
+Use this skill only when the user wants an agent to perform a task through `execute` / `retry` / `record`.
+
 Decompose robot tasks into verifiable subtasks, execute independent agents concurrently, verify outcomes, retry failures, and retain concise reasoning history.
+
+Do not use this skill for training, evaluation, compilation, or any policy pipeline job. Those belong to `{cap_id}_run_pipe` via the agent pipeline skill.
 
 Available agent names and aliases: `{available_names}`.
 
@@ -185,3 +189,4 @@ display_video(record_result.main_video)  # use image-capable tool in display mod
 5. Read `agent_doc` before generating execution code.
 6. Call `record` once after all subtasks.
 7. Do not modify YAML configuration files while executing this skill.
+8. Do not use this skill to train, evaluate, or compile policies.
