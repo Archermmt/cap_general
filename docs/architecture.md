@@ -5,7 +5,7 @@ This directory contains architecture diagrams generated from the unit-test examp
 ## Images
 
 - [core_class_relationship.svg](core_class_relationship.svg): core class relationships.
-- [local_execution_flow.svg](local_execution_flow.svg): core scene/agent execution flow.
+- [local_execution_flow.svg](local_execution_flow.svg): core scene/control execution flow.
 - [skills_mcp_call_flow.svg](skills_mcp_call_flow.svg): skills, MCP server, and CAP runtime call flow.
 - [policy_graph_execution.svg](policy_graph_execution.svg): policy graph/operator execution flow.
 

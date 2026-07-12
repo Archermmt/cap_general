@@ -5,18 +5,18 @@ from __future__ import annotations
 import importlib
 
 # Trigger registration of all LIBERO components
-import cap_general.frameworks.libero.agent  # noqa: F401
+import cap_general.frameworks.libero.control  # noqa: F401
 import cap_general.frameworks.libero.robot  # noqa: F401
 import cap_general.frameworks.libero.pipeline.job  # noqa: F401
 
 __all__ = [
-    "LiberoAgent",
+    "LiberoControl",
     "LiberoRobot",
     "LiberoTrainJob",
 ]
 
 _LAZY: dict[str, tuple[str, str]] = {
-    "LiberoAgent": ("cap_general.frameworks.libero.agent", "LiberoAgent"),
+    "LiberoControl": ("cap_general.frameworks.libero.control", "LiberoControl"),
     "LiberoRobot": ("cap_general.frameworks.libero.robot", "LiberoRobot"),
     "LiberoTrainJob": ("cap_general.frameworks.libero.pipeline.job", "LiberoTrainJob"),
 }

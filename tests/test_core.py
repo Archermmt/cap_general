@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.control import BaseControl, BaseControlConfig
 from cap_general.core.operator import BaseOperator
 from cap_general.core.robot import BaseRobot
 from cap_general.core.policy import BasePolicy
@@ -29,7 +29,7 @@ class CoreDummyRobot(BaseRobot):
         return {"step": self.step_cnt}
 
 
-class SimpleAgent(BaseAgent):
+class SimpleAgent(BaseControl):
     """A simple test agent."""
 
     def functions(self):
@@ -58,7 +58,7 @@ class SimpleAgent(BaseAgent):
 
 def test_agent__function_doc():
     """Test that _function_doc extracts method signatures and docstrings."""
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
+    agent = SimpleAgent(config=BaseControlConfig(robot={"type": "core_dummy"}), logger=LOGGER)
     doc = agent._function_doc()
 
     assert "add" in doc
@@ -69,10 +69,10 @@ def test_agent__function_doc():
     assert "b: int" in doc or "b:int" in doc
 
 
-def test_agent_doc_embeds_reset_options_in_function_doc():
-    """Test that agent_doc exposes reset options through function_doc."""
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
-    doc = agent.agent_doc()
+def test_control_doc_embeds_reset_options_in_function_doc():
+    """Test that control_doc exposes reset options through function_doc."""
+    agent = SimpleAgent(config=BaseControlConfig(robot={"type": "core_dummy"}), logger=LOGGER)
+    doc = agent.control_doc()
 
     assert "function_doc" in doc
     assert "reset_level: 0 resets only the robot pose" in doc["function_doc"]
@@ -80,14 +80,14 @@ def test_agent_doc_embeds_reset_options_in_function_doc():
 
 
 def test_agent_default_reward_uses_robot_last_reward():
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy"}), logger=LOGGER)
+    agent = SimpleAgent(config=BaseControlConfig(robot={"type": "core_dummy"}), logger=LOGGER)
     agent._robot._last_reward = 2.5
 
     assert agent._compute_reward() == 2.5
 
 
 def test_agent_records_each_execute_by_default():
-    agent = SimpleAgent(config=BaseAgentConfig(robot={"type": "core_dummy", "reset_time": 0}), logger=LOGGER)
+    agent = SimpleAgent(config=BaseControlConfig(robot={"type": "core_dummy", "reset_time": 0}), logger=LOGGER)
     record_calls = []
 
     def fake_record(step_idx: int = -1, clean_frames: bool = False):
@@ -105,7 +105,7 @@ def test_agent_records_each_execute_by_default():
 
 def test_agent_can_disable_execute_recording():
     agent = SimpleAgent(
-        config=BaseAgentConfig(
+        config=BaseControlConfig(
             robot={"type": "core_dummy", "reset_time": 0},
             record_execute=False,
         ),
@@ -134,7 +134,7 @@ def test_policy_base_cannot_instantiate():
 
 def test_core_registries_include_common_components():
     """Test that common operators are registered in the operator registry."""
-    assert BaseAgent.agent_type == "base"
+    assert BaseControl.control_type == "base"
     assert BaseOperator.get_registered_class("model", "sam3") is not None
     assert BaseOperator.get_registered_class("model", "graspnet") is not None
     assert BaseOperator.get_registered_class("model", "pyroki") is not None
@@ -144,12 +144,12 @@ def test_core_registries_include_common_components():
 def test_agent_register_decorator():
     """Test that agent subclasses can be registered by type."""
 
-    @BaseAgent.register()
-    class RegisteredAgent(BaseAgent):
-        agent_type = "registered"
-        config_cls = BaseAgentConfig
+    @BaseControl.register()
+    class RegisteredAgent(BaseControl):
+        control_type = "registered"
+        config_cls = BaseControlConfig
 
         def functions(self):
             return {}
 
-    assert BaseAgent.get_registered_class("registered") is RegisteredAgent
+    assert BaseControl.get_registered_class("registered") is RegisteredAgent

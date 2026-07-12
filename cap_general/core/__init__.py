@@ -1,6 +1,7 @@
 """Core CAP framework-agnostic components."""
 
 from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.control import BaseControl, BaseControlConfig
 from cap_general.core.operator import BaseOperator, BaseOperatorConfig, ModelOp
 from cap_general.core.pipeline import BasePipeline, BasePipelineConfig, BaseJob, EvalJob, TrainJob
 from cap_general.core.policy import BasePolicy, BasePolicyConfig, CapData, CapGraph, CapNode
@@ -10,6 +11,8 @@ from cap_general.core.scene import BaseScene, BaseSceneConfig
 __all__ = [
     "BaseAgent",
     "BaseAgentConfig",
+    "BaseControl",
+    "BaseControlConfig",
     "BaseScene",
     "BaseSceneConfig",
     "BasePolicy",

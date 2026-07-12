@@ -50,7 +50,7 @@ def _binarize_gripper_open(val: Any) -> Any:
 
 
 def _coerce_env_reset_level(value: Any) -> ResetLevel:
-    """Map agent-level reset scopes onto environment-level reset scopes."""
+    """Map control-level reset scopes onto environment-level reset scopes."""
     raw_level = ResetLevel.AGENT if value is None else value
     level_value = int(raw_level)
     if level_value <= int(ResetLevel.ROBOT):

@@ -17,7 +17,7 @@ from cap_general.core.utils import save_image, tensor_to_image_array
 
 @dataclass
 class GenesisSceneConfig(BaseSceneConfig):
-    """Configuration for a Genesis-backed multi-agent scene."""
+    """Configuration for a Genesis-backed multi-control scene."""
 
     backend: str | None = None
     verbose_level: str = "warning"
@@ -63,7 +63,7 @@ class GenesisScene(BaseScene):
         self._pre_step_callbacks: list[Callable[[], bool | None]] = []
         self._render_task: asyncio.Task | None = None
         self._step_lock = threading.Lock()
-        self._agent_locks: dict[Any, asyncio.Lock] = {}
+        self._control_locks: dict[Any, asyncio.Lock] = {}
         super().__init__(config=config, logger=logger)
 
     def _pre_build(self) -> None:
@@ -94,8 +94,8 @@ class GenesisScene(BaseScene):
         self._gs_scene.add_entity(gs.morphs.Plane())
 
     def _post_build(self) -> None:
-        for agent_info in self._agents.values():
-            agent_info.agent.init_genesis(self._gs_scene)
+        for control_info in self._controls.values():
+            control_info.control.init_genesis(self._gs_scene)
         self._logger.info("Building Genesis scene with kwargs=%s", self._config.build_kwargs)
         self._gs_scene.build(**self._config.build_kwargs)
         self._lock_viewer_rotation()
@@ -136,12 +136,12 @@ class GenesisScene(BaseScene):
                 self._gs_scene.step()
 
     async def _render_loop(self) -> None:
-        """Continuously step the scene while no agent task is running."""
+        """Continuously step the scene while no control task is running."""
         interval = 1.0 / self._config.idle_render_fps
         while True:
             await asyncio.sleep(interval)
-            # Skip when an agent task is actively executing
-            if any(info.task is not None and not info.task.done() for info in self._agents.values()):
+            # Skip when a control task is actively executing
+            if any(info.task is not None and not info.task.done() for info in self._controls.values()):
                 continue
             self._real_step()
 
@@ -211,7 +211,7 @@ class GenesisScene(BaseScene):
         method: Callable[..., Any],
         kwargs: dict[str, Any],
     ) -> Any:
-        """Run a Genesis agent method on the main thread under its agent lock."""
-        agent_lock = self._agent_locks.setdefault(method.__self__, asyncio.Lock())
-        async with agent_lock:
+        """Run a Genesis control method on the main thread under its control lock."""
+        control_lock = self._control_locks.setdefault(method.__self__, asyncio.Lock())
+        async with control_lock:
             return method(**kwargs)

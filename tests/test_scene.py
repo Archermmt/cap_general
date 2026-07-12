@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.control import BaseControl, BaseControlConfig
 from cap_general.core.operator import BaseOperator, to_stage_fn
 from cap_general.core.policy import BasePolicy, BasePolicyConfig
 from cap_general.core.robot import BaseRobot
@@ -85,12 +85,12 @@ class SceneDummyPolicy(BasePolicy):
 
     policy_type = "scene_dummy"
 
-@BaseAgent.register()
-class SceneDummyAgent(BaseAgent):
+@BaseControl.register()
+class SceneDummyAgent(BaseControl):
     """Small agent for scene routing tests."""
 
-    agent_type = "scene_dummy"
-    config_cls = BaseAgentConfig
+    control_type = "scene_dummy"
+    config_cls = BaseControlConfig
 
     def functions(self):
         return {"echo": self.echo}
@@ -106,7 +106,7 @@ def _scene_config(*agent_names: str, trace_level: str = "all") -> dict:
         "server": {"cap_id": "scene_test", "port": 8899},
         "record_dir": "outputs/test_scene",
         "trace_level": trace_level,
-        "agents": [
+        "controls": [
             {
                 "name": agent_name,
                 "alias": agent_name[0],
@@ -139,7 +139,7 @@ def test_scene_routes_agent_methods_by_name_and_alias():
     assert agent._record_dir == Path("outputs/test_scene/alpha").resolve()
     assert agent._logger is scene._logger
     assert scene.reset({"alpha": {"x": 1}})[_ALPHA_KEY]["ok"] is True
-    assert "echo" in scene.agent_doc(["a"])[_ALPHA_KEY]["function_doc"]
+    assert "echo" in scene.control_doc(["a"])[_ALPHA_KEY]["function_doc"]
     assert "folder" in scene.get_obs(["alpha"])[_ALPHA_KEY]
 
 
@@ -147,12 +147,12 @@ def test_scene_batch_methods_route_multiple_agents():
     scene = BaseScene.from_config(_scene_config("alpha", "beta", trace_level="never"))
 
     resets = scene.reset({"a": {"value": 1}, "beta": {"value": 2}})
-    docs = scene.agent_doc(["alpha", "beta"])
+    docs = scene.control_doc(["alpha", "beta"])
     observations = scene.get_obs(["alpha", "beta"])
     history_update = scene.update_history(
         {
             "alpha": {"role": "user", "tool": "reset", "request": {}},
-            "b": {"role": "user", "tool": "agent_doc", "request": {}},
+            "b": {"role": "user", "tool": "control_doc", "request": {}},
         }
     )
     scene.update_history({"alpha": {"role": _ALPHA_KEY, "tool": "reset", "response": {"ok": True}}})
@@ -170,7 +170,7 @@ def test_scene_batch_methods_route_multiple_agents():
     assert "executes" in full_record["info"]
     assert scene._history[1]["agent"] == _BETA_KEY
     assert scene._history[1]["role"] == "user"
-    assert scene._history[1]["tool"] == "agent_doc"
+    assert scene._history[1]["tool"] == "control_doc"
     assert scene._history[1]["request"] == {}
     assert "timestamp" in scene._history[1]
     history_lines = (scene._record_dir / "history.json").read_text(encoding="utf-8").splitlines()
@@ -204,17 +204,17 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
             cap_id="cap",
             skill_folders={"nanobot": str(tmp_path / "nanobot-skills"), "codex": str(skill_root)},
         ),
-        agent_type="codex",
+        client_type="codex",
     )
 
-    assert result == skill_root / "cap"
-    assert (result / "stale.txt").is_file()
+    assert result == skill_root
+    assert (result / "cap" / "stale.txt").is_file()
     assert not (result / "SKILL.md").exists()
-    assert (result / "cap_agent_state" / "SKILL.md").is_file()
-    assert (result / "cap_agent_reset" / "SKILL.md").is_file()
-    assert (result / "cap_agent_pipeline" / "SKILL.md").is_file()
-    assert (result / "cap_agent_execute" / "SKILL.md").is_file()
-    content = (result / "cap_agent_state" / "SKILL.md").read_text(encoding="utf-8")
+    assert (result / "cap_state" / "SKILL.md").is_file()
+    assert (result / "cap_reset" / "SKILL.md").is_file()
+    assert (result / "cap_pipeline" / "SKILL.md").is_file()
+    assert (result / "cap_execute" / "SKILL.md").is_file()
+    content = (result / "cap_state" / "SKILL.md").read_text(encoding="utf-8")
     assert "{cap_id}" not in content
     assert "{available_names}" not in content
 
@@ -231,7 +231,7 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
 
     assert result == skill_root / "cap"
     assert (result / "SKILL.md").is_file()
-    assert (result / "agent_state" / "SKILL.md").is_file()
+    assert (result / "cap_state" / "SKILL.md").is_file()
 
 
 def test_scene_trace_splits_batch_results_into_agent_history_entries():
@@ -419,10 +419,10 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     ]
     assert all(m["role"] == "user" for m in task_request_messages)
     assert task_request_messages[0]["request"] == {
-        "agent_codes": {"alpha": 'RESULT = {"value": "task"}'}
+        "control_codes": {"alpha": 'RESULT = {"value": "task"}'}
     }
-    assert task_request_messages[2]["request"] == {"agents": ["alpha"]}
-    assert task_request_messages[3]["request"] == {"agents": ["alpha"]}
+    assert task_request_messages[2]["request"] == {"controls": ["alpha"]}
+    assert task_request_messages[3]["request"] == {"controls": ["alpha"]}
     task_response_messages = [m for m in task_history if "response" in m]
     assert [m["tool"] for m in task_response_messages] == [
         "execute",
@@ -448,11 +448,11 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
     ]
     assert all(m["role"] == "user" for m in request_messages)
     assert request_messages[-7]["request"] == {
-        "agent_codes": {"alpha": 'RESULT = {"value": "enabled"}'}
+        "control_codes": {"alpha": 'RESULT = {"value": "enabled"}'}
     }
-    assert request_messages[-4]["request"] == {"agents": ["alpha"]}
+    assert request_messages[-4]["request"] == {"controls": ["alpha"]}
     assert request_messages[-2]["request"] == {
-        "agent_options": {
+        "control_options": {
             "alpha": {
                 "job_options": [{"job": "train", "options": {"epoch": 2}}],
             }
@@ -515,7 +515,7 @@ def test_scene_debug_visualizes_policy_graphs(tmp_path: Path, monkeypatch: pytes
             "record_dir": str(tmp_path / "scene"),
             "debug": True,
             "server": {"cap_id": "scene_test", "port": 8899},
-            "agents": [
+            "controls": [
                 {
                     "name": "alpha",
                     "alias": "a",
@@ -573,7 +573,7 @@ def test_scene_debug_visualize_falls_back_to_dot(tmp_path: Path, monkeypatch: py
             "record_dir": str(tmp_path / "scene"),
             "debug": True,
             "server": {"cap_id": "scene_test", "port": 8899},
-            "agents": [
+            "controls": [
                 {
                     "name": "alpha",
                     "alias": "a",
@@ -611,7 +611,7 @@ server:
   port: 8899
 record_dir: outputs/test_scene_yaml
 debug: false
-agents:
+controls:
   - name: alpha
     alias: a
     type: scene_dummy
@@ -627,8 +627,8 @@ agents:
         [
             "--server.port",
             "9001",
-            "--agents[0].alias=renamed",
-            "--agents[0].robot.reset_time",
+            "--controls[0].alias=renamed",
+            "--controls[0].robot.reset_time",
             "0.01",
         ]
     )

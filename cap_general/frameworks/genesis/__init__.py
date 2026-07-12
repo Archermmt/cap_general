@@ -5,18 +5,17 @@ from __future__ import annotations
 import importlib
 
 # Trigger registration of all Genesis components
-import cap_general.frameworks.genesis.agent  # noqa: F401
+import cap_general.frameworks.genesis.control  # noqa: F401
 import cap_general.frameworks.genesis.policy  # noqa: F401
 import cap_general.frameworks.genesis.robot  # noqa: F401
 import cap_general.frameworks.genesis.scene  # noqa: F401
 import cap_general.frameworks.genesis.pipeline.job  # noqa: F401
 
 __all__ = [
-    "GenesisBaseAgent",
-    "GenesisDroneAgent",
-    "GenesisFrankaAgent",
-    "GenesisGo2Agent",
-    "GenesisGraspAgent",
+    "GenesisBaseControl",
+    "GenesisDroneControl",
+    "GenesisGo2Control",
+    "GenesisGraspControl",
     "GenesisDroneRobot",
     "GenesisFrankaRobot",
     "GenesisGo2Robot",
@@ -29,11 +28,10 @@ __all__ = [
 ]
 
 _LAZY: dict[str, tuple[str, str]] = {
-    "GenesisBaseAgent": ("cap_general.frameworks.genesis.agent", "GenesisBaseAgent"),
-    "GenesisDroneAgent": ("cap_general.frameworks.genesis.agent", "GenesisDroneAgent"),
-    "GenesisFrankaAgent": ("cap_general.frameworks.genesis.agent", "GenesisFrankaAgent"),
-    "GenesisGo2Agent": ("cap_general.frameworks.genesis.agent", "GenesisGo2Agent"),
-    "GenesisGraspAgent": ("cap_general.frameworks.genesis.agent", "GenesisGraspAgent"),
+    "GenesisBaseControl": ("cap_general.frameworks.genesis.control", "GenesisBaseControl"),
+    "GenesisDroneControl": ("cap_general.frameworks.genesis.control", "GenesisDroneControl"),
+    "GenesisGo2Control": ("cap_general.frameworks.genesis.control", "GenesisGo2Control"),
+    "GenesisGraspControl": ("cap_general.frameworks.genesis.control", "GenesisGraspControl"),
     "GenesisDroneRobot": ("cap_general.frameworks.genesis.robot", "GenesisDroneRobot"),
     "GenesisFrankaRobot": ("cap_general.frameworks.genesis.robot", "GenesisFrankaRobot"),
     "GenesisGo2Robot": ("cap_general.frameworks.genesis.robot", "GenesisGo2Robot"),

@@ -8,24 +8,24 @@ classDiagram
     class BaseScene {
       +from_yaml(config)
       +serve(transport)
-      +reset(agent_options)
-      +agent_doc(agents)
-      +execute(agent_codes)
-      +monitor(agents)
-      +retry(agents)
-      +record(agents)
-      +update_history(agent_messages)
+      +reset(control_options)
+      +control_doc(controls)
+      +execute(control_codes)
+      +monitor(controls)
+      +retry(controls)
+      +record(controls)
+      +update_history(control_messages)
     }
 
-    class AgentInfo {
-      +agent
+    class ControlInfo {
+      +control
       +status
       +task
     }
 
-    class BaseAgent {
+    class BaseControl {
       +reset(options)
-      +agent_doc()
+      +control_doc()
       +execute(code)
       +retry()
       +run_pipe(job_options, policy_name)
@@ -93,16 +93,16 @@ classDiagram
     class EvalJob
 
     RegisteredBase <|-- BaseScene
-    RegisteredBase <|-- BaseAgent
+    RegisteredBase <|-- BaseControl
     RegisteredBase <|-- BaseRobot
     RegisteredBase <|-- BasePolicy
     RegisteredBase <|-- BasePipeline
 
-    BaseScene "1" o-- "*" AgentInfo
-    AgentInfo "1" o-- "1" BaseAgent
-    BaseAgent "1" *-- "1" BaseRobot
-    BaseAgent "1" *-- "*" BasePolicy
-    BaseAgent "0..1" o-- "1" BasePipeline
+    BaseScene "1" o-- "*" ControlInfo
+    ControlInfo "1" o-- "1" BaseControl
+    BaseControl "1" *-- "1" BaseRobot
+    BaseControl "1" *-- "*" BasePolicy
+    BaseControl "0..1" o-- "1" BasePipeline
 
     BasePolicy "1" *-- "1" CapGraph
     CapGraph "1" *-- "*" CapNode

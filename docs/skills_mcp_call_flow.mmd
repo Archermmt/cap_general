@@ -3,10 +3,10 @@ flowchart TD
 
     subgraph Skills["cap_general/skills"]
       Root["SKILL.md\nrouting instructions"]
-      State["agent_state"]
-      Reset["agent_reset"]
-      Execute["agent_execute"]
-      Pipeline["agent_pipeline"]
+      State["cap_state"]
+      Reset["cap_reset"]
+      Execute["cap_execute"]
+      Pipeline["cap_pipeline"]
     end
 
     subgraph ServerStart["capcmd server startup"]
@@ -18,7 +18,7 @@ flowchart TD
     end
 
     subgraph MCPTools["MCP tools, cap_id-prefixed"]
-      TDoc["cap_agent_doc"]
+      TDoc["cap_control_doc"]
       TReset["cap_reset"]
       TExec["cap_execute"]
       TMon["cap_monitor"]
@@ -31,7 +31,7 @@ flowchart TD
 
     subgraph CAP["CAP runtime"]
       Scene["BaseScene methods"]
-      Agent["BaseAgent methods"]
+      Control["BaseControl methods"]
       Robot["BaseRobot"]
       Policy["BasePolicy / CapGraph / BaseOperator"]
       Pipe["BasePipeline / BaseJob"]
@@ -66,13 +66,13 @@ flowchart TD
     Pipeline --> TMon
 
     MCPTools --> Scene
-    Scene --> Agent
-    Agent --> Robot
-    Agent --> Policy
-    Agent --> Pipe
+    Scene --> Control
+    Control --> Robot
+    Control --> Policy
+    Control --> Pipe
     Policy --> Robot
     Policy --> Artifacts
     Pipe --> Policy
     Pipe --> Robot
     Scene --> History
-    Agent --> Artifacts
+    Control --> Artifacts

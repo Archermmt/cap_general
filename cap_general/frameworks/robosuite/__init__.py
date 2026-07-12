@@ -1,9 +1,9 @@
 """Robosuite-specific CAP components."""
 
-from cap_general.frameworks.robosuite.agent import (
+from cap_general.frameworks.robosuite.control import (
     PROMPT,
-    RobosuiteAgent,
-    RobosuiteAgentConfig,
+    RobosuiteControl,
+    RobosuiteControlConfig,
 )
 from cap_general.frameworks.robosuite.robot import (
     RobosuiteBaseRobot,
@@ -17,7 +17,7 @@ __all__ = [
     "RobosuiteBaseRobotConfig",
     "RobosuiteCubeRobot",
     "RobosuiteCubeRobotConfig",
-    "RobosuiteAgent",
-    "RobosuiteAgentConfig",
+    "RobosuiteControl",
+    "RobosuiteControlConfig",
     "PROMPT",
 ]
