@@ -139,7 +139,7 @@ def test_scene_routes_agent_methods_by_name_and_alias():
     assert agent._record_dir == Path("outputs/test_scene/alpha").resolve()
     assert agent._logger is scene._logger
     assert scene.reset({"alpha": {"x": 1}})[_ALPHA_KEY]["ok"] is True
-    assert "echo" in scene.control_doc(["a"])[_ALPHA_KEY]["function_doc"]
+    assert "echo" in scene.control_doc(["a"])["scene"]["controls"][_ALPHA_KEY]["function_doc"]
     assert "folder" in scene.get_obs(["alpha"])[_ALPHA_KEY]
 
 
@@ -158,24 +158,31 @@ def test_scene_batch_methods_route_multiple_agents():
     scene.update_history({"alpha": {"role": _ALPHA_KEY, "tool": "reset", "response": {"ok": True}}})
     full_record = scene._get_agent("alpha").record(step_idx=-1)
     for agent_info in scene._agents.values():
-        agent_info.agent.record = lambda step_idx: {"step_idx": step_idx}
+        agent_info.agent.record = lambda step_idx, clean_frames=False: {
+            "step_idx": step_idx,
+            "clean_frames": clean_frames,
+        }
     records = scene.record(["alpha", "beta"])
 
     assert set(resets) == {_ALPHA_KEY, _BETA_KEY}
-    assert set(docs) == {_ALPHA_KEY, _BETA_KEY}
+    assert set(docs["scene"]["controls"]) == {_ALPHA_KEY, _BETA_KEY}
     assert set(observations) == {_ALPHA_KEY, _BETA_KEY}
     assert scene._get_agent("alpha").mark == _ALPHA_KEY
     assert history_update[_ALPHA_KEY] == {"ok": True, "updated": 1}
     # History is persisted by the scene; record() info no longer embeds it.
     assert "executes" in full_record["info"]
-    assert scene._history[1]["agent"] == _BETA_KEY
+    assert "agent" not in scene._history[1]
+    assert scene._history[1]["control"] == _BETA_KEY
     assert scene._history[1]["role"] == "user"
     assert scene._history[1]["tool"] == "control_doc"
     assert scene._history[1]["request"] == {}
     assert "timestamp" in scene._history[1]
     history_lines = (scene._record_dir / "history.json").read_text(encoding="utf-8").splitlines()
     assert len(history_lines) == 3
-    assert records == {_ALPHA_KEY: {"step_idx": -1}, _BETA_KEY: {"step_idx": -1}}
+    assert records == {
+        _ALPHA_KEY: {"step_idx": -1, "clean_frames": False},
+        _BETA_KEY: {"step_idx": -1, "clean_frames": False},
+    }
 
 
 def test_scene_agent_info_keeps_single_runtime_state_source():
@@ -217,10 +224,18 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     content = (result / "cap_state" / "SKILL.md").read_text(encoding="utf-8")
     assert "{cap_id}" not in content
     assert "{available_names}" not in content
+    execute_content = (result / "cap_execute" / "SKILL.md").read_text(encoding="utf-8")
+    pipeline_content = (result / "cap_pipeline" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Control Execute Sync" in execute_content
+    assert "Control Pipeline" in pipeline_content
+    assert not (result / "cap_execute" / "SKILL.async").exists()
+    assert not (result / "cap_execute" / "SKILL.sync").exists()
 
 
 def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
-    scene = BaseScene.from_config(_scene_config())
+    config = _scene_config()
+    config["task_async"] = True
+    scene = BaseScene.from_config(config)
     skill_root = tmp_path / "skills"
     skill_root.mkdir()
     (skill_root / ".keep").touch()
@@ -232,6 +247,10 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
     assert result == skill_root / "cap"
     assert (result / "SKILL.md").is_file()
     assert (result / "cap_state" / "SKILL.md").is_file()
+    assert "Control Execute Async" in (result / "cap_execute" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Control Pipeline" in (result / "cap_pipeline" / "SKILL.md").read_text(encoding="utf-8")
+    assert not (result / "cap_execute" / "SKILL.async").exists()
+    assert not (result / "cap_execute" / "SKILL.sync").exists()
 
 
 def test_scene_trace_splits_batch_results_into_agent_history_entries():
@@ -263,7 +282,9 @@ def test_scene_trace_splits_batch_results_into_agent_history_entries():
 
 
 def test_scene_execute_routes_to_selected_agent():
-    scene = BaseScene.from_config(_scene_config())
+    config = _scene_config()
+    config["async_task"] = True
+    scene = BaseScene.from_config(config)
 
     async def _run():
         started = await scene.execute({"alpha": 'RESULT = {"value": echo("ok")}'})
@@ -278,7 +299,9 @@ def test_scene_execute_routes_to_selected_agent():
 
 
 def test_scene_dispatch_respects_async_task():
-    async_scene = BaseScene.from_config(_scene_config())
+    async_config = _scene_config()
+    async_config["async_task"] = True
+    async_scene = BaseScene.from_config(async_config)
     sync_config = _scene_config()
     sync_config["async_task"] = False
     sync_scene = BaseScene.from_config(sync_config)
@@ -296,7 +319,9 @@ def test_scene_dispatch_respects_async_task():
 
 
 def test_scene_execute_reports_running_for_busy_agent():
-    scene = BaseScene.from_config(_scene_config())
+    config = _scene_config()
+    config["async_task"] = True
+    scene = BaseScene.from_config(config)
 
     async def _run():
         first = await scene.execute({"alpha": 'import time\ntime.sleep(0.2)\nRESULT = {"value": "first"}'})
@@ -320,7 +345,9 @@ def test_scene_execute_reports_running_for_busy_agent():
 
 
 def test_scene_execute_starts_multiple_agents_together():
-    scene = BaseScene.from_config(_scene_config("alpha", "beta"))
+    config = _scene_config("alpha", "beta")
+    config["async_task"] = True
+    scene = BaseScene.from_config(config)
 
     async def _run():
         started = await scene.execute(
@@ -345,7 +372,9 @@ def test_scene_execute_starts_multiple_agents_together():
 
 
 def test_scene_retry_reports_running_for_busy_agent():
-    scene = BaseScene.from_config(_scene_config())
+    config = _scene_config()
+    config["async_task"] = True
+    scene = BaseScene.from_config(config)
 
     async def _run():
         await scene.execute({"alpha": 'RESULT = {"value": "first"}'})
@@ -365,7 +394,9 @@ def test_scene_retry_reports_running_for_busy_agent():
 
 
 def test_scene_auto_trace_records_task_results_only_when_enabled():
-    scene = BaseScene.from_config(_scene_config(trace_level="never"))
+    config = _scene_config(trace_level="never")
+    config["async_task"] = True
+    scene = BaseScene.from_config(config)
 
     async def _run():
         await scene.execute({"alpha": 'RESULT = {"value": "disabled"}'})
@@ -379,14 +410,13 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
-        await scene.run_pipe(
+        scene.run_pipe(
             {
                 "alpha": {
                     "job_options": [{"job": "train", "options": {"epoch": 2}}],
                 }
             }
         )
-        await scene.monitor(["alpha"])
         task_history = list(scene._history)
 
         scene.set_trace_level("all")
@@ -395,14 +425,13 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         scene.get_obs(["alpha"])
         await scene.retry(["alpha"])
         await scene.monitor(["alpha"])
-        await scene.run_pipe(
+        scene.run_pipe(
             {
                 "alpha": {
                     "job_options": [{"job": "train", "options": {"epoch": 2}}],
                 }
             }
         )
-        await scene.monitor(["alpha"])
         return disabled_history, task_history, list(scene._history)
 
     disabled_history, task_history, traced_history = asyncio.run(_run())
@@ -414,7 +443,6 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         "monitor",
         "get_obs",
         "retry",
-        "monitor",
         "monitor",
     ]
     assert all(m["role"] == "user" for m in task_request_messages)
@@ -430,28 +458,26 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         "get_obs",
         "retry",
         "monitor",
-        "monitor",
     ]
     assert all(m["role"] == _ALPHA_KEY for m in task_response_messages)
     assert task_response_messages[0]["response"]["running"] is True
     assert task_response_messages[1]["response"]["result"]["result"] == {"value": "task"}
 
     request_messages = [m for m in traced_history if "request" in m]
-    assert [m["tool"] for m in request_messages][-7:] == [
+    assert [m["tool"] for m in request_messages][-6:] == [
         "execute",
         "monitor",
         "get_obs",
         "retry",
         "monitor",
         "run_pipe",
-        "monitor",
     ]
     assert all(m["role"] == "user" for m in request_messages)
-    assert request_messages[-7]["request"] == {
+    assert request_messages[-6]["request"] == {
         "control_codes": {"alpha": 'RESULT = {"value": "enabled"}'}
     }
-    assert request_messages[-4]["request"] == {"controls": ["alpha"]}
-    assert request_messages[-2]["request"] == {
+    assert request_messages[-3]["request"] == {"controls": ["alpha"]}
+    assert request_messages[-1]["request"] == {
         "control_options": {
             "alpha": {
                 "job_options": [{"job": "train", "options": {"epoch": 2}}],
@@ -459,14 +485,13 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         }
     }
     response_messages = [m for m in traced_history if "response" in m]
-    assert [m["tool"] for m in response_messages][-7:] == [
+    assert [m["tool"] for m in response_messages][-6:] == [
         "execute",
         "monitor",
         "get_obs",
         "retry",
         "monitor",
         "run_pipe",
-        "monitor",
     ]
     assert response_messages[0]["role"] == _ALPHA_KEY
     assert all("mark" not in m for m in traced_history)
@@ -477,10 +502,9 @@ def test_scene_auto_trace_records_task_results_only_when_enabled():
         ("method" in m["response"]) == (m["tool"] == "monitor")
         for m in response_messages
     )
-    assert response_messages[-7]["response"]["running"] is True
-    assert response_messages[-6]["response"]["result"]["result"] == {"value": "enabled"}
-    assert response_messages[-2]["response"]["running"] is True
-    assert response_messages[-1]["response"]["method"] == "run_pipe"
+    assert response_messages[-6]["response"]["running"] is True
+    assert response_messages[-5]["response"]["result"]["result"] == {"value": "enabled"}
+    assert response_messages[-1]["response"]["running"] is False
     assert response_messages[-1]["response"]["result"]["ok"] is True
 
 

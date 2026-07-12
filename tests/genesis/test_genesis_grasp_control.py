@@ -83,9 +83,7 @@ async def _run_local(
 
     if train_ep > 0:
         print("\n[test] --- Train smoke test ---")
-        status = await scene.run_pipe({_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)})
-        if async_task:
-            status = await scene.monitor([_DEFAULT_AGENT])
+        status = scene.run_pipe({_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)})
         result = test_utils.single_agent_result(status)["result"]
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
@@ -135,8 +133,6 @@ async def _run_remote(
                     "run_pipe",
                     {"control_options": {_DEFAULT_AGENT: _make_train_eval_request(train_ep, max_steps)}},
                 )
-                if async_task:
-                    status = await test_utils.call_tool(session, "monitor", {"controls": [_DEFAULT_AGENT]})
                 result = test_utils.single_agent_result(status)["result"]
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)

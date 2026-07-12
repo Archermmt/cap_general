@@ -61,7 +61,12 @@ class BaseSceneConfig:
     export_dir: str | Path = "outputs/export"
     debug: bool = False
     async_task: bool = False
+    task_async: bool | None = None
     trace_level: cap_utils.TraceLevel | str = cap_utils.TraceLevel.ALL
+
+    def __post_init__(self) -> None:
+        if self.task_async is not None:
+            self.async_task = bool(self.task_async)
 
 
 @RegisteredBase.register()
@@ -275,7 +280,7 @@ class BaseScene(RegisteredBase):
         return self._format_results(canonical_controls, results)
 
     @trace_result
-    async def run_pipe(
+    def run_pipe(
         self,
         control_options: dict[str, dict[str, Any]] | None = None,
         agent_options: dict[str, dict[str, Any]] | None = None,
@@ -285,7 +290,7 @@ class BaseScene(RegisteredBase):
         if control_options is None:
             raise ValueError("run_pipe requires control_options")
         requests = self._resolve_kwargs(control_options)
-        results = [await self._start_task(control, "run_pipe", **kwargs) for control, kwargs in requests.items()]
+        results = [self._run_task_sync(control, "run_pipe", **kwargs) for control, kwargs in requests.items()]
         return self._format_results(requests, results)
 
     @trace_result
@@ -358,9 +363,9 @@ class BaseScene(RegisteredBase):
         result["scene"]["agents"] = result["scene"]["controls"]
         return result
 
-    async def run_pipe_legacy(self, control_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    def run_pipe_legacy(self, control_options: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Compatibility alias for legacy control_options callers."""
-        return await self.run_pipe(control_options)
+        return self.run_pipe(control_options)
 
     def update_history_legacy(self, control_messages: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """Compatibility alias for legacy control_messages callers."""
@@ -465,6 +470,31 @@ class BaseScene(RegisteredBase):
             control_info.task = asyncio.create_task(_run())
             return cap_utils.to_json_safe(control_info.status)
         return await _run()
+
+    def _run_task_sync(self, canonical: str, method_name: str, **kwargs: Any) -> dict[str, Any]:
+        control_info = self._controls[canonical]
+        task = control_info.task
+        if task is not None and not task.done():
+            return cap_utils.to_json_safe(control_info.status)
+        started_time = time.time()
+        started_at = datetime.fromtimestamp(started_time).strftime("%Y-%m-%d:%H-%M-%S.%f")[:-3]
+        control_info.status = self._get_status(canonical, method=method_name, running=True, started_at=started_at)
+        method = getattr(control_info.control, method_name)
+        try:
+            result = method(**kwargs)
+        except BaseException as exc:
+            self._logger.exception("Control task failed: %s.%s", canonical, method_name)
+            result = {"ok": False, "error": type(exc).__name__, "err_msg": str(exc)}
+        finished_time = time.time()
+        status = self._get_status(
+            canonical,
+            method=method_name,
+            started_at=started_at,
+            duration=f"{finished_time - started_time:.2f}s",
+            result=cap_utils.to_json_safe(result),
+        )
+        control_info.status = status
+        return cap_utils.to_json_safe(status)
 
     async def _dispatch_task(self, method: Callable[..., Any], kwargs: dict[str, Any]) -> Any:
         """Dispatch a control method according to the scene execution mode."""
@@ -591,6 +621,8 @@ class BaseScene(RegisteredBase):
             "{cap_id}": server_config.cap_id,
             "{available_names}": ", ".join(sorted(self._control_aliases)),
         }
+        skill_variant = "SKILL.async" if self._config.async_task else "SKILL.sync"
+        variant_skill_dirs = {"cap_execute"}
         copied_targets: list[Path] = []
 
         def copy_skill_tree(source: Path, target: Path) -> None:
@@ -599,12 +631,36 @@ class BaseScene(RegisteredBase):
             if target.exists():
                 shutil.rmtree(target)
             target.mkdir(parents=True, exist_ok=True)
+            def copy_skill_variant(source_dir: Path, target_dir: Path) -> None:
+                variant_source = source_dir / skill_variant
+                if not variant_source.exists():
+                    raise FileNotFoundError(f"Missing skill variant: {variant_source}")
+                content = variant_source.read_text(encoding="utf-8")
+                for old, new in replacements.items():
+                    content = content.replace(old, new)
+                variant_target = target_dir / "SKILL.md"
+                self._logger.info(
+                    "Copy skill variant %s -> %s for async_task=%s",
+                    variant_source,
+                    variant_target,
+                    self._config.async_task,
+                )
+                variant_target.write_text(content, encoding="utf-8")
+
+            if source.name in variant_skill_dirs:
+                copy_skill_variant(source, target)
             for source_path in source.rglob("*"):
                 if "__pycache__" in source_path.parts:
+                    continue
+                if source_path.name in {"SKILL.async", "SKILL.sync"}:
+                    continue
+                if source.name in variant_skill_dirs and source_path.name == "SKILL.md":
                     continue
                 target_path = target / source_path.relative_to(source)
                 if source_path.is_dir():
                     target_path.mkdir(parents=True, exist_ok=True)
+                    if source_path.name in variant_skill_dirs:
+                        copy_skill_variant(source_path, target_path)
                     continue
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 if source_path.name == "SKILL.md":
