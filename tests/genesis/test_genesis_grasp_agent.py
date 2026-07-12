@@ -53,6 +53,13 @@ def _make_train_eval_request(train_ep: int, max_steps: int) -> dict:
     }
 
 
+def test_grasp_config_defaults_to_rl_stage() -> None:
+    """Default grasp stage should be RL to avoid BC-only camera dependencies."""
+    from cap_general.frameworks.genesis.agent.genesis_grasp_agent import GenesisGraspAgentConfig
+
+    assert GenesisGraspAgentConfig().stage == "rl"
+
+
 def _make_local_scene(config: str, config_overrides: list[str] | None = None):
     import cap_general.frameworks.genesis  # noqa: F401
     from cap_general.core.scene import BaseScene

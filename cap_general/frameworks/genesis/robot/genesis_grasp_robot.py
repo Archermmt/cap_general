@@ -228,8 +228,20 @@ class GenesisGraspRobot(BaseRobot):
 
         rgb_left = self.left_cam.read().rgb
         rgb_right = self.right_cam.read().rgb
-        rgb_left = rgb_left.permute(0, 3, 1, 2).float()
-        rgb_right = rgb_right.permute(0, 3, 1, 2).float()
+        # Genesis may return different resolution than configured; resize to expected.
+        expected_w, expected_h = self.image_width, self.image_height
+        if rgb_left.shape[-2] != expected_h or rgb_left.shape[-1] != expected_w:
+            import torchvision.transforms.functional as TF
+
+            rgb_left = torch.from_numpy(rgb_left).permute(2, 0, 1).unsqueeze(0)
+            rgb_right = torch.from_numpy(rgb_right).permute(2, 0, 1).unsqueeze(0)
+            rgb_left = TF.resize(rgb_left, (expected_h, expected_w))
+            rgb_right = TF.resize(rgb_right, (expected_h, expected_w))
+            rgb_left = rgb_left.squeeze(0).permute(1, 2, 0)
+            rgb_right = rgb_right.squeeze(0).permute(1, 2, 0)
+        else:
+            rgb_left = rgb_left.permute(0, 3, 1, 2).float()
+            rgb_right = rgb_right.permute(0, 3, 1, 2).float()
         if normalize:
             rgb_left = rgb_left / 255.0
             rgb_right = rgb_right / 255.0
