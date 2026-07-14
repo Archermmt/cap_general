@@ -1,14 +1,14 @@
 """Test RobosuiteControl locally or remotely through MCP.
 
 Local mode:
-    python tests/robosuite/test_robosuite_control.py
+    python tests/robosuite/test_robosuite_base.py
 
 Remote mode:
-    capcmd server --config configs/robosuite/robosuite_control.yaml
-    python tests/robosuite/test_robosuite_control.py --remote
+    capcmd server --config configs/robosuite/robosuite_base.yaml
+    python tests/robosuite/test_robosuite_base.py --remote
 
 Full usage:
-    python tests/robosuite/test_robosuite_control.py [--remote] [--config PATH] [--privileged]
+    python tests/robosuite/test_robosuite_base.py [--remote] [--config PATH] [--privileged]
 
 Nanobot test:
     让七仔把红色方块放到绿色方块上面。
@@ -73,7 +73,7 @@ else:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-_DEFAULT_CONFIG = "configs/robosuite/robosuite_control.yaml"
+_DEFAULT_CONFIG = "configs/robosuite/robosuite_base.yaml"
 _DEFAULT_MAX_STEPS = 1500
 _DEFAULT_TRIAL_NUM = 1
 _DEFAULT_AGENT = "robosuite"

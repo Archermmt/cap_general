@@ -70,29 +70,33 @@ Ready-to-run configurations are grouped by framework:
 ```text
 configs/
 ├── genesis/
-│   ├── genesis_drone_control.yaml
-│   ├── genesis_go2_control.yaml
-│   ├── genesis_grasp_control.yaml
-│   └── genesis_multi_controls.yaml
-├── libero/libero_control.yaml
-└── robosuite/robosuite_control.yaml
+│   ├── genesis_drone.yaml
+│   ├── genesis_go2.yaml
+│   ├── genesis_grasp.yaml
+│   ├── genesis_humanoid.yaml
+│   └── genesis_multi_grasp.yaml
+├── libero/libero_base.yaml
+└── robosuite/robosuite_base.yaml
 ```
 
 Configuration values can be overridden recursively when starting a server:
 
 ```bash
 capcmd server \
-  --config configs/genesis/genesis_grasp_control.yaml \
+  --config configs/genesis/genesis_grasp.yaml \
   --show_viewer false \
   --controls[0].robot.num_envs 1
 ```
+
+The humanoid configuration ports the HumanoidBench G1 locomotion tasks to Genesis. Set
+`controls[0].robot.asset_path` or `HUMANOID_BENCH_HOME` to the HumanoidBench checkout before moving the checkout.
 
 ## MCP Server
 
 Start a CAP scene as an MCP server:
 
 ```bash
-capcmd server --config configs/genesis/genesis_grasp_control.yaml --client codex
+capcmd server --config configs/genesis/genesis_grasp.yaml --client codex
 ```
 
 `--client` selects a key from `server.skill_folders` and defaults to `nanobot`.
@@ -135,23 +139,23 @@ Coverage includes registration, graph execution, operators, policies, robots, pi
 Run these from an environment containing Genesis and RSL-RL:
 
 ```bash
-python tests/genesis/test_genesis_go2_control.py
-python tests/genesis/test_genesis_drone_control.py
-python tests/genesis/test_genesis_grasp_control.py
-python tests/genesis/test_genesis_multi_controls.py
+python tests/genesis/test_genesis_go2.py
+python tests/genesis/test_genesis_drone.py
+python tests/genesis/test_genesis_grasp.py
+python tests/genesis/test_genesis_multi_grasp.py
 ```
 
 Training smoke tests use `--train_ep`:
 
 ```bash
-python tests/genesis/test_genesis_grasp_control.py --task-num 0 --train_ep 1
+python tests/genesis/test_genesis_grasp.py --task-num 0 --train_ep 1
 ```
 
 The multi-control case supports round-robin execution by default and concurrent batches with `--parallel`:
 
 ```bash
-python tests/genesis/test_genesis_multi_controls.py --task-num 3
-python tests/genesis/test_genesis_multi_controls.py --task-num 1 --parallel
+python tests/genesis/test_genesis_multi_grasp.py --task-num 3
+python tests/genesis/test_genesis_multi_grasp.py --task-num 1 --parallel
 ```
 
 ### LIBERO test
@@ -159,7 +163,7 @@ python tests/genesis/test_genesis_multi_controls.py --task-num 1 --parallel
 Run from the environment containing LIBERO and its matching Robosuite installation:
 
 ```bash
-python tests/libero/test_libero_control.py
+python tests/libero/test_libero_base.py
 ```
 
 ### Robosuite test
@@ -167,7 +171,7 @@ python tests/libero/test_libero_control.py
 Run from the environment containing the configured Robosuite stack:
 
 ```bash
-python tests/robosuite/test_robosuite_control.py
+python tests/robosuite/test_robosuite_base.py
 ```
 
 ### Remote MCP mode
@@ -175,8 +179,8 @@ python tests/robosuite/test_robosuite_control.py
 Framework tests also support `--remote`. Start the configured server first, then run the matching test:
 
 ```bash
-capcmd server --config configs/genesis/genesis_go2_control.yaml
-python tests/genesis/test_genesis_go2_control.py --remote
+capcmd server --config configs/genesis/genesis_go2.yaml
+python tests/genesis/test_genesis_go2.py --remote
 ```
 
 ## Outputs

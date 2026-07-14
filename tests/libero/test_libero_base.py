@@ -1,14 +1,14 @@
 """Test LiberoControl locally or remotely through MCP.
 
 Local mode:
-    python tests/libero/test_libero_control.py
+    python tests/libero/test_libero_base.py
 
 Remote mode:
-    capcmd server --config configs/libero/libero_control.yaml
-    python tests/libero/test_libero_control.py --remote
+    capcmd server --config configs/libero/libero_base.yaml
+    python tests/libero/test_libero_base.py --remote
 
 Full usage:
-    python tests/libero/test_libero_control.py [--remote] [--config PATH]
+    python tests/libero/test_libero_base.py [--remote] [--config PATH]
 
 Nanobot test:
     让七仔把碗放到炉子上，再把炉子拧开，然后把盘子挪到炉子前面，最后把抽屉打开。
@@ -33,7 +33,7 @@ else:
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-_DEFAULT_CONFIG = "configs/libero/libero_control.yaml"
+_DEFAULT_CONFIG = "configs/libero/libero_base.yaml"
 _DEFAULT_MAX_STEPS = 300
 _DEFAULT_TRIAL_NUM = 1
 _DEFAULT_AGENT = "libero"

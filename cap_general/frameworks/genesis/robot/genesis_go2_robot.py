@@ -165,6 +165,7 @@ class GenesisGo2Robot(BaseRobot):
         self.base_quat: Any = None
         self.base_euler: Any = None
         self.default_dof_pos: Any = None
+        self.init_motor_dof_pos: Any = None
         self.extras: dict = {}
         self.obs_buf: Any = None
         self.motors_dof_idx: Any = None
@@ -239,6 +240,7 @@ class GenesisGo2Robot(BaseRobot):
             dtype=gs.tc_float,
             device=gs.device,
         )
+        self.init_motor_dof_pos = self.default_dof_pos.clone()
         self.extras = {}
 
         self.reward_functions, self.episode_sums = {}, {}
@@ -333,8 +335,8 @@ class GenesisGo2Robot(BaseRobot):
     def _reset_robot_pose(self) -> None:
         """Reset GO2 controls and joint posture without teleporting the floating base."""
         self.robot.control_dofs_position(
-            self.default_dof_pos.repeat(self.num_envs, 1)[:, self.actions_dof_idx],
-            slice(6, 18),
+            self.default_dof_pos.repeat(self.num_envs, 1),
+            self.motors_dof_idx,
         )
         self.commands.zero_()
         self.actions.zero_()
@@ -348,8 +350,8 @@ class GenesisGo2Robot(BaseRobot):
         import torch
 
         self.robot.control_dofs_position(
-            self.default_dof_pos.repeat(self.num_envs, 1)[:, self.actions_dof_idx],
-            slice(6, 18),
+            self.default_dof_pos.repeat(self.num_envs, 1),
+            self.motors_dof_idx,
         )
         self.reward_scales = {name: scale * self.dt for name, scale in self._train_reward_scales.items()}
         self.reward_functions = {name: getattr(self, "_reward_" + name) for name in self.reward_scales}
@@ -388,7 +390,7 @@ class GenesisGo2Robot(BaseRobot):
         self.actions.copy_(torch.clip(action, -self.env_cfg["clip_actions"], self.env_cfg["clip_actions"]))
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
         target_dof_pos = exec_actions * self.env_cfg["action_scale"] + self.default_dof_pos
-        self.robot.control_dofs_position(target_dof_pos[:, self.actions_dof_idx], slice(6, 18))
+        self.robot.control_dofs_position(target_dof_pos, self.motors_dof_idx)
         self._scene.step_scene()
 
         self.episode_length_buf += 1
@@ -576,7 +578,7 @@ class GenesisGo2Robot(BaseRobot):
             self.base_pos.copy_(self.init_base_pos)
             self.base_quat.copy_(self.init_base_quat)
             self.projected_gravity.copy_(self.init_projected_gravity)
-            self.dof_pos.copy_(self.init_dof_pos)
+            self.dof_pos.copy_(self.init_motor_dof_pos)
             self.base_lin_vel.zero_()
             self.base_ang_vel.zero_()
             self.dof_vel.zero_()
@@ -593,7 +595,7 @@ class GenesisGo2Robot(BaseRobot):
             torch.where(mask[:, None], self.init_base_pos, self.base_pos, out=self.base_pos)
             torch.where(mask[:, None], self.init_base_quat, self.base_quat, out=self.base_quat)
             torch.where(mask[:, None], self.init_projected_gravity, self.projected_gravity, out=self.projected_gravity)
-            torch.where(mask[:, None], self.init_dof_pos, self.dof_pos, out=self.dof_pos)
+            torch.where(mask[:, None], self.init_motor_dof_pos, self.dof_pos, out=self.dof_pos)
             self.base_lin_vel.masked_fill_(mask[:, None], 0.0)
             self.base_ang_vel.masked_fill_(mask[:, None], 0.0)
             self.dof_vel.masked_fill_(mask[:, None], 0.0)

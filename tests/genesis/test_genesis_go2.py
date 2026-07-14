@@ -1,17 +1,18 @@
-"""Test DroneControl locally or remotely through MCP.
+"""Test Go2Control locally or remotely through MCP.
 
 Local mode:
-    python tests/genesis/test_genesis_drone_control.py
+    python tests/genesis/test_genesis_go2.py
 
 Remote mode:
-    capcmd server --config configs/genesis/genesis_drone_control.yaml
-    python tests/genesis/test_genesis_drone_control.py --remote --config configs/genesis/genesis_drone_control.yaml
+    capcmd server --config configs/genesis/genesis_go2.yaml
+    python tests/genesis/test_genesis_go2.py --remote --config configs/genesis/genesis_go2.yaml
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import sys
 from pathlib import Path
 
@@ -22,38 +23,52 @@ if str(_REPO_ROOT) not in sys.path:
 from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
-_DEFAULT_CONFIG = "configs/genesis/genesis_drone_control.yaml"
+_DEFAULT_CONFIG = "configs/genesis/genesis_go2.yaml"
 _DEFAULT_TASK_NUM = 5
-_DEFAULT_AGENT = "drone"
+_DEFAULT_AGENT = "go2"
+ROUND_NUM = 10
 
 
-def _target_positions(task_num: int) -> list[list[float]]:
-    """Create deterministic target positions for drone smoke tests."""
-    base_targets = [
-        [0.5, 0.0, 1.0],
-        [0.5, 0.3, 1.1],
-        [0.0, 0.3, 1.2],
-        [-0.4, 0.0, 1.1],
-        [0.0, -0.3, 1.0],
-    ]
-    return [base_targets[idx % len(base_targets)] for idx in range(task_num)]
+def test_go2_config_initial_pose_and_body_camera() -> None:
+    """Go2 should start at eval height and expose a forward-facing body camera."""
+    import yaml
+
+    with Path(_DEFAULT_CONFIG).open() as file:
+        config = yaml.safe_load(file)
+    robot_cfg = config["controls"][0]["robot"]
+    assert robot_cfg["base_init_pos"] == [0.0, 0.0, 0.42]
+    assert robot_cfg["camera_pos"] == [0.05, 0.0, 0.18]
+    assert robot_cfg["camera_lookat"] == [1.0, 0.0, 0.08]
+    assert robot_cfg["camera_attach_to_base"] is True
+    assert config["viewer_options"]["camera_pos"] == [2.0, 0.0, 2.5]
+    assert config["viewer_options"]["camera_lookat"] == [0.0, 0.0, 0.5]
 
 
-def _make_code(max_steps: int, target_pos: list[float]) -> str:
-    """Build DroneControl execution code with values baked in."""
+def _random_turn_angles(task_num: int) -> list[float]:
+    """Create turn angles that complete one circle every ROUND_NUM tasks."""
+    if task_num <= 0:
+        return []
+    return [2.0 * math.pi * (idx % ROUND_NUM) / ROUND_NUM for idx in range(task_num)]
+
+
+def _make_code(max_steps: int, turn_angle: float = 0.0) -> str:
+    """Build Go2Control execution code with values baked in."""
     return f"""\
-follow_result = follow_target(target_pos={target_pos!r}, max_steps={max_steps})
-hover_result = hover(time_s=3.0)
+walk_result = walk_forward(max_steps={max_steps}, turn_angle={turn_angle!r})
+stand_result = stand_still(time_s=3.0)
 RESULT = {{
     "success": True,
-    "target_pos": follow_result.get("target_pos"),
-    "hover_duration": hover_result.get("duration"),
+    "steps": walk_result.get("steps"),
+    "turn_angle": walk_result.get("turn_angle"),
+    "stand_duration": stand_result.get("duration"),
+    "stand_steps": stand_result.get("steps"),
+    "mock": walk_result.get("mock", False) or stand_result.get("mock", False),
 }}
 """
 
 
 def _make_train_eval_request(train_ep: int, max_steps: int) -> dict:
-    """Build a lightweight DroneControl train-then-eval request for smoke tests."""
+    """Build a lightweight Go2Control train-then-eval request for smoke tests."""
     return {
         "job_options": [
             {"job": "train", "options": {"epoch": train_ep, "record_epoch": 50}},
@@ -77,7 +92,7 @@ async def _run_local(
     train_ep: int,
     config_overrides: list[str] | None = None,
 ) -> dict:
-    """Run DroneControl hover tasks in-process."""
+    """Run Go2Control episodes in-process."""
     scene = _make_local_scene(config, config_overrides)
     scene.reset({_DEFAULT_AGENT: {}})
     scene_doc = scene.control_doc([_DEFAULT_AGENT])["scene"]
@@ -90,9 +105,10 @@ async def _run_local(
         if not result.get("ok", False):
             raise AssertionError(result.get("error") or result)
         test_utils.print_pipeline_summary("[test]", result)
-    for task_idx, target_pos in enumerate(_target_positions(task_num)):
-        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
-        status = await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, target_pos)})
+    turn_angles = _random_turn_angles(task_num)
+    for task_idx, turn_angle in enumerate(turn_angles):
+        print(f"\n[test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
+        status = await scene.execute({_DEFAULT_AGENT: _make_code(max_steps, turn_angle=turn_angle)})
         if async_task:
             status = await scene.monitor([_DEFAULT_AGENT])
         result = test_utils.single_agent_result(status)["result"]
@@ -109,7 +125,7 @@ async def _run_remote(
     train_ep: int,
     config_overrides: list[str] | None = None,
 ) -> dict:
-    """Run DroneControl hover tasks through MCP."""
+    """Run Go2Control episodes through MCP."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -136,11 +152,12 @@ async def _run_remote(
                 if not result.get("ok", False):
                     raise AssertionError(result.get("error") or result)
                 test_utils.print_pipeline_summary("[mcp_test]", result)
-            for task_idx, target_pos in enumerate(_target_positions(task_num)):
-                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: target_pos={target_pos} ---")
+            turn_angles = _random_turn_angles(task_num)
+            for task_idx, turn_angle in enumerate(turn_angles):
+                print(f"\n[mcp_test] --- Task {task_idx + 1}/{task_num}: turn_angle={turn_angle:.3f} ---")
                 status = await test_utils.call_tool(
                     session, "execute",
-                    {"control_codes": {_DEFAULT_AGENT: _make_code(max_steps, target_pos)}},
+                    {"control_codes": {_DEFAULT_AGENT: _make_code(max_steps, turn_angle=turn_angle)}},
                 )
                 if async_task:
                     status = await test_utils.call_tool(session, "monitor", {"controls": [_DEFAULT_AGENT]})
@@ -154,7 +171,7 @@ async def _run_remote(
             return record
 
 
-def run_drone_test(
+def run_go2_test(
     config: str | None = None,
     max_steps: int = _DEFAULT_MAX_STEPS,
     task_num: int = _DEFAULT_TASK_NUM,
@@ -162,23 +179,24 @@ def run_drone_test(
     train_ep: int = 0,
     config_overrides: list[str] | None = None,
 ) -> dict:
-    """Run DroneControl hover tasks in-process or through MCP."""
+    """Run Go2Control episodes in-process or through MCP."""
     if remote:
         if not config:
-            raise ValueError("Remote DroneControl test requires --config")
+            raise ValueError("Remote Go2Control test requires --config")
         return asyncio.run(_run_remote(config, max_steps, task_num, train_ep, config_overrides))
     return asyncio.run(_run_local(config or _DEFAULT_CONFIG, max_steps, task_num, train_ep, config_overrides))
 
 
-def test_local_drone_agent() -> None:
-    """Smoke test: run a DroneControl hover task in-process."""
-    result = run_drone_test(config=_DEFAULT_CONFIG)
+def test_local_go2_agent() -> None:
+    """Smoke test: run a Go2Control episode in-process."""
+    result = run_go2_test(config=_DEFAULT_CONFIG)
     assert isinstance(result, dict)
-    assert result.get("ok"), f"DroneControl test failed: {result}"
+    assert result.get("info", {}).get("total_execute") == _DEFAULT_TASK_NUM
+    assert result.get("main_video") or result.get("videos"), result
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Genesis DroneControl evaluation - local or MCP")
+    parser = argparse.ArgumentParser(description="Genesis Go2Control evaluation - local or MCP")
     parser.add_argument("--config", default=_DEFAULT_CONFIG)
     parser.add_argument("--max-steps", type=int, default=_DEFAULT_MAX_STEPS)
     parser.add_argument("--task-num", type=int, default=_DEFAULT_TASK_NUM)
@@ -186,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_ep", type=int, default=0)
     args, config_overrides = test_utils.parse_args_with_config_overrides(parser)
 
-    result = run_drone_test(
+    result = run_go2_test(
         config=args.config,
         max_steps=args.max_steps,
         task_num=args.task_num,

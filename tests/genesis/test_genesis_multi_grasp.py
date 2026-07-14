@@ -1,12 +1,12 @@
 """Test a Genesis scene with three Grasp controls.
 
 Local mode:
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_controls.py
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_controls.py --parallel
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_grasp.py
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_grasp.py --parallel
 
 Remote mode:
-    capcmd server --config configs/genesis/genesis_multi_controls.yaml
-    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_controls.py --remote --config configs/genesis/genesis_multi_controls.yaml
+    capcmd server --config configs/genesis/genesis_multi_grasp.yaml
+    /Users/archer/anaconda3/envs/simu/bin/python tests/genesis/test_genesis_multi_grasp.py --remote --config configs/genesis/genesis_multi_grasp.yaml
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from cap_general.core.utils import test_utils
 
 _DEFAULT_MAX_STEPS = 100
 _DEFAULT_TASK_NUM = 9
-_DEFAULT_CONFIG = "configs/genesis/genesis_multi_controls.yaml"
+_DEFAULT_CONFIG = "configs/genesis/genesis_multi_grasp.yaml"
 _CONTROLS = ("grasp_0", "grasp_1", "grasp_2")
 
 
