@@ -1,10 +1,10 @@
 ---
 name: cap_execute
-description: Read this skill before robot task execution for {available_names}; then call only documented {cap_id}-prefixed tools. Async scene: monitor is required.
+description: Read this skill before robot task execution for {available_names}; then call only documented {cap_id}-prefixed tools. Sync scene: do not call monitor.
 metadata: {"nanobot":{"emoji":"🤖"}}
 ---
 
-# Control Execute Async
+# Control Execute Sync
 
 Use only for robot task execution and verification. Do not use for training, eval, compile, or pipeline jobs.
 
@@ -57,12 +57,11 @@ Video display example:
 
 1. Call `{cap_id}_control_doc` and `{cap_id}_get_obs` for selected controls.
 2. Plan atomic subtasks. Save the plan with `{cap_id}_update_history` using `tool: "plan"`, then message the user the task and numbered subtasks.
-3. Call `{cap_id}_execute` with `control_codes`.
-4. Because this scene is async, call `{cap_id}_monitor` with `wait_ms: -1` after every `execute` and `retry`.
-5. Verify the result. Inspect `obs.main_image` with an image-capable media tool when present; convert relative image paths to absolute paths before display/analyze.
-6. Save exactly one verification event with `{cap_id}_update_history` using `tool: "verify"`, then message the user SUCCESS/FAIL and brief notes.
-7. On failure, call `{cap_id}_retry`, then monitor and verify again. Stop at `max_retry` or `max_retry_exceeded`.
-8. After all subtasks, call `{cap_id}_record` once with `clean_frames: true`, message the final code, and display the returned video(s) when present.
+3. Call `{cap_id}_execute` with `control_codes`. The response is final; do not call monitor.
+4. Verify the result using only the visual content of `obs.main_image`. Inspect it with an image-capable media tool and convert relative paths to absolute paths before display/analyze. Do not use any non-image response field as verification evidence.
+5. Save exactly one verification event with `{cap_id}_update_history` using `tool: "verify"`, then message the user SUCCESS/FAIL and brief notes.
+6. On failure, call `{cap_id}_retry`. The retry response is final; do not call monitor. Verify again. Stop at `max_retry` or `max_retry_exceeded`.
+7. After all subtasks, call `{cap_id}_record` once with `clean_frames: true`, message the final code, and display the returned video(s) when present.
 
 ## Tools
 
@@ -93,10 +92,6 @@ Plan history:
 
 ```json
 {"name": "{cap_id}_execute", "arguments": {"control_codes": {"{control_name}": "<python code>"}}}
-```
-
-```json
-{"name": "{cap_id}_monitor", "arguments": {"controls": ["{control_name}"], "wait_ms": -1}}
 ```
 
 ```json
@@ -139,16 +134,14 @@ update_history(control, tool="plan", request={"main_task": user_task, "sub_tasks
 message_user_plan(user_task, subtasks)
 
 for subtask in subtasks:
-    status = execute(control, code_for(subtask))
-    status = monitor(control, wait_ms=-1)
+    status = execute(control, code_for(subtask))  # final result; do not monitor
 
     judgment = media_analyze_image(status.obs.main_image, subtask)
     update_history(control, tool="verify", response=judgment)
     message_user_verification(judgment)
 
     while not judgment.success and status.trial_cnt < doc.max_retry:
-        status = retry(control)
-        status = monitor(control, wait_ms=-1)
+        status = retry(control)  # final result; do not monitor
 
         judgment = media_analyze_image(status.obs.main_image, subtask)
         update_history(control, tool="verify", response=judgment)
@@ -165,8 +158,10 @@ media_display_video(record_result.main_video)
 ## Rules
 
 - Do not call tools before reading this document.
+- Do not call `{cap_id}_monitor`; this scene returns final execute/retry results directly.
 - Always message the user after planning, after every verification, and after final record; the frontend is otherwise silent.
 - Always show/analyze `obs.main_image` when present before deciding success or retry.
+- Decide verification success or failure exclusively from the returned image. Ignore `result`, `stdout`, `stderr`, `reward`, `done`, `mock`, poses, and every other non-image field. If no image is returned, report that the result cannot be visually verified; do not infer success from other fields.
 - Always display returned record videos such as `main_video` when present.
 - Generate code only from `function_doc` and obey `execute_rules`.
 - Do not call `{cap_id}_run_pipe`.

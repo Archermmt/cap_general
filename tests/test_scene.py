@@ -227,6 +227,8 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     execute_content = (result / "cap_execute" / "SKILL.md").read_text(encoding="utf-8")
     pipeline_content = (result / "cap_pipeline" / "SKILL.md").read_text(encoding="utf-8")
     assert "Control Execute Sync" in execute_content
+    assert "image-type tool" in execute_content
+    assert '"name": "media"' not in execute_content
     assert "Control Pipeline" in pipeline_content
     assert not (result / "cap_execute" / "SKILL.async").exists()
     assert not (result / "cap_execute" / "SKILL.sync").exists()
@@ -247,7 +249,10 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
     assert result == skill_root / "cap"
     assert (result / "SKILL.md").is_file()
     assert (result / "cap_state" / "SKILL.md").is_file()
-    assert "Control Execute Async" in (result / "cap_execute" / "SKILL.md").read_text(encoding="utf-8")
+    execute_content = (result / "cap_execute" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Control Execute Async" in execute_content
+    assert '"name": "media"' in execute_content
+    assert "image-type tool" not in execute_content
     assert "Control Pipeline" in (result / "cap_pipeline" / "SKILL.md").read_text(encoding="utf-8")
     assert not (result / "cap_execute" / "SKILL.async").exists()
     assert not (result / "cap_execute" / "SKILL.sync").exists()

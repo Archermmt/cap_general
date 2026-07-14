@@ -16,7 +16,7 @@ from cap_general.core.operator.model.base_model_op import ModelOp
 class RslRlConfig:
     """Configuration for RslRlOp."""
 
-    ckpt_dir: str | Path = "logs"
+    ckpt_dir: str | Path | None = "logs"
     ckpt_step: int = -1
     actor_cfg: dict[str, Any] | None = None
     obs_groups: dict[str, Any] | None = None
@@ -40,6 +40,8 @@ class RslRlOp(ModelOp):
 
     @to_stage_fn
     def inference(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        if self._actor is None:
+            raise RuntimeError("RslRlOp has no actor weights; train or configure an existing ckpt_dir first")
         obs = inputs["obs"]
         obs_device = getattr(obs, "device", None)
         if obs_device is not None:
@@ -49,10 +51,16 @@ class RslRlOp(ModelOp):
 
     @to_stage_fn
     def update(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        if self._actor is None:
+            raise RuntimeError("RslRlOp has no actor to update")
         self._actor.load_state_dict(inputs["state_dict"])
         return {}
 
-    def _load_actor(self) -> Any:
+    def _load_actor(self) -> Any | None:
+        ckpt_dir = Path(self._config.ckpt_dir).expanduser() if self._config.ckpt_dir else None
+        if ckpt_dir is None or not ckpt_dir.is_dir():
+            return None
+
         try:
             import torch
             from rsl_rl.utils import resolve_callable
@@ -60,7 +68,6 @@ class RslRlOp(ModelOp):
         except ImportError as exc:
             raise ImportError("RslRlOp requires torch, tensordict, and rsl-rl-lib") from exc
 
-        ckpt_dir = Path(self._config.ckpt_dir).expanduser()
         device = self._config.device or "cpu"
 
         if self._config.actor_cfg is None:

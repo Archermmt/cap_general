@@ -1,0 +1,175 @@
+---
+name: cap_execute
+description: Read this skill before robot task execution for {available_names}; then call only documented {cap_id}-prefixed tools. Async scene: monitor is required.
+metadata: {"nanobot":{"emoji":"🤖"}}
+---
+
+# Control Execute Async
+
+Use only for robot task execution and verification. Do not use for training, eval, compile, or pipeline jobs.
+
+Available controls and aliases: `{available_names}`.
+
+## Critical User-Visible Updates
+
+This skill may run many tool calls before the final answer. The user sees nothing unless you proactively send frontend messages. You MUST call the user messaging/display tools at these checkpoints:
+
+1. After planning: immediately after `{cap_id}_update_history` with `tool: "plan"`, send the main task and numbered subtask list.
+2. After every verification: immediately after `{cap_id}_update_history` with `tool: "verify"`, send SUCCESS/FAIL and brief notes.
+3. During image verification: use an image-capable media tool in analyze/display mode for `obs.main_image`; this should show the image and return the visual judgment.
+4. After final record: send the returned `code` in a fenced Python block, then display every useful returned video path such as `main_video`.
+
+Message example:
+
+```json
+{"name": "message", "arguments": {"content": "Task: <task>\n\nSubtasks:\n1. <subtask>"}}
+```
+
+Image analysis example:
+
+```json
+{
+  "name": "media",
+  "arguments": {
+    "media_type": "image",
+    "mode": "analyze",
+    "media_path": "<absolute path from obs.main_image>",
+    "prompt": "The robot was attempting to: <subtask>. Did it succeed? Answer YES or NO and briefly explain what you see."
+  }
+}
+```
+
+Video display example:
+
+```json
+{
+  "name": "media",
+  "arguments": {
+    "media_type": "video",
+    "mode": "display",
+    "media_path": "<absolute path from record.main_video>",
+    "prompt": "Full task execution video"
+  }
+}
+```
+
+## Required Flow
+
+1. Call `{cap_id}_control_doc` and `{cap_id}_get_obs` for selected controls.
+2. Plan atomic subtasks. Save the plan with `{cap_id}_update_history` using `tool: "plan"`, then message the user the task and numbered subtasks.
+3. Call `{cap_id}_execute` with `control_codes`.
+4. Because this scene is async, call `{cap_id}_monitor` with `wait_ms: -1` after every `execute` and `retry`.
+5. Verify the result using only the visual content of `obs.main_image`. Inspect it with an image-capable media tool and convert relative paths to absolute paths before display/analyze. Do not use any non-image response field as verification evidence.
+6. Save exactly one verification event with `{cap_id}_update_history` using `tool: "verify"`, then message the user SUCCESS/FAIL and brief notes.
+7. On failure, call `{cap_id}_retry`, then monitor and verify again. Stop at `max_retry` or `max_retry_exceeded`.
+8. After all subtasks, call `{cap_id}_record` once with `clean_frames: true`, message the final code, and display the returned video(s) when present.
+
+## Tools
+
+```json
+{"name": "{cap_id}_control_doc", "arguments": {"controls": ["{control_name}"]}}
+```
+
+```json
+{"name": "{cap_id}_get_obs", "arguments": {"controls": ["{control_name}"]}}
+```
+
+Plan history:
+
+```json
+{
+  "name": "{cap_id}_update_history",
+  "arguments": {
+    "control_messages": {
+      "{control_name}": {
+        "role": "user",
+        "tool": "plan",
+        "request": {"main_task": "<task>", "sub_tasks": ["<subtask>"]}
+      }
+    }
+  }
+}
+```
+
+```json
+{"name": "{cap_id}_execute", "arguments": {"control_codes": {"{control_name}": "<python code>"}}}
+```
+
+```json
+{"name": "{cap_id}_monitor", "arguments": {"controls": ["{control_name}"], "wait_ms": -1}}
+```
+
+```json
+{"name": "{cap_id}_retry", "arguments": {"controls": ["{control_name}"]}}
+```
+
+```json
+{"name": "{cap_id}_record", "arguments": {"controls": ["{control_name}"], "clean_frames": true}}
+```
+
+Verify history:
+
+```json
+{
+  "name": "{cap_id}_update_history",
+  "arguments": {
+    "control_messages": {
+      "{control_name}": {
+        "role": "user",
+        "tool": "verify",
+        "response": {
+          "subtask": "<subtask>",
+          "success": true,
+          "image": "<obs.main_image>",
+          "notes": "<brief assessment>"
+        }
+      }
+    }
+  }
+}
+```
+
+## Loop Pseudo-Code
+
+```python
+doc = control_doc(control)
+obs = get_obs(control)
+subtasks = plan(doc, obs, user_task)
+update_history(control, tool="plan", request={"main_task": user_task, "sub_tasks": subtasks})
+message_user_plan(user_task, subtasks)
+
+for subtask in subtasks:
+    status = execute(control, code_for(subtask))
+    status = monitor(control, wait_ms=-1)
+
+    judgment = media_analyze_image(status.obs.main_image, subtask)
+    update_history(control, tool="verify", response=judgment)
+    message_user_verification(judgment)
+
+    while not judgment.success and status.trial_cnt < doc.max_retry:
+        status = retry(control)
+        status = monitor(control, wait_ms=-1)
+
+        judgment = media_analyze_image(status.obs.main_image, subtask)
+        update_history(control, tool="verify", response=judgment)
+        message_user_verification(judgment)
+
+    if not judgment.success:
+        break
+
+record_result = record(control, clean_frames=True)
+message_user_code(f"Executed code:\n\n```python\n{record_result.code}\n```")
+media_display_video(record_result.main_video)
+```
+
+## Rules
+
+- Do not call tools before reading this document.
+- Always message the user after planning, after every verification, and after final record; the frontend is otherwise silent.
+- Always show/analyze `obs.main_image` when present before deciding success or retry.
+- Decide verification success or failure exclusively from the returned image. Ignore `result`, `stdout`, `stderr`, `reward`, `done`, `mock`, poses, and every other non-image field. If no image is returned, report that the result cannot be visually verified; do not infer success from other fields.
+- Always display returned record videos such as `main_video` when present.
+- Generate code only from `function_doc` and obey `execute_rules`.
+- Do not call `{cap_id}_run_pipe`.
+- Do not duplicate auto-traced `execute` or `retry` results in history; only write LLM plan and verification messages.
+- Never pass response keys like `alias(control)` back as selectors.

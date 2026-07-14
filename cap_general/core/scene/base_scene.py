@@ -602,20 +602,20 @@ class BaseScene(RegisteredBase):
         return formatted
 
     def _copy_skills_for_server(self, server_config: ServerConfig, client_type: str = "nanobot") -> Path:
-        """Render scene-bound skills in bundled or prefixed fast mode."""
-        source_dir = Path(__file__).resolve().parents[2] / "skills"
+        """Render agent-specific scene skills in bundled or prefixed fast mode."""
         if client_type not in server_config.skill_folders:
             raise KeyError(
                 f"Unknown server client type {client_type!r}. "
                 f"Available skill folders: {sorted(server_config.skill_folders)}"
             )
+        source_dir = Path(__file__).resolve().parents[2] / "skills" / client_type
         skill_root = Path(server_config.skill_folders[client_type]).expanduser()
         target_dir = skill_root / server_config.cap_id
         if not skill_root.exists():
             self._logger.info("Creating missing skill folder root: %s", skill_root)
             skill_root.mkdir(parents=True, exist_ok=True)
         if not source_dir.exists():
-            self._logger.warning("Skill source directory does not exist: %s", source_dir)
+            self._logger.warning("Skill source directory does not exist for agent type %s: %s", client_type, source_dir)
             return target_dir
         replacements = {
             "{cap_id}": server_config.cap_id,
@@ -673,7 +673,13 @@ class BaseScene(RegisteredBase):
             copied_targets.append(target)
 
         if server_config.fast:
-            self._logger.info("Copying skills for cap_id=%s from %s into prefixed folders under %s", server_config.cap_id, source_dir, skill_root)
+            self._logger.info(
+                "Copying %s skills for cap_id=%s from %s into prefixed folders under %s",
+                client_type,
+                server_config.cap_id,
+                source_dir,
+                skill_root,
+            )
             for source_path in source_dir.iterdir():
                 if source_path.is_dir() and source_path.name != "__pycache__":
                     target_path = skill_root / source_path.name
@@ -682,7 +688,13 @@ class BaseScene(RegisteredBase):
             self._logger.info("Finished copying skills for cap_id=%s: %s", server_config.cap_id, copied_targets)
             return skill_root
 
-        self._logger.info("Copying skills for cap_id=%s from %s -> %s", server_config.cap_id, source_dir, target_dir)
+        self._logger.info(
+            "Copying %s skills for cap_id=%s from %s -> %s",
+            client_type,
+            server_config.cap_id,
+            source_dir,
+            target_dir,
+        )
         copy_skill_tree(source_dir, target_dir)
         self._logger.info("Finished copying skills for cap_id=%s: %s", server_config.cap_id, copied_targets)
         return target_dir

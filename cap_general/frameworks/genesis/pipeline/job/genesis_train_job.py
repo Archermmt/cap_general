@@ -374,6 +374,8 @@ class GenesisTrainJob(TrainJob):
 
     @staticmethod
     def _load_model_to_runner(model: Any, runner: Any, env: Any) -> None:
+        if model is None:
+            return
         if hasattr(runner, "alg"):
             runner_policy = runner.alg.get_policy().to(env.device)
         else:

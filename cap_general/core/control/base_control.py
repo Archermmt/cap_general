@@ -153,8 +153,8 @@ class BaseControl(RegisteredBase):
 
         Returns:
             A dict with execution status and artifacts, including ``ok``,
-            ``stdout``, ``stderr``, ``result``, ``reward``, ``truncated``,
-            ``exec_cnt``, ``trial_cnt``, step range metadata, and ``obs``.
+            ``stdout``, ``stderr``, ``result``, ``exec_cnt``, ``trial_cnt``,
+            step range metadata, and ``obs``.
         """
         if self._reset_mode is cap_utils.ResetMode.PER_EXEC:
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
@@ -279,6 +279,9 @@ class BaseControl(RegisteredBase):
             self.reset(options={"reset_level": cap_utils.ResetLevel.ROBOT})
         step_start, time_start = self._robot.step_cnt, time.time()
         exec_result = self._execute_code(code)
+        obs = self.get_obs()
+        if isinstance(obs, dict):
+            obs = {key: value for key, value in obs.items() if key not in {"reward", "done", "mock"}}
         info = {
             **exec_result,
             "step_start": step_start,
@@ -286,8 +289,7 @@ class BaseControl(RegisteredBase):
             "duration": f"{time.time() - time_start:.2f}s",
             "exec_cnt": self._exec_cnt,
             "trial_cnt": self._trial_cnt,
-            "reward": self._compute_reward(),
-            "obs": self.get_obs(),
+            "obs": obs,
         }
         self._step_infos.append(info)
         self._step_codes.append(code)

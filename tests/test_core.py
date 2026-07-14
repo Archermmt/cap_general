@@ -126,6 +126,30 @@ def test_agent_can_disable_execute_recording():
     assert record_calls == []
 
 
+def test_execute_result_omits_agent_judgment_fields_from_observation():
+    agent = SimpleAgent(
+        config=BaseControlConfig(robot={"type": "core_dummy", "reset_time": 0}),
+        logger=LOGGER,
+    )
+    agent._robot.get_observation = lambda _folder: {
+        "position": [1.0, 2.0, 3.0],
+        "reward": 0.9,
+        "done": True,
+        "mock": False,
+    }
+
+    result = agent.execute("RESULT = True")
+
+    assert "reward" not in result
+    assert result["obs"] == {"position": [1.0, 2.0, 3.0]}
+    assert agent.get_obs() == {
+        "position": [1.0, 2.0, 3.0],
+        "reward": 0.9,
+        "done": True,
+        "mock": False,
+    }
+
+
 def test_policy_base_cannot_instantiate():
     """Test that base BasePolicy cannot be instantiated directly."""
     with pytest.raises(TypeError):
@@ -139,6 +163,16 @@ def test_core_registries_include_common_components():
     assert BaseOperator.get_registered_class("model", "graspnet") is not None
     assert BaseOperator.get_registered_class("model", "pyroki") is not None
     assert BaseOperator.get_registered_class("model", "rsl_rl") is not None
+
+
+@pytest.mark.parametrize("ckpt_dir", [None, "/path/that/does/not/exist"])
+def test_rsl_rl_op_skips_weights_when_checkpoint_directory_is_unavailable(ckpt_dir):
+    from cap_general.core.operator.model.rsl_rl_op import RslRlOp
+
+    operator = RslRlOp(config={"ckpt_dir": ckpt_dir}, logger=LOGGER)
+    operator.reset()
+
+    assert operator.get_model() is None
 
 
 def test_agent_register_decorator():
