@@ -165,14 +165,50 @@ def test_core_registries_include_common_components():
     assert BaseOperator.get_registered_class("model", "rsl_rl") is not None
 
 
-@pytest.mark.parametrize("ckpt_dir", [None, "/path/that/does/not/exist"])
-def test_rsl_rl_op_skips_weights_when_checkpoint_directory_is_unavailable(ckpt_dir):
+@pytest.mark.parametrize(
+    "checkpoint_config",
+    [
+        {"ckpt_dir": None},
+        {"ckpt_dir": "/path/that/does/not/exist"},
+        {"ckpt_dir": None, "ckpt_path": "/path/that/does/not/exist/model.pt"},
+    ],
+)
+def test_rsl_rl_op_randomly_initializes_once_when_checkpoint_is_unavailable(checkpoint_config, caplog):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("rsl_rl")
+    TensorDict = pytest.importorskip("tensordict").TensorDict
     from cap_general.core.operator.model.rsl_rl_op import RslRlOp
 
-    operator = RslRlOp(config={"ckpt_dir": ckpt_dir}, logger=LOGGER)
-    operator.reset()
+    config = {
+        **checkpoint_config,
+        "obs_dim": 5,
+        "action_dim": 2,
+        "actor_cfg": {
+            "class_name": "MLPModel",
+            "hidden_dims": [8],
+            "activation": "elu",
+            "distribution_cfg": {
+                "class_name": "GaussianDistribution",
+                "init_std": 1.0,
+                "std_type": "scalar",
+            },
+        },
+        "obs_groups": {"actor": ["policy"], "critic": ["policy"]},
+    }
+    operator = RslRlOp(config=config, logger=LOGGER)
+    with caplog.at_level(logging.WARNING):
+        operator.reset()
+        warning_count = len(caplog.records)
+        obs = TensorDict({"policy": torch.zeros((3, 5))}, batch_size=[3])
+        first = operator.inference({"obs": obs})
+        second = operator.inference({"obs": obs})
 
-    assert operator.get_model() is None
+    assert operator.get_model() is not None
+    assert first.shape == (3, 2)
+    assert second.shape == (3, 2)
+    assert warning_count == 1
+    assert len(caplog.records) == warning_count
+    assert "randomly initialized actor weights" in caplog.records[0].message
 
 
 def test_agent_register_decorator():

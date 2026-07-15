@@ -79,6 +79,8 @@ controls:
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
             ckpt_step: -1
+            obs_dim: 17
+            action_dim: 4
             actor_cfg:
               class_name: MLPModel
               hidden_dims:

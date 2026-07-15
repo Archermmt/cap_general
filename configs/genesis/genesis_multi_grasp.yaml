@@ -72,6 +72,8 @@ controls:
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
             actor_cfg:
               class_name: MLPModel
               hidden_dims:
@@ -128,6 +130,8 @@ controls:
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
             actor_cfg:
               class_name: MLPModel
               hidden_dims:
@@ -184,6 +188,8 @@ controls:
           config:
             ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
             actor_cfg:
               class_name: MLPModel
               hidden_dims:

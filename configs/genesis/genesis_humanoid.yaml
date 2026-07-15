@@ -49,6 +49,8 @@ controls:
           config:
             ckpt_dir: null
             ckpt_step: -1
+            obs_dim: 78
+            action_dim: 23
             actor_cfg: &actor
               class_name: MLPModel
               hidden_dims: [512, 256, 128]
