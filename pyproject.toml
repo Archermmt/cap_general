@@ -28,6 +28,9 @@ capcmd = "cap_general.interface.main:main"
 [tool.setuptools.packages.find]
 include = ["cap_general*"]
 
+[tool.setuptools.package-data]
+cap_general = ["skills/**/*", "skills/config.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

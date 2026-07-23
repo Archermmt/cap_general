@@ -29,7 +29,6 @@ class ServerConfig:
     cap_id: str = "cap"
     host: str = "127.0.0.1"
     port: int = 8080
-    skill_folders: dict[str, str] = field(default_factory=lambda: {"nanobot": "skills"})
     fast: bool = True
 
 
@@ -601,15 +600,28 @@ class BaseScene(RegisteredBase):
             formatted[control.mark] = result
         return formatted
 
-    def _copy_skills_for_server(self, server_config: ServerConfig, client_type: str = "nanobot") -> Path:
+    def _copy_skills_for_server(
+        self,
+        server_config: ServerConfig,
+        client_type: str = "nanobot",
+        agent_config_path: str | Path | None = None,
+    ) -> Path:
         """Render agent-specific scene skills in bundled or prefixed fast mode."""
-        if client_type not in server_config.skill_folders:
+        skills_dir = Path(__file__).resolve().parents[2] / "skills"
+        config_path = Path(agent_config_path) if agent_config_path is not None else skills_dir / "config.yaml"
+        config_data = load_yaml_config(config_path)
+        agents = config_data.get("agents")
+        if not isinstance(agents, dict):
+            raise TypeError(f"Skills config must contain an 'agents' mapping: {config_path}")
+        if client_type not in agents:
             raise KeyError(
-                f"Unknown server client type {client_type!r}. "
-                f"Available skill folders: {sorted(server_config.skill_folders)}"
+                f"Unknown server client type {client_type!r}. Available agent types: {sorted(agents)}"
             )
-        source_dir = Path(__file__).resolve().parents[2] / "skills" / client_type
-        skill_root = Path(server_config.skill_folders[client_type]).expanduser()
+        agent_config = agents[client_type]
+        if not isinstance(agent_config, dict) or not agent_config.get("skill_folder"):
+            raise ValueError(f"Agent {client_type!r} must define 'skill_folder' in {config_path}")
+        source_dir = skills_dir / client_type
+        skill_root = Path(agent_config["skill_folder"]).expanduser()
         target_dir = skill_root / server_config.cap_id
         if not skill_root.exists():
             self._logger.info("Creating missing skill folder root: %s", skill_root)
@@ -627,7 +639,7 @@ class BaseScene(RegisteredBase):
 
         def copy_skill_tree(source: Path, target: Path) -> None:
             if target.resolve() == source.resolve():
-                raise ValueError("server.skill_folders target must not point to the source skills directory")
+                raise ValueError("Agent skill_folder target must not point to the source skills directory")
             if target.exists():
                 shutil.rmtree(target)
             target.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,5 @@
+agents:
+  nanobot:
+    skill_folder: ~/.nanobot/workspace/skills
+  codex:
+    skill_folder: ~/.codex/skills

@@ -205,13 +205,17 @@ def test_scene_copies_prefixed_skill_folders_in_fast_mode(tmp_path: Path):
     (skill_root / ".keep").touch()
     (skill_root / "cap").mkdir()
     (skill_root / "cap" / "stale.txt").touch()
+    agent_config = tmp_path / "config.yaml"
+    agent_config.write_text(
+        f"agents:\n  nanobot:\n    skill_folder: {tmp_path / 'nanobot-skills'}\n"
+        f"  codex:\n    skill_folder: {skill_root}\n",
+        encoding="utf-8",
+    )
 
     result = scene._copy_skills_for_server(
-        ServerConfig(
-            cap_id="cap",
-            skill_folders={"nanobot": str(tmp_path / "nanobot-skills"), "codex": str(skill_root)},
-        ),
+        ServerConfig(cap_id="cap"),
         client_type="codex",
+        agent_config_path=agent_config,
     )
 
     assert result == skill_root
@@ -241,9 +245,14 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
     skill_root = tmp_path / "skills"
     skill_root.mkdir()
     (skill_root / ".keep").touch()
+    agent_config = tmp_path / "config.yaml"
+    agent_config.write_text(
+        f"agents:\n  nanobot:\n    skill_folder: {skill_root}\n",
+        encoding="utf-8",
+    )
 
     result = scene._copy_skills_for_server(
-        ServerConfig(cap_id="cap", skill_folders={"nanobot": str(skill_root)}, fast=False)
+        ServerConfig(cap_id="cap", fast=False), agent_config_path=agent_config
     )
 
     assert result == skill_root / "cap"
@@ -256,6 +265,22 @@ def test_scene_copies_bundled_skill_root_when_fast_is_disabled(tmp_path: Path):
     assert "Control Pipeline" in (result / "cap_pipeline" / "SKILL.md").read_text(encoding="utf-8")
     assert not (result / "cap_execute" / "SKILL.async").exists()
     assert not (result / "cap_execute" / "SKILL.sync").exists()
+
+
+def test_scene_rejects_unknown_agent_type_from_skills_config(tmp_path: Path):
+    scene = BaseScene.from_config(_scene_config())
+    agent_config = tmp_path / "config.yaml"
+    agent_config.write_text(
+        f"agents:\n  codex:\n    skill_folder: {tmp_path / 'skills'}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KeyError, match=r"Available agent types: \['codex'\]"):
+        scene._copy_skills_for_server(
+            ServerConfig(cap_id="cap"),
+            client_type="nanobot",
+            agent_config_path=agent_config,
+        )
 
 
 def test_scene_trace_splits_batch_results_into_agent_history_entries():
