@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -193,13 +192,9 @@ class GenesisHumanoidRobot(GenesisGo2Robot):
 
     @staticmethod
     def _resolve_asset_path(configured: str | Path | None) -> Path:
-        if configured:
-            path = Path(configured).expanduser()
-        else:
-            root = os.environ.get("HUMANOID_BENCH_HOME")
-            if not root:
-                raise FileNotFoundError("Set robot.asset_path or HUMANOID_BENCH_HOME for the G1 MJCF asset")
-            path = Path(root).expanduser() / "humanoid_bench/assets/robots/g1_torque.xml"
+        if not configured:
+            raise FileNotFoundError("Set robot.asset_path to the G1 MJCF asset")
+        path = Path(configured).expanduser()
         if not path.is_file():
             raise FileNotFoundError(f"G1 MJCF asset does not exist: {path}")
         return path.resolve()

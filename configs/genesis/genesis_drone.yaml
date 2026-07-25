@@ -1,4 +1,6 @@
 type: genesis
+paths:
+  genesis_world_home: ~/Desktop/codes/genesis-world
 verbose_level: warning
 backend: cpu
 show_viewer: true
@@ -77,7 +79,7 @@ controls:
         - name: model
           type: model::rsl_rl
           config:
-            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/drone/logs/drone-hovering
+            ckpt_dir: ${paths.genesis_world_home}/examples/drone/logs/drone-hovering
             ckpt_step: -1
             obs_dim: 17
             action_dim: 4

@@ -1,4 +1,8 @@
 type: base
+paths:
+  libero_home: ~/Desktop/codes/LIBERO
+  starvla_checkpoint_path: ~/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
+  starvla_home: ~/Desktop/codes/starVLA
 async_task: false
 record_dir: ./outputs
 export_dir: ./export/libero
@@ -16,7 +20,7 @@ controls:
       seed: 7
       resolution: 256
       reset_time: 5
-      libero_home: /Users/tongmeng/Desktop/codes/LIBERO
+      libero_home: ${paths.libero_home}
       video_fmt: mp4
       image_keys:
         - agentview_image
@@ -30,7 +34,7 @@ controls:
             - name: model
               type: model::starvla
               config:
-                ckpt_path: /Users/tongmeng/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
+                ckpt_path: ${paths.starvla_checkpoint_path}
                 device: cpu
                 use_bf16: false
                 action_dtype: float32
@@ -45,7 +49,7 @@ controls:
         - type: train::libero_train
           config:
             epoch: 1
-            starvla_root: /Users/tongmeng/Desktop/codes/starVLA
+            starvla_root: ${paths.starvla_home}
             accelerate_config:
               compute_environment: LOCAL_MACHINE
               debug: false

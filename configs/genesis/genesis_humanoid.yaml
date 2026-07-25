@@ -1,4 +1,6 @@
 type: genesis
+paths:
+  humanoid_bench_home: ~/Desktop/codes/humanoid-bench
 verbose_level: warning
 backend: cpu
 show_viewer: true
@@ -27,7 +29,7 @@ controls:
   max_steps: 500
   robot:
     type: genesis_humanoid
-    asset_path: /Users/tongmeng/Desktop/codes/humanoid-bench/humanoid_bench/assets/robots/g1_torque.xml
+    asset_path: ${paths.humanoid_bench_home}/humanoid_bench/assets/robots/g1_torque.xml
     task: walk
     num_envs: 1
     seed: 7

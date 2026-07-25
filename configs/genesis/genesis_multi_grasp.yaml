@@ -1,4 +1,6 @@
 type: genesis
+paths:
+  genesis_world_home: ~/Desktop/codes/genesis-world
 verbose_level: warning
 backend: cpu
 show_viewer: true
@@ -70,7 +72,7 @@ controls:
         - name: model
           type: model::rsl_rl
           config:
-            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
             obs_dim: 14
             action_dim: 6
@@ -128,7 +130,7 @@ controls:
         - name: model
           type: model::rsl_rl
           config:
-            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
             obs_dim: 14
             action_dim: 6
@@ -186,7 +188,7 @@ controls:
         - name: model
           type: model::rsl_rl
           config:
-            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/manipulation/logs/grasp_rl
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
             ckpt_step: -1
             obs_dim: 14
             action_dim: 6

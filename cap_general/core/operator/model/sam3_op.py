@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -65,9 +66,10 @@ class SAM3Op(ModelOp):
                 torch.cuda.set_device(device_idx)
 
         if self._config.checkpoint_path:
+            checkpoint_path = str(Path(self._config.checkpoint_path).expanduser())
             model = build_sam3_image_model(
                 enable_inst_interactivity=self._config.enable_inst_interactivity,
-                checkpoint_path=self._config.checkpoint_path,
+                checkpoint_path=checkpoint_path,
                 load_from_HF=False,
             )
         elif self._config.load_from_hf:

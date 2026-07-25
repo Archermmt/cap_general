@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class LiberoTrainJobConfig(TrainJobConfig):
     """Configuration for a LiberoTrainJob."""
 
-    starvla_root: str = "/Users/tongmeng/Desktop/codes/starVLA"
+    starvla_root: str = ""
     accelerate_config: dict[str, Any] = field(default_factory=dict)
     deepspeed_config: dict[str, Any] = field(default_factory=dict)
     train_config: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +52,8 @@ class LiberoTrainJob(TrainJob):
         """Run StarVLA training and return ``(policy_config_dict, report)``."""
         epoch = options.get("epoch", self._config.epoch)
         policy_name = policy.name
+        if not self._config.starvla_root:
+            raise ValueError("Set pipeline.jobs[].config.starvla_root to the StarVLA repository root")
         starvla_root = Path(self._config.starvla_root).expanduser()
         if str(starvla_root) not in sys.path:
             sys.path.insert(0, str(starvla_root))

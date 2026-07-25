@@ -1,4 +1,7 @@
 type: base
+paths:
+  sam3_checkpoint_path: ~/Desktop/model_zoo/sam3/sam3.pt
+  contact_graspnet_root: ~/Desktop/codes/cap-x/capx/third_party/contact_graspnet_pytorch
 record_dir: ./outputs
 controls:
   - name: robosuite
@@ -15,7 +18,7 @@ controls:
       pyroki_policy: pyroki
       robot:
         type: robosuite
-        controller_cfg: /home/genie_store/nfs_datas/tm/codes/cap_general/cap_general/frameworks/robosuite/controllers/panda_joint_ctrl.json
+        controller_cfg: cap_general/frameworks/robosuite/robot/controllers/panda_joint_ctrl.json
         seed: 7
         reset_time: 0
         video_fmt: mp4
@@ -36,7 +39,7 @@ controls:
                 config:
                   device: cuda
                   load_from_hf: false
-                  checkpoint_path: /home/genie_store/nfs_datas/tm/data/models/sam3/sam3.pt
+                  checkpoint_path: ${paths.sam3_checkpoint_path}
                   confidence_threshold: 0.0
                   enable_inst_interactivity: true
         graspnet:
@@ -47,7 +50,7 @@ controls:
               - name: model
                 type: model::graspnet
                 config:
-                  vendor_root: /home/genie_store/nfs_datas/tm/codes/cap-x/capx/third_party/contact_graspnet_pytorch
+                  vendor_root: ${paths.contact_graspnet_root}
                   device: cuda
         pyroki:
           type: base

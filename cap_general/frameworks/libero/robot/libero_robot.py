@@ -137,7 +137,9 @@ class LiberoRobot(BaseRobot):
 
     @staticmethod
     def _resolve_libero_home(configured_home: str | None) -> str:
-        return configured_home or os.environ.get("LIBERO_HOME")
+        if not configured_home:
+            raise ValueError("Set robot.libero_home to the LIBERO repository root")
+        return str(Path(configured_home).expanduser())
 
     def _init_libero_robot(self) -> None:
         if self._libero_home not in sys.path:
@@ -163,7 +165,7 @@ class LiberoRobot(BaseRobot):
             missing_hint = f" Missing module: {missing_module!r}." if missing_module else ""
             raise ImportError(
                 "LiberoRobot requires gymnasium and LIBERO to be importable. "
-                "Set libero_home or LIBERO_HOME to the LIBERO repository root."
+                "Set robot.libero_home to the LIBERO repository root."
                 f"{missing_hint}{robosuite_hint} Install the LIBERO extra with: "
                 'pip install -e ".[libero]".'
             ) from exc

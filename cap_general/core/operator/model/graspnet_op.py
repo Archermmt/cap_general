@@ -62,14 +62,14 @@ class GraspNetOp(ModelOp):
     config_cls = GraspNetConfig
 
     def reset(self) -> None:
-        self._vendor_root = Path(self._config.vendor_root)
+        self._vendor_root = Path(self._config.vendor_root).expanduser()
         self._checkpoint_root = (
-            Path(self._config.checkpoint_root)
+            Path(self._config.checkpoint_root).expanduser()
             if self._config.checkpoint_root is not None
             else self._vendor_root / "checkpoints" / "contact_graspnet"
         )
         self._checkpoint_dir = (
-            Path(self._config.checkpoint_dir)
+            Path(self._config.checkpoint_dir).expanduser()
             if self._config.checkpoint_dir is not None
             else self._checkpoint_root / "checkpoints"
         )

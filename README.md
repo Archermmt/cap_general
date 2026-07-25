@@ -89,7 +89,7 @@ capcmd server \
 ```
 
 The humanoid configuration ports the HumanoidBench G1 locomotion tasks to Genesis. Set
-`controls[0].robot.asset_path` or `HUMANOID_BENCH_HOME` to the HumanoidBench checkout before moving the checkout.
+`paths.humanoid_bench_home` in the scene YAML to the HumanoidBench checkout before running it.
 
 ## MCP Server
 

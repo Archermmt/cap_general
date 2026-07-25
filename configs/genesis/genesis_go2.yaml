@@ -1,4 +1,6 @@
 type: genesis
+paths:
+  genesis_world_home: ~/Desktop/codes/genesis-world
 verbose_level: warning
 backend: cpu
 show_viewer: true
@@ -72,7 +74,7 @@ controls:
         - name: model
           type: model::rsl_rl
           config:
-            ckpt_dir: /Users/tongmeng/Desktop/codes/genesis-world/examples/locomotion/logs/go2-walking
+            ckpt_dir: ${paths.genesis_world_home}/examples/locomotion/logs/go2-walking
             ckpt_step: -1
             obs_dim: 45
             action_dim: 12
