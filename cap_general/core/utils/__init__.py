@@ -1,6 +1,11 @@
 """Core utility namespaces."""
 
-from cap_general.core.utils.config import load_yaml_config, parse_cli_overrides
+from cap_general.core.utils.config import (
+    build_dataclass_config,
+    coerce_dataclass_field,
+    load_yaml_config,
+    parse_cli_overrides,
+)
 from cap_general.core.utils.depth_utils import (
     deproject_pixel_to_camera,
     depth_color_to_pointcloud,
@@ -51,4 +56,6 @@ __all__ = [
     "ActType",
     "load_yaml_config",
     "parse_cli_overrides",
+    "build_dataclass_config",
+    "coerce_dataclass_field",
 ]

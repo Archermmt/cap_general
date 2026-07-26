@@ -1,0 +1,224 @@
+type: genesis
+paths:
+  genesis_world_home: $YOUR_GENESIS_PATH
+verbose_level: warning
+backend: cpu
+show_viewer: true
+sim_options:
+  dt: 0.01
+  substeps: 2
+rigid_options:
+  dt: 0.01
+  constraint_solver: Newton
+  enable_collision: true
+  enable_joint_limit: true
+vis_options:
+  rendered_envs_idx:
+  - 0
+  env_separate_rigid: true
+viewer_options:
+  res:
+  - 1280
+  - 960
+  camera_pos:
+  - 2.5
+  - -1.0
+  - 2.5
+  camera_lookat:
+  - 0.5
+  - -0.3
+  - 0.1
+  camera_fov: 55
+  max_FPS: 50
+profiling_options:
+  show_FPS: false
+record_dir: ./outputs/genesis
+export_dir: ./export/genesis
+controls:
+- name: grasp
+  alias: 七仔
+  type: genesis_grasp
+  max_retry: 5
+  reset_mode: per_exec
+  record_execute: true
+  horizon: 1000
+  run_demo_after_episode: true
+  robot:
+    type: genesis_grasp
+    video_fmt: mp4
+    image_keys:
+    - hand_camera_image
+    seed: 7
+    reset_time: 0
+    env_cfg:
+      num_actions: 6
+      action_scales:
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      - 0.05
+      episode_length_s: 3.0
+      ctrl_dt: 0.01
+      box_size:
+      - 0.08
+      - 0.03
+      - 0.06
+      image_resolution:
+      - 64
+      - 64
+    reward_cfg:
+      keypoints: 1.0
+    robot_cfg:
+      ee_link_name: hand
+      gripper_link_names:
+      - left_finger
+      - right_finger
+      default_arm_dof:
+      - 0.0
+      - -0.785
+      - 0.0
+      - -2.356
+      - 0.0
+      - 1.571
+      - 0.785
+      default_gripper_dof:
+      - 0.04
+      - 0.04
+      ik_method: dls_ik
+    stage: rl
+    num_envs: 1
+    box_fixed: false
+    visualize_camera: true
+    robot_pos:
+    - 0.0
+    - 0.0
+    - 0.0
+    max_episode_steps: 1000000
+  policies:
+    runner:
+      type: base
+      graph:
+        name: runner
+        nodes:
+        - name: model
+          type: model::rsl_rl
+          config:
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
+            ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
+  pipeline:
+    jobs:
+    - type: train::genesis_train
+      config:
+        stage: rl
+        rl_policy_name: runner
+        train_best_metric: mean_reward
+        train_cfg:
+          algorithm:
+            class_name: PPO
+            clip_param: 0.2
+            desired_kl: 0.01
+            entropy_coef: 0.0
+            gamma: 0.99
+            lam: 0.95
+            learning_rate: 0.0003
+            max_grad_norm: 1.0
+            num_learning_epochs: 5
+            num_mini_batches: 4
+            schedule: adaptive
+            use_clipped_value_loss: true
+            value_loss_coef: 1.0
+          actor:
+            class_name: MLPModel
+            hidden_dims:
+            - 256
+            - 256
+            - 128
+            activation: relu
+            distribution_cfg:
+              class_name: GaussianDistribution
+              init_std: 1.0
+              std_type: scalar
+          critic:
+            class_name: MLPModel
+            hidden_dims:
+            - 256
+            - 256
+            - 128
+            activation: relu
+          obs_groups:
+            actor:
+            - policy
+            critic:
+            - policy
+          num_steps_per_env: 24
+          save_interval: 100
+          run_name: runner
+          logger: tensorboard
+        bc_train_cfg:
+          num_steps_per_env: 24
+          learning_rate: 0.001
+          num_epochs: 5
+          num_mini_batches: 10
+          max_grad_norm: 1.0
+          policy:
+            vision_encoder:
+              conv_layers:
+              - in_channels: 3
+                out_channels: 8
+                kernel_size: 3
+                stride: 1
+                padding: 1
+              - in_channels: 8
+                out_channels: 16
+                kernel_size: 3
+                stride: 2
+                padding: 1
+              - in_channels: 16
+                out_channels: 32
+                kernel_size: 3
+                stride: 2
+                padding: 1
+              pooling: adaptive_avg
+            action_head:
+              state_obs_dim: 7
+              hidden_dims:
+              - 128
+              - 128
+              - 64
+            pose_head:
+              hidden_dims:
+              - 64
+              - 64
+          buffer_size: 1000
+          log_freq: 10
+          save_freq: 50
+          eval_freq: 50
+    - type: eval::genesis_eval
+      config:
+        epoch: 50
+        stage: rl
+        max_steps: 100
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8903

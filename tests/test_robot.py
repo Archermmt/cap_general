@@ -12,11 +12,8 @@ LOGGER = logging.getLogger(__name__)
 class DummyRobot(BaseRobot):
     """Small concrete robot for base interface tests."""
 
-    name = "Dummy Robot"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        return "dummy"
+    robot_type = "dummy"
+    config_cls = BaseRobot.config_cls
 
     def _reset(
         self,
@@ -72,6 +69,8 @@ def test_robot_base_step_returns_gymnasium_tuple_and_tracks_step_count():
     assert truncated is False
     assert info == {"action": {"move": 1}}
     assert robot.step_cnt == 1
+    assert robot._last_obs == obs
+    assert robot._last_reward == reward
 
 
 def test_robot_base_step_uses_compute_reward():
@@ -81,6 +80,17 @@ def test_robot_base_step_uses_compute_reward():
     _, reward, _, _, _ = robot.step({"move": 1})
 
     assert reward == 3.5
+    assert robot._last_reward == 3.5
+
+
+def test_robot_base_step_records_through_hook():
+    robot = DummyRobot(config=BaseRobotConfig(), logger=LOGGER)
+    recorded = []
+    robot._record_frame = recorded.append
+
+    obs, _, _, _, _ = robot.step({"move": 1})
+
+    assert recorded == [obs]
 
 
 def test_robot_train_and_eval_switch_reset_and_step_semantics():
@@ -91,6 +101,8 @@ def test_robot_train_and_eval_switch_reset_and_step_semantics():
     assert robot.training is True
     assert robot.reset(options={"seed": 1}) == {"mode": "train", "options": {"seed": 1}}
     assert robot.step({"move": 1}) == ({"mode": "train"}, 1.0, False, {"action": {"move": 1}})
+    assert robot._last_obs == {"mode": "train"}
+    assert robot._last_reward == 1.0
     assert robot.step_cnt == 0
 
     assert robot.eval() is robot
@@ -101,9 +113,9 @@ def test_robot_train_and_eval_switch_reset_and_step_semantics():
 
 
 def test_grasp_robot_train_restores_training_episode_length_and_resets():
-    from cap_general.frameworks.genesis.robot.grasp_robot import GraspRobot, GraspRobotConfig
+    from cap_general.frameworks.genesis.robot.genesis_grasp_robot import GenesisGraspRobot, GenesisGraspRobotConfig
 
-    robot = GraspRobot(config=GraspRobotConfig(), logger=LOGGER)
+    robot = GenesisGraspRobot(config=GenesisGraspRobotConfig(), logger=LOGGER)
     # Simulate a fully-built genesis state without actual Genesis deps
     robot.ctrl_dt = 0.01
     robot._env_cfg = {"episode_length_s": 10_000.0}
@@ -142,5 +154,5 @@ def test_grasp_robot_train_restores_training_episode_length_and_resets():
 
 
 def test_robot_base_registry():
-    assert BaseRobot.robot_type() == "base"
+    assert BaseRobot.robot_type == "base"
     assert BaseRobot.get_registered_class("dummy") is DummyRobot

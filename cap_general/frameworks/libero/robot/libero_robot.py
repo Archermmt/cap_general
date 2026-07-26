@@ -14,7 +14,8 @@ from typing import Any, SupportsFloat
 
 import numpy as np
 
-from cap_general.core.robot import BaseRobot, BaseRobotConfig, ResetLevel
+from cap_general.core.robot import BaseRobot, BaseRobotConfig
+from cap_general.core.utils import ResetLevel
 
 _DEFAULT_RESOLUTION = 256
 _DEFAULT_IMAGE_KEYS = ["agentview_image", "robot0_eye_in_hand_image"]
@@ -30,8 +31,6 @@ def build_example_from_obs(raw_obs: dict, task_description: str) -> dict:
 
 def _quat2axisangle(quat: Any) -> Any:
     """Convert a xyzw quaternion to an axis-angle vector."""
-    import numpy as np
-
     quat_arr = np.array(quat, dtype=np.float64)
     if quat_arr[3] > 1.0:
         quat_arr[3] = 1.0
@@ -46,14 +45,12 @@ def _quat2axisangle(quat: Any) -> Any:
 
 def _binarize_gripper_open(val: Any) -> Any:
     """Convert a LIBERO gripper value to StarVLA-style open/close signal."""
-    import numpy as np
-
     v = float(np.asarray(val).reshape(-1)[0])
     return np.asarray([1.0 - 2.0 * (v > 0.5)], dtype=np.float32)
 
 
 def _coerce_env_reset_level(value: Any) -> ResetLevel:
-    """Map agent-level reset scopes onto environment-level reset scopes."""
+    """Map control-level reset scopes onto environment-level reset scopes."""
     raw_level = ResetLevel.AGENT if value is None else value
     level_value = int(raw_level)
     if level_value <= int(ResetLevel.ROBOT):
@@ -114,7 +111,7 @@ class LiberoRobotConfig(BaseRobotConfig):
 class LiberoRobot(BaseRobot):
     """Gymnasium-style wrapper around LIBERO OffScreenRenderEnv."""
 
-    name = "LIBERO Robot"
+    robot_type = "libero"
     config_cls = LiberoRobotConfig
     dummy_action = _DUMMY_ACTION
 
@@ -138,13 +135,11 @@ class LiberoRobot(BaseRobot):
 
         self._init_libero_robot()
 
-    @classmethod
-    def robot_type(cls) -> str:
-        return "libero"
-
     @staticmethod
     def _resolve_libero_home(configured_home: str | None) -> str:
-        return configured_home or os.environ.get("LIBERO_HOME")
+        if not configured_home:
+            raise ValueError("Set robot.libero_home to the LIBERO repository root")
+        return str(Path(configured_home).expanduser())
 
     def _init_libero_robot(self) -> None:
         if self._libero_home not in sys.path:
@@ -170,7 +165,7 @@ class LiberoRobot(BaseRobot):
             missing_hint = f" Missing module: {missing_module!r}." if missing_module else ""
             raise ImportError(
                 "LiberoRobot requires gymnasium and LIBERO to be importable. "
-                "Set libero_home or LIBERO_HOME to the LIBERO repository root."
+                "Set robot.libero_home to the LIBERO repository root."
                 f"{missing_hint}{robosuite_hint} Install the LIBERO extra with: "
                 'pip install -e ".[libero]".'
             ) from exc
@@ -295,8 +290,6 @@ class LiberoRobot(BaseRobot):
         rotation_delta: Any,
         open_gripper: Any,
     ) -> list[float]:
-        import numpy as np
-
         return [
             *np.asarray(world_vector, dtype=float).reshape(-1)[:3].tolist(),
             *np.asarray(rotation_delta, dtype=float).reshape(-1)[:3].tolist(),

@@ -1,0 +1,116 @@
+classDiagram
+    class RegisteredBase {
+      +register()
+      +from_config(config)
+      +create(type)
+    }
+
+    class BaseScene {
+      +from_yaml(config)
+      +serve(transport)
+      +reset(control_options)
+      +control_doc(controls)
+      +execute(control_codes)
+      +monitor(controls)
+      +retry(controls)
+      +record(controls)
+      +update_history(control_messages)
+    }
+
+    class ControlInfo {
+      +control
+      +status
+      +task
+    }
+
+    class BaseControl {
+      +reset(options)
+      +control_doc()
+      +execute(code)
+      +retry()
+      +run_pipe(job_options, policy_name)
+      +record()
+      +get_obs()
+      +functions()
+    }
+
+    class BaseRobot {
+      +reset(options)
+      +step(action)
+      +get_observation(folder)
+      +record(folder)
+      +train()
+      +eval()
+    }
+
+    class BasePolicy {
+      +reset()
+      +run(stage, inputs)
+      +visualize(record_dir)
+      +train()
+      +eval()
+    }
+
+    class CapGraph {
+      +add_node(name, node_type, inputs)
+      +nodes()
+      +from_dict(data)
+      +to_dict()
+    }
+
+    class CapNode {
+      +op_group
+      +op_type
+      +inputs
+      +parents
+      +children
+      +output(idx)
+    }
+
+    class CapData {
+      +values
+      +set(key, value)
+      +update(data)
+    }
+
+    class BaseOperator {
+      +register()
+      +create(op_group, op_type)
+      +set_stage(stage)
+      +run(inputs)
+    }
+
+    class BasePipeline {
+      +execute(jobs, policy, robot, options)
+      +options_doc()
+    }
+
+    class BaseJob {
+      +execute(policy, robot, options)
+    }
+
+    class TrainJob
+    class EvalJob
+
+    RegisteredBase <|-- BaseScene
+    RegisteredBase <|-- BaseControl
+    RegisteredBase <|-- BaseRobot
+    RegisteredBase <|-- BasePolicy
+    RegisteredBase <|-- BasePipeline
+
+    BaseScene "1" o-- "*" ControlInfo
+    ControlInfo "1" o-- "1" BaseControl
+    BaseControl "1" *-- "1" BaseRobot
+    BaseControl "1" *-- "*" BasePolicy
+    BaseControl "0..1" o-- "1" BasePipeline
+
+    BasePolicy "1" *-- "1" CapGraph
+    CapGraph "1" *-- "*" CapNode
+    CapNode "1" *-- "*" CapData
+    BasePolicy ..> BaseOperator : create by node type
+
+    BasePipeline "1" *-- "*" BaseJob
+    BasePipeline ..> BasePolicy : transforms/rebuilds
+    BasePipeline ..> BaseRobot : train/eval target
+    BaseJob <|-- TrainJob
+    BaseJob <|-- EvalJob

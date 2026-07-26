@@ -6,11 +6,12 @@ import io
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 
 def frame_to_array(frame: Any):
     """Convert a frame-like object into a uint8 RGB numpy array."""
     try:
-        import numpy as np
         from PIL import Image
     except ImportError as exc:
         raise ImportError("Converting frames requires pillow and numpy") from exc

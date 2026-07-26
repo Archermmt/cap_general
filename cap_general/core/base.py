@@ -1,35 +1,31 @@
 """Shared base helpers for core CAP components."""
 
 from abc import ABC
-from dataclasses import fields, is_dataclass
-from typing import Any, ClassVar, Dict, Type, get_type_hints
+from dataclasses import is_dataclass
+from typing import Any, ClassVar, Dict, Type
+
+from cap_general.core.utils.config import build_dataclass_config
 
 
 class RegisteredBase(ABC):
     """Base class mixin that provides decorator-based class registration."""
 
     _registry: ClassVar[Dict[str, Type["RegisteredBase"]]] = {}
-    registry_key_method: ClassVar[str] = "registered_type"
-    name: ClassVar[str] = ""
+    registry_key_attr: ClassVar[str] = "registered_type"
 
     @classmethod
     def register(cls):
-        """Register a subclass using its registry key class method."""
+        """Register a subclass using its registry key class attribute."""
 
         def decorator(subclass: Type["RegisteredBase"]) -> Type["RegisteredBase"]:
-            registry_key_method = subclass.registry_key_method
-            key_method = getattr(subclass, registry_key_method, None)
-            if key_method is None or not callable(key_method):
+            registry_key_attr = subclass.registry_key_attr
+            registry_key = getattr(subclass, registry_key_attr, None)
+            if not isinstance(registry_key, str) or not registry_key:
                 raise TypeError(
                     f"Subclass {subclass.__name__} must define "
-                    f"{registry_key_method}() class method"
+                    f"{registry_key_attr} class attribute"
                 )
-            if not getattr(subclass, "name", None):
-                raise TypeError(
-                    f"Subclass {subclass.__name__} must define name class attribute"
-                )
-
-            subclass._registry[key_method()] = subclass
+            subclass._registry[registry_key] = subclass
             return subclass
 
         return decorator
@@ -75,31 +71,5 @@ class RegisteredBase(ABC):
         config_cls = getattr(subclass, "config_cls", None)
         if config_cls is None or not is_dataclass(config_cls):
             raise TypeError(f"Registered class {subclass.__name__} must define dataclass config_cls")
-        config_obj = cls._build_dataclass_config(config_cls, config_data)
+        config_obj = build_dataclass_config(config_cls, config_data)
         return subclass(config=config_obj, **kwargs)
-
-    @staticmethod
-    def _build_dataclass_config(config_cls, config_data: dict[str, Any]):
-        config_fields = fields(config_cls)
-        field_names = {field.name for field in config_fields}
-        if "reset_mode" in field_names and "reset_frequency" not in field_names:
-            config_data = dict(config_data)
-            legacy_reset_frequency = config_data.pop("reset_frequency", None)
-            if legacy_reset_frequency is not None:
-                config_data.setdefault("reset_mode", legacy_reset_frequency)
-        type_hints = get_type_hints(config_cls)
-        values = {
-            key: RegisteredBase._coerce_dataclass_field(type_hints.get(key), value)
-            for key, value in config_data.items()
-            if key in field_names
-        }
-        return config_cls(**values)
-
-    @staticmethod
-    def _coerce_dataclass_field(field_type: Any, value: Any) -> Any:
-        """Build nested dataclass fields from dictionaries when the annotation is concrete."""
-        if isinstance(value, dict) and "type" in value:
-            return value
-        if isinstance(value, dict) and isinstance(field_type, type) and is_dataclass(field_type):
-            return RegisteredBase._build_dataclass_config(field_type, value)
-        return value

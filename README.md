@@ -1,217 +1,199 @@
-# Genesis CAP (Code-as-Policy)
+# CAP General
 
-A Genesis-native Code-as-Policy module that can execute a full local task loop from task prompt to generated Python policy execution.
+CAP General is a framework-agnostic Code-as-Policy runtime for building, serving, and testing robot controls. A CAP scene can host one or more controls, route generated Python tasks to them, expose the scene through MCP, record execution history, and run configurable policy pipelines such as training jobs.
 
-## Overview
+The repository currently integrates Genesis, LIBERO, and Robosuite. Genesis is one supported backend rather than the scope of the whole project.
 
-This project implements a Code-as-Policy framework with a modular architecture:
+For a runnable Genesis grasp walkthrough, see [docs/quick_start.md](docs/quick_start.md).
 
-- **cap_general.core**: Framework-agnostic core components (APIs, executor, models, environment)
-- **cap_general.frameworks.genesis**: Genesis simulator-specific components (Franka robot API, tasks)
+## Features
 
-Key features:
-- Model adapters for code generation
-- API documentation extraction
-- In-process code executor with persistent state
-- CapEnv for managing task loops
-- Genesis Franka cube-lift task example
-
-## Installation
-
-```bash
-# Install dependencies
-pip install numpy pytest
-
-# Optional: For Hugging Face model support
-pip install transformers torch
-
-# Optional: For Genesis simulation
-# Follow Genesis installation instructions
-```
-
-## Project Structure
-
-```
-cap_general/
-├── cap_general/              # Main package
-│   ├── core/                 # Core framework-agnostic components
-│   │   ├── apis/
-│   │   │   ├── __init__.py
-│   │   │   └── base.py       # CapApiBase with doc extraction
-│   │   ├── executor.py       # CodeExecutor with persistent state
-│   │   ├── models.py         # Policy models (Static, Callable, HuggingFace)
-│   │   ├── env.py            # CapEnv for task loops
-│   │   └── result.py         # Result dataclasses
-│   └── frameworks/           # Framework-specific components
-│       └── genesis/          # Genesis-specific components
-│           ├── env/
-│           │   └── franka_env.py
-│           └── agent/
-│               └── franka_agent.py
-├── tests/                    # Test files
-│   └── genesis/
-│       ├── test_core.py      # Core primitives tests
-│       ├── test_env.py       # CapEnv tests
-│       └── test_franka_agent.py # Franka agent tests
-└── examples/                 # Example scripts
-    └── genesis/
-        └── franka_cube_task.py # Example usage
-```
-
-## Quick Start
-
-### Run Tests
-
-```bash
-# Run all tests
-pytest tests/genesis -v
-
-# Run specific test file
-pytest tests/genesis/test_core.py -v
-```
-
-### Run Example
-
-```bash
-# Run with static policy (no model required)
-python examples/genesis/franka_cube_task.py
-
-# Run with local Hugging Face model
-python examples/genesis/franka_cube_task.py --model-path /path/to/model
-```
-
-## Usage Examples
-
-### Basic Code Execution
-
-```python
-from cap_general.core.executor import CodeExecutor
-
-executor = CodeExecutor()
-result = executor.run("x = 10 + 20")
-print(result.success)  # True
-print(executor.globals['x'])  # 30
-```
-
-### Static Policy Model
-
-```python
-from cap_general.core.models import StaticPolicyModel
-
-model = StaticPolicyModel(code="action = [1.0, 2.0, 3.0]")
-result = model.generate("move robot")
-print(result.code)  # "action = [1.0, 2.0, 3.0]"
-```
-
-### CapEnv Task Loop
-
-```python
-from cap_general.core.env import CapEnv
-from cap_general.core.models import StaticPolicyModel
-
-env = CapEnv(
-    task_description="Lift the cube",
-    api_docs="def grasp(): ...\ndef lift(): ...",
-    policy_model=StaticPolicyModel("grasp()\nlift()\ndone = True"),
-    max_steps=5
-)
-
-result = env.run()
-print(f"Success: {result.success}")
-print(f"Steps: {result.total_steps}")
-```
-
-### Franka Environment
-
-```python
-from cap_general.frameworks.genesis import FrankaEnv, FrankaEnvConfig
-
-# Create environment wrapper
-env = FrankaEnv(config=FrankaEnvConfig(robot=your_genesis_robot))
-
-# Get API documentation for policy model
-positions = env.get_joint_positions()
-
-# Use API methods
-franka_api.set_joint_positions([0.0, -0.3, 0.0, -2.0, 0.0, 1.5, 0.0])
-franka_api.grasp()
-```
+- Scene-level routing for single-control and multi-control execution
+- Configurable controls, robots, policies, operators, and computation graphs
+- Ordered pipelines for training and other policy transformation jobs
+- Asynchronous task dispatch with status monitoring
+- MCP server tools for execution, retry, observation, reset, recording, and pipelines
+- Scene-level request/response history and robot execution artifacts
+- Recursive YAML overrides from the command line
+- Framework integrations for Genesis, LIBERO, and Robosuite
 
 ## Architecture
 
-### Core Components
+```text
+cap_general/
+├── core/
+│   ├── control/     # Control execution and policy ownership
+│   ├── operator/    # Graph operators and model adapters
+│   ├── pipeline/    # Ordered jobs such as training
+│   ├── policy/      # Policy runtime and graph representation
+│   ├── robot/       # Framework-independent robot contract
+│   ├── scene/       # Multi-control routing, monitoring, MCP, and history
+│   └── utils/
+├── frameworks/
+│   ├── genesis/     # GO2, drone, grasp, and multi-control scenes
+│   ├── libero/      # LIBERO VLA control and training pipeline
+│   └── robosuite/   # Robosuite control integration
+├── interface/       # capcmd CLI
+└── skills/          # MCP-facing task, state, reset, and training skills
+```
 
-1. **CapApiBase**: Base class for APIs with automatic documentation extraction
-2. **CodeExecutor**: Executes Python code with persistent globals and output capture
-3. **Policy Models**: Generate code from prompts (Static, Callable, HuggingFace)
-4. **CapEnv**: Manages the task execution loop with multi-turn support
-5. **Result Types**: Dataclasses for tracking execution results
+Runtime composition is configuration-driven:
 
-### Design Principles
+```text
+Scene
+└── Control(s)
+    ├── Robot
+    ├── Policy graph(s)
+    │   └── Operator nodes
+    └── Pipeline (optional)
+        └── Job(s)
+```
 
-- **Test-first development**: All components have comprehensive tests
-- **Modular architecture**: Each component is independently testable
-- **Lazy loading**: HuggingFace models load only when needed
-- **Persistent state**: Code executor maintains globals across executions
-- **Flexible policies**: Support for static, callable, and AI-generated policies
+## Installation
+
+Install the core package and test dependencies:
+
+```bash
+pip install -e ".[test]"
+```
+
+Framework dependencies are intentionally environment-specific:
+
+- **Genesis:** install Genesis, PyTorch, and RSL-RL in a simulation environment.
+- **LIBERO:** install the LIBERO repository and its Robosuite dependencies. The optional package dependencies can be installed with `pip install -e ".[libero]"`.
+- **Robosuite:** install the version required by the target environment and model stack.
+
+Paths to external repositories, checkpoints, and models are configured in `configs/`.
+
+## Configuration
+
+Ready-to-run configurations are grouped by framework:
+
+```text
+configs/
+├── genesis/
+│   ├── genesis_drone.yaml
+│   ├── genesis_go2.yaml
+│   ├── genesis_grasp.yaml
+│   ├── genesis_humanoid.yaml
+│   └── genesis_multi_grasp.yaml
+├── libero/libero_base.yaml
+└── robosuite/robosuite_base.yaml
+```
+
+Configuration values can be overridden recursively when starting a server:
+
+```bash
+capcmd server \
+  --config configs/genesis/genesis_grasp.yaml \
+  --show_viewer false \
+  --controls[0].robot.num_envs 1
+```
+
+The humanoid configuration ports the HumanoidBench G1 locomotion tasks to Genesis. Set
+`paths.humanoid_bench_home` in the scene YAML to the HumanoidBench checkout before running it.
+
+## MCP Server
+
+Start a CAP scene as an MCP server:
+
+```bash
+capcmd server --config configs/genesis/genesis_grasp.yaml --client codex
+```
+
+`--client` selects an agent from `cap_general/skills/config.yaml` and defaults to `nanobot`.
+
+The scene exposes tools including:
+
+- `control_doc`
+- `execute`
+- `retry`
+- `monitor`
+- `get_obs`
+- `reset`
+- `record`
+- `run_pipe` when a pipeline is configured
+- `update_history`
+
+Task calls support multiple controls. Requests are routed by configured name or alias, while responses use each control's scene-visible mark.
 
 ## Testing
 
-The project uses pytest for testing. All tests follow a TDD approach:
+The test suite covers the general CAP runtime as well as framework-specific integration cases.
 
-1. Write failing tests first
-2. Implement the feature
-3. Verify tests pass
+### Core tests
+
+These tests do not require a simulator:
 
 ```bash
-# Run all tests
-pytest tests/genesis -v
-
-# Run with coverage
-pytest tests/genesis --cov=genesis.cap
+pytest \
+  tests/test_core.py \
+  tests/test_graph.py \
+  tests/test_interface.py \
+  tests/test_robot.py \
+  tests/test_scene.py
 ```
 
-## Advanced Features
+Coverage includes registration, graph execution, operators, policies, robots, pipelines, configuration overrides, multi-control scene routing, task monitoring, and history tracing.
 
-### Hugging Face Integration
+### Genesis tests
 
-```python
-from cap_general.core.models import HuggingFacePolicyModel
+Run these from an environment containing Genesis and RSL-RL:
 
-# Load a code generation model
-model = HuggingFacePolicyModel(
-    model_path="Salesforce/codegen-350M-mono",
-    device="cuda"  # or "cpu"
-)
-
-# Generate code from prompt
-result = model.generate("Write code to lift a cube using Franka robot")
-print(result.code)
+```bash
+python tests/genesis/test_genesis_go2.py
+python tests/genesis/test_genesis_drone.py
+python tests/genesis/test_genesis_grasp.py
+python tests/genesis/test_genesis_multi_grasp.py
 ```
 
-### Custom Policy Models
+Training smoke tests use `--train_ep`:
 
-```python
-from cap_general.core.models import CallablePolicyModel
-
-def my_generator(prompt: str) -> str:
-    # Your custom logic here
-    if "grasp" in prompt:
-        return "grasp()\ndone = False"
-    else:
-        return "lift()\ndone = True"
-
-model = CallablePolicyModel(generator_fn=my_generator)
+```bash
+python tests/genesis/test_genesis_grasp.py --task-num 0 --train_ep 1
 ```
+
+The multi-control case supports round-robin execution by default and concurrent batches with `--parallel`:
+
+```bash
+python tests/genesis/test_genesis_multi_grasp.py --task-num 3
+python tests/genesis/test_genesis_multi_grasp.py --task-num 1 --parallel
+```
+
+### LIBERO test
+
+Run from the environment containing LIBERO and its matching Robosuite installation:
+
+```bash
+python tests/libero/test_libero_base.py
+```
+
+### Robosuite test
+
+Run from the environment containing the configured Robosuite stack:
+
+```bash
+python tests/robosuite/test_robosuite_base.py
+```
+
+### Remote MCP mode
+
+Framework tests also support `--remote`. Start the configured server first, then run the matching test:
+
+```bash
+capcmd server --config configs/genesis/genesis_go2.yaml
+python tests/genesis/test_genesis_go2.py --remote
+```
+
+## Outputs
+
+Each scene writes runtime data beneath its configured `record_dir`. Depending on the control and trace level, outputs include:
+
+- `history.json` with scene tool requests and responses
+- per-control execution metadata and generated code
+- observations, images, and videos
+- pipeline exports and training checkpoints beneath `export_dir`
 
 ## License
 
 MIT License
-
-## Contributing
-
-Contributions are welcome! Please ensure all tests pass before submitting PRs.
-
-```bash
-pytest tests/genesis -v
-```

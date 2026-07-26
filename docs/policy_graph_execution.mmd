@@ -1,0 +1,11 @@
+flowchart LR
+    Input["policy.run(stage, inputs)"] --> Stage["set_stage(stage)"]
+    Stage --> Nodes["CapGraph.nodes()\ntopological sort"]
+    Nodes --> NodeA["CapNode a\ntest::source"]
+    NodeA --> OpA["BaseOperator.create(test, source)\nop.run(inputs)"]
+    OpA --> DataA["a:0 CapData.update(output)"]
+    DataA --> NodeB["CapNode b\ntest::sink\ninputs: 0 <- a:0"]
+    NodeB --> Merge["merge parent.output.values"]
+    Merge --> OpB["op.run(op_inputs)"]
+    OpB --> DataB["b:0 CapData.update(output)"]
+    DataB --> Result["PolicyResult(success, output)"]

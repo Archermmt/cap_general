@@ -1,0 +1,214 @@
+type: genesis
+paths:
+  genesis_world_home: $YOUR_GENESIS_PATH
+verbose_level: warning
+backend: cpu
+show_viewer: true
+sim_options:
+  dt: 0.01
+  substeps: 2
+rigid_options:
+  dt: 0.01
+  constraint_solver: Newton
+  enable_collision: true
+  enable_joint_limit: true
+vis_options:
+  rendered_envs_idx:
+  - 0
+  env_separate_rigid: true
+viewer_options:
+  res:
+  - 1280
+  - 960
+  camera_pos:
+  - 2.5
+  - -1.0
+  - 2.5
+  camera_lookat:
+  - 0.5
+  - -0.3
+  - 0.1
+  camera_fov: 55
+  max_FPS: 50
+profiling_options:
+  show_FPS: false
+record_dir: ./outputs/genesis/all
+controls:
+- name: grasp_0
+  type: genesis_grasp
+  max_retry: 5
+  reset_mode: per_exec
+  record_execute: true
+  stage: rl
+  horizon: 1000
+  rl_policy: runner
+  run_demo_after_episode: true
+  robot:
+    type: genesis_grasp
+    video_fmt: mp4
+    image_keys:
+    - hand_camera_image
+    seed: 7
+    reset_time: 0
+    stage: rl
+    num_envs: 1
+    box_fixed: false
+    visualize_camera: true
+    robot_pos:
+    - 0.0
+    - -1.2
+    - 0.0
+    object_pos_offset:
+    - 0.0
+    - -1.2
+    - 0.0
+    max_episode_steps: 1000000
+  policies:
+    runner:
+      type: base
+      graph:
+        name: runner
+        nodes:
+        - name: model
+          type: model::rsl_rl
+          config:
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
+            ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
+- name: grasp_1
+  type: genesis_grasp
+  max_retry: 5
+  reset_mode: per_exec
+  record_execute: true
+  stage: rl
+  horizon: 1000
+  rl_policy: runner
+  run_demo_after_episode: true
+  robot:
+    type: genesis_grasp
+    video_fmt: mp4
+    image_keys:
+    - hand_camera_image
+    seed: 11
+    reset_time: 0
+    stage: rl
+    num_envs: 1
+    box_fixed: false
+    visualize_camera: true
+    robot_pos:
+    - 0.0
+    - 0.0
+    - 0.0
+    object_pos_offset:
+    - 0.0
+    - 0.0
+    - 0.0
+    max_episode_steps: 1000000
+  policies:
+    runner:
+      type: base
+      graph:
+        name: runner
+        nodes:
+        - name: model
+          type: model::rsl_rl
+          config:
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
+            ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
+- name: grasp_2
+  type: genesis_grasp
+  max_retry: 5
+  reset_mode: per_exec
+  record_execute: true
+  stage: rl
+  horizon: 1000
+  rl_policy: runner
+  run_demo_after_episode: true
+  robot:
+    type: genesis_grasp
+    video_fmt: mp4
+    image_keys:
+    - hand_camera_image
+    seed: 7
+    reset_time: 0
+    stage: rl
+    num_envs: 1
+    box_fixed: false
+    visualize_camera: true
+    robot_pos:
+    - 0.0
+    - 1.2
+    - 0.0
+    object_pos_offset:
+    - 0.0
+    - 1.2
+    - 0.0
+    max_episode_steps: 1000000
+  policies:
+    runner:
+      type: base
+      graph:
+        name: runner
+        nodes:
+        - name: model
+          type: model::rsl_rl
+          config:
+            ckpt_dir: ${paths.genesis_world_home}/examples/manipulation/logs/grasp_rl
+            ckpt_step: -1
+            obs_dim: 14
+            action_dim: 6
+            actor_cfg:
+              class_name: MLPModel
+              hidden_dims:
+              - 256
+              - 256
+              - 128
+              activation: relu
+              distribution_cfg:
+                class_name: GaussianDistribution
+                init_std: 1.0
+                std_type: scalar
+            obs_groups:
+              actor:
+              - policy
+              critic:
+              - policy
+server:
+  cap_id: cap
+  host: 127.0.0.1
+  port: 8903

@@ -36,13 +36,9 @@ class BaseRobot(RegisteredBase, GymEnv):
     """Abstract base class for low-level robot controllers."""
 
     _registry: ClassVar[dict[str, type["BaseRobot"]]] = {}
+    registry_key_attr: ClassVar[str] = "robot_type"
+    robot_type: ClassVar[str] = "base"
     config_cls: ClassVar[type[BaseRobotConfig]] = BaseRobotConfig
-    registry_key_method: ClassVar[str] = "robot_type"
-
-    @classmethod
-    def robot_type(cls) -> str:
-        """Return the registry key for this robot controller."""
-        return "base"
 
     def __init__(self, config: BaseRobotConfig, logger: logging.Logger):
         self._config, self._logger = config, logger
@@ -52,6 +48,7 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._video_frames: dict[str, list[Any]] = {key: [] for key in self._image_keys}
         self._step_cnt = 0
         self._last_obs: ObsType | None = None
+        self._last_reward: SupportsFloat = 0.0
         self._training = False
         self._scene: Any = None
 
@@ -62,12 +59,15 @@ class BaseRobot(RegisteredBase, GymEnv):
     def reset(self, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         """Reset the robot and return the initial observation and info."""
         if self._training:
-            return self._reset(options=options)
+            result = self._reset(options=options)
+            self._last_reward = 0.0
+            return result
         reset_level = ResetLevel((options or {}).get("reset_level", ResetLevel.AGENT))
         if reset_level >= ResetLevel.AGENT:
             self._step_cnt = 0
             self._video_frames = {key: [] for key in self._image_keys}
         self._last_obs, info = self._reset(options=options)
+        self._last_reward = 0.0
         if self._config.reset_time > 0:
             time.sleep(self._config.reset_time)
         return self._last_obs, info
@@ -84,16 +84,14 @@ class BaseRobot(RegisteredBase, GymEnv):
             observation, reward, terminated, truncated, info.
         """
         if self._training:
-            return self._step(action)
+            result = self._step(action)
+            self._last_obs, self._last_reward = result[:2]
+            return result
         self._step_cnt += 1
         self._last_obs, _reward, terminated, truncated, info = self._step(action)
-        reward = self.compute_reward()
-        if self._video_enabled and self._video_fmt and self._image_keys and isinstance(self._last_obs, dict):
-            for key in self._image_keys:
-                frame = self._last_obs.get(key)
-                if frame is not None:
-                    self._video_frames.setdefault(key, []).append(frame)
-        return self._last_obs, reward, terminated, truncated, info
+        self._last_reward = self.compute_reward()
+        self._record_frame(self._last_obs)
+        return self._last_obs, self._last_reward, terminated, truncated, info
 
     def train(self) -> "BaseRobot":
         """Switch to training reset and step semantics."""
@@ -126,6 +124,11 @@ class BaseRobot(RegisteredBase, GymEnv):
         self._video_enabled = False
         if clear:
             self._video_frames = {key: [] for key in self._image_keys}
+
+    def clean_frames(self) -> None:
+        """Clear all recorded video frames and reset the step counter."""
+        self._video_frames = {key: [] for key in self._image_keys}
+        self._step_cnt = 0
 
     def get_observation(self, folder: str | Path) -> dict:
         """Return the last observation returned by step()."""

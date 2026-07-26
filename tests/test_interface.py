@@ -10,12 +10,15 @@ def test_parse_server_args_with_recursive_overrides():
             "scene.yaml",
             "--transport",
             "stdio",
+            "--client",
+            "codex",
             "--server.port",
             "9001",
-            "--agents[0].config.robot.seed=11",
+            "--controls[0].config.robot.seed=11",
         ]
     )
 
     assert args.config == "scene.yaml"
     assert args.transport == "stdio"
-    assert overrides == ["server.port=9001", "agents[0].config.robot.seed=11"]
+    assert args.client == "codex"
+    assert overrides == ["server.port=9001", "controls[0].config.robot.seed=11"]

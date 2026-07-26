@@ -23,14 +23,12 @@ def to_json_safe(value: Any) -> Any:
 
 def summarize_value(value: Any, *, depth: int = 0) -> str:
     """Return a compact, log-safe representation of nested values."""
-    max_depth = 2
-    max_items = 5
-    max_text = 160
+    max_depth = 8
+    max_items = 20
+    max_text = 80
 
     if value is None or isinstance(value, bool | int | float):
         return repr(value)
-    if depth >= max_depth:
-        return f"<{type(value).__name__}>"
     if isinstance(value, str):
         text = value.replace("\n", "\\n")
         if len(text) > max_text:
@@ -38,6 +36,8 @@ def summarize_value(value: Any, *, depth: int = 0) -> str:
         return repr(text)
     if isinstance(value, Path):
         return repr(str(value))
+    if depth >= max_depth:
+        return f"<{type(value).__name__}>"
     if isinstance(value, dict):
         items = list(value.items())
         parts = [
@@ -58,4 +58,7 @@ def summarize_value(value: Any, *, depth: int = 0) -> str:
         if len(value) > max_items:
             parts.append(f"... +{len(value) - max_items} more")
         return "[" + ", ".join(parts) + "]"
-    return f"<{type(value).__name__}>"
+    text = repr(value).replace("\n", "\\n")
+    if len(text) > max_text:
+        text = f"{text[:max_text]}...<truncated {len(text) - max_text} chars>"
+    return text

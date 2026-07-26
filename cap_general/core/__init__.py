@@ -1,51 +1,33 @@
 """Core CAP framework-agnostic components."""
 
-from cap_general.core.agent import (
-    BaseAgent,
-    BaseAgentConfig,
-    ResetLevel,
-    ResetMode,
-    Tee,
-)
-from cap_general.core.base import RegisteredBase
+from cap_general.core.agent import BaseAgent, BaseAgentConfig
+from cap_general.core.control import BaseControl, BaseControlConfig
+from cap_general.core.operator import BaseOperator, BaseOperatorConfig, ModelOp
+from cap_general.core.pipeline import BasePipeline, BasePipelineConfig, BaseJob, EvalJob, TrainJob
+from cap_general.core.policy import BasePolicy, BasePolicyConfig, CapData, CapGraph, CapNode
 from cap_general.core.robot import BaseRobot, BaseRobotConfig
-from cap_general.core.policy import (
-    BasePolicy,
-    BasePolicyConfig,
-    GraspNetPolicy,
-    GraspNetPolicyConfig,
-    HuggingFacePolicy,
-    HuggingFacePolicyConfig,
-    PolicyResult,
-    PyrokiPolicy,
-    PyrokiPolicyConfig,
-    SAM3Policy,
-    SAM3PolicyConfig,
-)
-from cap_general.core.scene import AgentSpec, BaseScene, BaseSceneConfig, ServerConfig
+from cap_general.core.scene import BaseScene, BaseSceneConfig
 
 __all__ = [
-    "RegisteredBase",
     "BaseAgent",
     "BaseAgentConfig",
-    "AgentSpec",
+    "BaseControl",
+    "BaseControlConfig",
     "BaseScene",
     "BaseSceneConfig",
-    "ServerConfig",
-    "ResetMode",
-    "ResetLevel",
-    "Tee",
-    "PolicyResult",
     "BasePolicy",
     "BasePolicyConfig",
-    "HuggingFacePolicy",
-    "HuggingFacePolicyConfig",
-    "SAM3Policy",
-    "SAM3PolicyConfig",
-    "GraspNetPolicy",
-    "GraspNetPolicyConfig",
-    "PyrokiPolicy",
-    "PyrokiPolicyConfig",
+    "BasePipeline",
+    "BasePipelineConfig",
+    "BaseJob",
+    "EvalJob",
+    "TrainJob",
     "BaseRobot",
     "BaseRobotConfig",
+    "CapData",
+    "CapNode",
+    "CapGraph",
+    "BaseOperator",
+    "BaseOperatorConfig",
+    "ModelOp",
 ]

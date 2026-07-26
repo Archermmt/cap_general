@@ -1,16 +1,8 @@
-"""CAP agent components."""
+"""Compatibility exports for the old agent module path."""
 
-from cap_general.core.agent.base_agent import (
-    BaseAgent,
-    BaseAgentConfig,
-    Tee,
-)
-from cap_general.core.utils import ResetLevel, ResetMode
+from cap_general.core.control import BaseControl, BaseControlConfig
 
-__all__ = [
-    "BaseAgent",
-    "BaseAgentConfig",
-    "ResetMode",
-    "ResetLevel",
-    "Tee",
-]
+BaseAgent = BaseControl
+BaseAgentConfig = BaseControlConfig
+
+__all__ = ["BaseAgent", "BaseAgentConfig", "BaseControl", "BaseControlConfig"]

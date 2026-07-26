@@ -1,0 +1,58 @@
+sequenceDiagram
+    participant UT as unit test / client
+    participant Scene as BaseScene
+    participant Control as BaseControl
+    participant Robot as BaseRobot
+    participant Policy as BasePolicy
+    participant Operator as BaseOperator
+    participant Code as exec(code)
+
+    UT->>Scene: BaseScene.from_config/from_yaml(config)
+    Scene->>Control: BaseControl.from_config(control spec)
+    Control->>Robot: BaseRobot.from_config(robot spec)
+    opt policies configured
+        Control->>Policy: BasePolicy.from_config(policy spec)
+        Policy->>Policy: reset() builds CapGraph
+        Policy->>Operator: BaseOperator.create(node op_group/op_type)
+    end
+    Scene->>Control: post_build(scene)
+    Control->>Robot: post_build(scene)
+    opt policies configured
+        Control->>Policy: reset()/visualize()
+    end
+
+    UT->>Scene: reset({control_name: options})
+    Scene->>Control: reset(options)
+    Control->>Robot: reset(options)
+
+    UT->>Scene: control_doc([control_name])
+    Scene->>Control: control_doc()
+    Control-->>UT: function_doc / policy_doc / execute_rules / max_retry
+
+    UT->>Scene: execute({control_name: code})
+    Scene->>Scene: _start_task(control_name, "execute")
+    Scene->>Control: execute(code)
+    Control->>Control: _execute_once(code)
+    Control->>Code: exec with globals robot + functions()
+    opt generated code calls robot directly
+        Code->>Robot: step(action) / robot method
+    end
+    opt generated code calls policy helper
+        Code->>Control: exposed function
+        Control->>Policy: run(stage, inputs)
+        Policy->>Operator: run(inputs)
+        Operator-->>Policy: output
+        Policy-->>Control: PolicyResult
+    end
+    Control->>Robot: get_observation(step_dir)
+    Control-->>Scene: status/result/obs/stdout/stderr
+    Scene-->>UT: keyed by control mark
+
+    opt async_task=true
+      UT->>Scene: monitor([control_name])
+      Scene-->>UT: final status
+    end
+
+    UT->>Scene: record([control_name])
+    Scene->>Control: record()
+    Control->>Robot: record(...)

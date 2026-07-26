@@ -1,0 +1,78 @@
+flowchart TD
+    User["User task"] --> LLM["Codex / Nanobot / Claude"]
+
+    subgraph Skills["cap_general/skills"]
+      Root["SKILL.md\nrouting instructions"]
+      State["cap_state"]
+      Reset["cap_reset"]
+      Execute["cap_execute"]
+      Pipeline["cap_pipeline"]
+    end
+
+    subgraph ServerStart["capcmd server startup"]
+      CLI["cap_general.interface.main"]
+      YAML["YAML config"]
+      SceneBuild["BaseScene.from_yaml"]
+      CopySkills["_copy_skills_for_server()\nreplace cap_id and available_names"]
+      FastMCP["FastMCP server"]
+    end
+
+    subgraph MCPTools["MCP tools, cap_id-prefixed"]
+      TDoc["cap_control_doc"]
+      TReset["cap_reset"]
+      TExec["cap_execute"]
+      TMon["cap_monitor"]
+      TRetry["cap_retry"]
+      TObs["cap_get_obs"]
+      TRecord["cap_record"]
+      THist["cap_update_history"]
+      TPipe["cap_run_pipe"]
+    end
+
+    subgraph CAP["CAP runtime"]
+      Scene["BaseScene methods"]
+      Control["BaseControl methods"]
+      Robot["BaseRobot"]
+      Policy["BasePolicy / CapGraph / BaseOperator"]
+      Pipe["BasePipeline / BaseJob"]
+      History["history.json"]
+      Artifacts["outputs: images/videos/code/info"]
+    end
+
+    CLI --> YAML --> SceneBuild --> CopySkills --> Skills
+    SceneBuild --> FastMCP --> MCPTools
+
+    LLM --> Root
+    Root --> State
+    Root --> Reset
+    Root --> Execute
+    Root --> Pipeline
+
+    State --> TObs
+    Reset --> TDoc
+    Reset --> TReset
+    Reset --> TObs
+
+    Execute --> TDoc
+    Execute --> TObs
+    Execute --> THist
+    Execute --> TExec
+    Execute --> TMon
+    Execute --> TRetry
+    Execute --> TRecord
+
+    Pipeline --> TDoc
+    Pipeline --> TPipe
+    Pipeline --> TMon
+
+    MCPTools --> Scene
+    Scene --> Control
+    Control --> Robot
+    Control --> Policy
+    Control --> Pipe
+    Policy --> Robot
+    Policy --> Artifacts
+    Pipe --> Policy
+    Pipe --> Robot
+    Scene --> History
+    Control --> Artifacts
