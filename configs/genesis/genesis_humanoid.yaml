@@ -1,6 +1,6 @@
 type: genesis
 paths:
-  humanoid_bench_home: ~/Desktop/codes/humanoid-bench
+  humanoid_bench_home: $YOUR_HUMANOID_BENCH_PATH
 verbose_level: warning
 backend: cpu
 show_viewer: true

@@ -4,6 +4,8 @@ CAP General is a framework-agnostic Code-as-Policy runtime for building, serving
 
 The repository currently integrates Genesis, LIBERO, and Robosuite. Genesis is one supported backend rather than the scope of the whole project.
 
+For a runnable Genesis grasp walkthrough, see [docs/quick_start.md](docs/quick_start.md).
+
 ## Features
 
 - Scene-level routing for single-control and multi-control execution

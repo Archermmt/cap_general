@@ -1,7 +1,7 @@
 type: base
 paths:
-  sam3_checkpoint_path: ~/Desktop/model_zoo/sam3/sam3.pt
-  contact_graspnet_root: ~/Desktop/codes/cap-x/capx/third_party/contact_graspnet_pytorch
+  sam3_checkpoint_path: $YOUR_SAM3_CHECKPOINT_PATH
+  contact_graspnet_root: $YOUR_CONTACT_GRASPNET_PATH
 record_dir: ./outputs
 controls:
   - name: robosuite

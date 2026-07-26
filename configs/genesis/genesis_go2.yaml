@@ -1,6 +1,6 @@
 type: genesis
 paths:
-  genesis_world_home: ~/Desktop/codes/genesis-world
+  genesis_world_home: $YOUR_GENESIS_PATH
 verbose_level: warning
 backend: cpu
 show_viewer: true

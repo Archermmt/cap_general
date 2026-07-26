@@ -1,8 +1,8 @@
 type: base
 paths:
-  libero_home: ~/Desktop/codes/LIBERO
-  starvla_checkpoint_path: ~/Desktop/model_zoo/StarVLA/Qwen3-VL-OFT-LIBERO-4in1/checkpoints/steps_50000_pytorch_model.pt
-  starvla_home: ~/Desktop/codes/starVLA
+  libero_home: $YOUR_LIBERO_PATH
+  starvla_checkpoint_path: $YOUR_STARVLA_CHECKPOINT_PATH
+  starvla_home: $YOUR_STARVLA_PATH
 async_task: false
 record_dir: ./outputs
 export_dir: ./export/libero
